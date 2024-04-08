@@ -1,5 +1,7 @@
-# Julia implementation of the BFL model for multi-agent opinion formation
-# This code was written for Julia 1.10.2
+# Julia implementation of the BFL model for multi-agent opinion formation (Leonard et al. 2023)
+# Discrete time version
+# by Marie-Lou Laprise
+# This code was written for Julia 1.10.2 and Agents 6.0.7
 
 using Agents
 using CairoMakie
@@ -9,6 +11,7 @@ using Random
 using LinearAlgebra
 using SparseArrays
 using Statistics
+#using DrWatson
 
 # Create agent type.
 # The agent type is defined as a struct with fields for the properties of the agent.
@@ -24,9 +27,8 @@ The `OpinionatedGuy` struct represents an agent with opinionated behavior. It is
 - `opinion_new::Float64`: The new opinion of the agent, calculated at the end of the step. 
 - `opinion_prev::Float64`: The previous opinion of the agent, required to check convergence for termination.
 - `attention_state::Float64`: The attention state of the agent.
-- `damping::Float64`: The damping factor of the agent for the opinion update. By default, it is inherited from the model and constant for all agents.
-- `personalbias::Float64`: The bias term for the agent. By default, it is inherited from the model and set to 0.
-
+- `damping::Float64`: The damping factor of the agent for the opinion update. By default, it will be inherited from the model and constant for all agents.
+- `personalbias::Float64`: The bias term for the agent. By default, it will be inherited from the model and set to 0.
 """
 @agent struct OpinionatedGuy(NoSpaceAgent)
     opinion_temp::Float64
@@ -54,6 +56,7 @@ the model with the specified parameters, which can be used for parameter scannin
 - `biastype::String`: The bias function. Default is "random" (random bias for each agent at each step).
 - `budnetworkparam::Tuple`: The parameters for the communication network. Default is ("barabasialbert", 2) (Barabasi-Albert network with m=2).
 - `attnetworkparam::String`: The attention network type. Default is "identity" (no attention).
+- `maxsteps::Int`: The maximum number of steps to run the model. Default is 1000. 0 means run until convergence.
 - `seed::Int`: The seed for the random number generator. Default is 23.
 
 # Returns
@@ -65,10 +68,11 @@ function init_bfl_model(; numagents::Int = 100,
                         basal_attention::Float64=0.1, 
                         attention_gain::Float64=0.2,
                         tau_attention::Float64 = 0.05,
-                        saturation = "tanh",
-                        biastype = "random",
-                        budnetworkparam = ("barabasialbert", 2),
-                        attnetworkparam = "identity",
+                        saturation::String = "tanh",
+                        biastype::String = "random",
+                        budnetworkparam::Tuple = ("barabasialbert", 2),
+                        attnetworkparam::String = "identity",
+                        maxsteps::Int = 500,
                         seed::Int=23)
     # Create an ABM model with the OpinionatedGuy agent type
     # Use the fastest scheduler for agent updates
@@ -84,7 +88,8 @@ function init_bfl_model(; numagents::Int = 100,
             :saturation => saturation,
             :biastype => biastype,
             :buddies => g_bud, # communication graph
-            :adj_att => adj_att # attention graph
+            :adj_att => adj_att, # attention graph
+            :maxsteps => maxsteps
         )
     )
     # Add numagents agents to the model
@@ -117,13 +122,19 @@ Generate a communication network and an attention network.
 - Throws an error if `budtype` is not equal to "barabasialbert".
 - Throws an error if `attnetworkparam` is not equal to "identity" or "buddies".
 """
-function network_generation(budnetworkparam, attnetworkparam, numagents, seed)
+function network_generation(budnetworkparam::Tuple, attnetworkparam::String, numagents::Int, seed::Int)
     budtype, budparam = budnetworkparam
     atttype = attnetworkparam
     if budtype == "barabasialbert"
         g_bud = barabasi_albert(numagents, budparam, seed = seed)
+    elseif budtype == "erdosrenyi"
+        g_bud = erdos_renyi(numagents, numagents*budparam, seed = seed)
+    elseif budtype == "wattsstrogatz"
+        g_bud = watts_strogatz(numagents, budparam*2, 0.1, seed = seed)
+    elseif budtype == "complete"
+        g_bud = complete_graph(numagents)
     else
-        error("Invalid communication network type. Use 'barabasialbert'.")
+        error("Invalid communication network type. Use 'barabasialbert', 'erdosrenyi', 'wattsstrogatz', or 'complete'.")
     end
     if atttype == "identity"
         adj_att = sparse(1:numagents, 1:numagents, 1.0)
@@ -153,7 +164,6 @@ Given an agent and a model, this function returns the indices and weights of the
 # Raises
 - `Error`: If the agent ID does not correspond to a valid vertex in the graph.
 - `Error`: If an invalid type is specified.
-
 """
 function nearby_agents(agent, model; type = "undir")
     graph = model.buddies
@@ -189,7 +199,6 @@ The result of applying the saturation function to `x`.
 
 ## Raises
 - `Error`: If the specified type of saturation function is not implemented.
-
 """
 function saturation(x; type = "tanh")
     if type == "tanh"
@@ -202,7 +211,7 @@ function saturation(x; type = "tanh")
 end
 
 """
-    bias(agent, model; type::String = "random", evol::Vector{Float64} = rand(1000))
+    bias(agent, model; type::String = "none", evol::Vector{Float64} = rand(1000))
 
 The `bias` function calculates the bias for an agent based on the given model.
 
@@ -218,22 +227,24 @@ The `bias` function calculates the bias for an agent based on the given model.
 ## Raises
 - `Error`: If the specified type of bias function is not implemented.
 """
-function bias(agent, model; type::String = "random", evol::Vector{Float64} = rand(1000))
-    if type == "random"
+function bias(agent, model; type::String = "none", evol::Vector{Float64} = rand(1000))
+    if type == "none"
+        return 0.0
+    elseif type == "random"
         return 0.1 * (rand(abmrng(model)) - 1)
     elseif type == "time"
         return evol[abmtime(model)]
     elseif type == "agenttime"
         return agent.personalbias * evol[abmtime(model)]
     else
-        error("Bias function not implemented. Use 'random', 'time', or 'agenttime'.")
+        error("Bias function not implemented. Use 'none', 'random', 'time', or 'agenttime'.")
     end
 end
 
 """
     agent_step!(agent, model)
 
-The `agent_step!` function updates the state of an agent in a model based on its neighbors' opinions and attention states.
+The `agent_step!` function updates the state of an agent in a model based on its neighbors' opinions and attention states. 
 
 ## Arguments
 - `agent`: The agent object to update.
@@ -248,7 +259,7 @@ The function performs the following steps:
 5. Updates the agent's attention state by considering the basal attention, attention gain, and neighbor opinion.
 
 ## Returns
-- The updated agent object with the new opinion and attention state.
+- None.
 """
 function agent_step!(agent, model)
     buddiesidxs, buddiesweights = nearby_agents(agent, model; type = "undir")
@@ -279,6 +290,18 @@ function agent_step!(agent, model)
     agent.attention_state = tau_attention*(-agent.attention_state + basal_attention + (attention_gain * neighborinfo))
 end
 
+"""
+Update the opinions of all agents in the model.
+
+Parameters:
+- `model`: The model object containing the agents.
+
+Returns:
+- None
+
+This function updates the `opinion_temp` attribute of each agent in the model
+with the new opinion value stored in the `opinion_new` attribute.
+"""
 function model_step!(model)
     for a in allagents(model)
         a.opinion_temp = a.opinion_new
@@ -292,9 +315,28 @@ end
 
 # In addition, we want to run the model only until all agents have converged to an opinion.
 # With [`step!`](@ref) instead of specifying the amount of steps we can specify a function.
-function terminate(model, _)
+"""
+    terminate(model, s; tol::Float64 = 1e-12) -> Bool
+
+Check if the maximum number of steps has been reached or if the opinions of all agents have converged.
+
+# Arguments
+- `model`: The model containing the agents.
+- `s`: Placeholder argument (ignored).
+- `tol::Float64`: The tolerance for convergence. Default is 1e-12.
+
+# Returns
+- `true` if the opinions of all agents have converged, `false` otherwise.
+"""
+function terminate(model, s; tol::Float64 = 1e-12)
+    if abmtime(model) <= 2
+        return false
+    end
+    if model.maxsteps > 0 && abmtime(model) >= model.maxsteps
+        return true
+    end
     if any(
-        !isapprox(a.opinion_prev, a.opinion_new; rtol = 1e-12)
+        !isapprox(a.opinion_prev, a.opinion_new; rtol = tol)
         for a in allagents(model)
     )
         return false
@@ -303,21 +345,33 @@ function terminate(model, _)
     end
 end
 
-# wrap everything in a function and do some data collection using [`run!`](@ref).
-# at every step (default)
-function model_run(nsteps::Int = 100; kwargs...)
+# Wrap everything in a function to do some data collection using [`run!`](@ref) at every step
+"""
+    model_run(torecord::Vector{Symbol}; kwargs...)
+
+Run the BFL model for a specified number of steps.
+
+# Arguments
+- `torecord::Vector{Symbol}`: The agent data to record. Default is `[:opinion_new]`.
+- `kwargs...`: Additional keyword arguments.
+
+# Returns
+- `agent_data`: The agent data after running the model.
+"""
+function model_run(torecord::Vector{Symbol} = [:opinion_new]; kwargs...)
     model = init_bfl_model(; kwargs...)
-    agent_data, _ = run!(model, nsteps; adata = [:opinion_new])
+    agent_data, _ = run!(model, terminate; adata = torecord)
     return agent_data
 end
 
+#model = init_bfl_model()
 #Agents.step!(model, 20)
 #model[1]
 
-model = init_bfl_model()
-data = model_run(100; numagents = 100, damping = 0.01, basal_attention = 0.01, tau_attention = 0.05, seed = 23)
+data = model_run([:opinion_new]; 
+                 numagents = 100, damping = 0.01, basal_attention = 0.01, tau_attention = 0.05, seed = 23)
 results = DataFrame(data)
-# Data has three columns: `:step`, `:id`, and `:opinion_new`.
+# Data has three columns: `:time`, `:id`, and `:opinion_new`.
 # We can plot the opinion of all agents over time
 # run, collect the data and plot it.
 CairoMakie.activate!() # hide
@@ -367,6 +421,3 @@ figure
 #randm = 2.0 .* rand(rng, Float64, (num_options, num_options)) .- 1.0
 #weights_o = adj_o .* randm
 #fig = graphplot(belief_g; layout=Stress(; dim=2))
-
-
-
