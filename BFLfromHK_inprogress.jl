@@ -1,6 +1,6 @@
 # Julia implementation of the BFL model for multi-agent opinion formation (Leonard et al. 2023)
 # Discrete time version
-# by Marie-Lou Laprise
+# Code author: Marie-Lou Laprise
 # This code was written for Julia 1.10.2 and Agents 6.0.7
 
 using Agents
@@ -40,9 +40,9 @@ The `OpinionatedGuy` struct represents an agent with opinionated behavior. It is
 end
 
 """
-    init_bfl_model(; numagents, damping, basal_attention, 
+    init_bfl_model(; numagents, damping, basal_attention, attention_gain,
                     tau_attention, saturation, biastype, 
-                    budnetworkparam, attnetworkparam, seed) -> model::ABM
+                    budnetworkparam, attnetworkparam, opinioninit, maxsteps, seed) -> model::ABM
 
 Create an ABM model for the BFL simulation. It is a keyword function that initializes 
 the model with the specified parameters, which can be used for parameter scanning.
@@ -53,9 +53,12 @@ the model with the specified parameters, which can be used for parameter scannin
 - `basal_attention::Float64`: The basal attention state of the agents. 
 - `tau_attention::Float64`: The time constant for the attention state update. 
 - `saturation::String`: The saturation function for the attention state. Default is "tanh" (hyperbolic tangent for opinions between -1 and 1).
-- `biastype::String`: The bias function. Default is "random" (random bias for each agent at each step).
+- `biastype::String`: The bias function. Default is "randomsmall" (small random bias for each agent at each step).
+- `biasproc::Vector{Float64}`: The evolution vector for the bias calculation if biastype = "manual". Default is a vector of random numbers.
+- `numsensing::Int`: The number of agents that are sensitive to external information. Default is 0.
 - `budnetworkparam::Tuple`: The parameters for the communication network. Default is ("barabasialbert", 2) (Barabasi-Albert network with m=2).
 - `attnetworkparam::String`: The attention network type. Default is "identity" (no attention).
+- `opinioninit::String`: The opinion initialization method. Default is "random" (random opinion between -0.5 and 0.5).
 - `maxsteps::Int`: The maximum number of steps to run the model. Default is 1000. 0 means run until convergence.
 - `seed::Int`: The seed for the random number generator. Default is 23.
 
@@ -64,14 +67,17 @@ the model with the specified parameters, which can be used for parameter scannin
 
 """
 function init_bfl_model(; numagents::Int = 100, 
-                        damping::Float64 = 0.3, 
-                        basal_attention::Float64=0.1, 
-                        attention_gain::Float64=0.2,
+                        damping::Float64 = 0.1, 
+                        basal_attention::Float64 = 0.01, 
+                        attention_gain::Float64 = 0.2,
                         tau_attention::Float64 = 0.05,
                         saturation::String = "tanh",
-                        biastype::String = "random",
-                        budnetworkparam::Tuple = ("barabasialbert", 2),
+                        biastype::String = "randomsmall",
+                        biasproc::Vector{Float64} = rand(model.maxsteps),
+                        numsensing::Int = 0,
+                        budnetworkparam::Tuple = ("barabasialbert", 3),
                         attnetworkparam::String = "identity",
+                        opinioninit::String = "random",
                         maxsteps::Int = 500,
                         seed::Int=23)
     # Create an ABM model with the OpinionatedGuy agent type
@@ -87,20 +93,63 @@ function init_bfl_model(; numagents::Int = 100,
             :tau_attention => tau_attention,
             :saturation => saturation,
             :biastype => biastype,
+            :biasproc => biasproc,
             :buddies => g_bud, # communication graph
             :adj_att => adj_att, # attention graph
             :maxsteps => maxsteps
         )
     )
+    # Select agents to be sensitive to external information
+    sensors = randperm(numagents)[1:numsensing]
+    sensors_odd = sensors[1:2:end]
+    sensors_even = sensors[2:2:end]
     # Add numagents agents to the model
-    for _ in 1:numagents
-        o = rand(abmrng(model))-0.5
+    for i in 1:numagents
+        o = init_opinion(model, i, opinioninit)
+        if biastype == "manual"
+            if i in sensors_even
+                personalbias = 1.0
+            elseif i in sensors_odd
+                personalbias = -1.0
+            else
+                personalbias = 0.0
+            end
+        else
+            personalbias = 0.0
+        end
         # Set opinion_temp, opinion_new, opinion_prev to same random initial value
         # Set initial attention to basal, set damping
-        add_agent!(model, o, o, o, basal_attention, damping, 0.0)
+        add_agent!(model, o, o, o, basal_attention, damping, personalbias)
     end
     return model
 end
+
+# Opinion initialization function
+"""
+    init_opinion(model, agent, init)
+
+Initialize the opinion of an agent in the model.
+
+# Arguments
+- `model`: The model containing the agents.
+- `agent`: The agent for which the opinion is initialized.
+
+# Returns
+- `opinion`: The initialized opinion value.
+"""
+function init_opinion(model, index, init)
+    if init == "zero"
+        opinion = 0.0
+    elseif init == "random"
+        opinion = 0.1 * (rand(abmrng(model)) - 0.5)
+    elseif init == "binary"
+        opinion = rand(abmrng(model)) > 0.5 ? 1.0 : -1.0
+    else
+        error("Invalid opinion initialization method. Use 'zero', 'random' or 'binary'.")
+    end
+    return opinion
+end
+
 
 # Generation communication and attention graphs
 """
@@ -200,7 +249,7 @@ The result of applying the saturation function to `x`.
 ## Raises
 - `Error`: If the specified type of saturation function is not implemented.
 """
-function saturation(x; type = "tanh")
+function saturation(x; type::String = "tanh")
     if type == "tanh"
         return tanh(x)
     elseif type == "sigmoid"
@@ -218,8 +267,7 @@ The `bias` function calculates the bias for an agent based on the given model.
 ## Arguments
 - `agent`: The agent for which the bias is calculated.
 - `model`: The model used to calculate the bias.
-- `type::String`: The type of bias calculation. Default is "random".
-- `evol::Vector{Float64}`: The evolution vector used for bias calculation. Default is a vector of 1000 random numbers.
+- `type::String`: The type of bias calculation.
 
 ## Returns
 - The calculated bias value.
@@ -227,17 +275,21 @@ The `bias` function calculates the bias for an agent based on the given model.
 ## Raises
 - `Error`: If the specified type of bias function is not implemented.
 """
-function bias(agent, model; type::String = "none", evol::Vector{Float64} = rand(1000))
+function bias(agent, model; type::String)
+    step = abmtime(model) + 1
     if type == "none"
         return 0.0
-    elseif type == "random"
+    elseif type == "manual"
+        return agent.personalbias * model.biasproc[step]
+    elseif type == "randomsmall"
+        return 0.01 * (rand(abmrng(model)) -1)
+    elseif type == "randomlarge"
         return 0.1 * (rand(abmrng(model)) - 1)
     elseif type == "time"
-        return evol[abmtime(model)]
-    elseif type == "agenttime"
-        return agent.personalbias * evol[abmtime(model)]
+        biasproc = model.biasproc
+        return biasproc[step]
     else
-        error("Bias function not implemented. Use 'none', 'random', 'time', or 'agenttime'.")
+        error("Bias function not implemented. Use 'none', 'manual', 'randomsmall', 'randomlarge', or 'time'.")
     end
 end
 
@@ -288,6 +340,9 @@ function agent_step!(agent, model)
         neighboratt += att
     end
     agent.attention_state = tau_attention*(-agent.attention_state + basal_attention + (attention_gain * neighborinfo))
+    if agent.attention_state < 0
+        agent.attention_state = 0
+    end
 end
 
 """
@@ -358,7 +413,7 @@ Run the BFL model for a specified number of steps.
 # Returns
 - `agent_data`: The agent data after running the model.
 """
-function model_run(torecord::Vector{Symbol} = [:opinion_new]; kwargs...)
+function model_run(torecord = [:opinion_new]; kwargs...)
     model = init_bfl_model(; kwargs...)
     agent_data, _ = run!(model, terminate; adata = torecord)
     return agent_data
@@ -368,26 +423,60 @@ end
 #Agents.step!(model, 20)
 #model[1]
 
-data = model_run([:opinion_new]; 
-                 numagents = 100, damping = 0.01, basal_attention = 0.01, tau_attention = 0.05, seed = 23)
+# Hyperparameters vectors
+xdamping = [0, 0.1, 0.5, 1]
+xbasal_attention = [0, 0.1, 0.5, 1]
+xtau_attention = [0.01, 0.1, 0.5, 1]
+xattention_gain = [0.01, 0.1, 0.5, 1]
+xsaturation = ["tanh", "sigmoid"]
+xbiastype = ["none", "manual", "randomsmall", "randomlarge", "time"]
+xalpha = [1, 2, 3, 4, 5]
+xbudnetworkparam = [("barabasialbert", xalpha[3]), ("erdosrenyi", xalpha[3]), ("wattsstrogatz", xalpha[3]), ("complete", xalpha[3])]
+xattnetworkparam = ["identity", "buddies"]
+xopinioninit = ["zero", "random", "binary"]
+xbias = [0.1, 0.2, 0.3, 0.4, 0.5]
+
+function bias_process(alpha::Float64, start::Int, stop::Int, maxsteps::Int)
+    biasproc = zeros(maxsteps)
+    biasproc[start:stop] .= alpha
+    return biasproc
+end
+
+data = model_run([:opinion_new, :attention_state]; 
+                 numagents = 13, 
+                 biastype = "manual",
+                 biasproc = bias_process(xbias[4], 6, 8, 20),
+                 opinioninit = "random",
+                 numsensing = 4,
+                 maxsteps = 20,
+                 seed = 23)
 results = DataFrame(data)
 # Data has three columns: `:time`, `:id`, and `:opinion_new`.
 # We can plot the opinion of all agents over time
 # run, collect the data and plot it.
 CairoMakie.activate!() # hide
-fig = Figure(size = (600, 600))
-ax = fig[1, 1] = Axis(
+fig = Figure(size = (1200, 600))
+ax1 = fig[1, 1] = Axis(
         fig,
         xlabel = "Step",
-        ylabel = "Opinion",
+        ylabel = "Opinion state",
         title = "Opinion formation",
     )
 for grp in groupby(results, :id)
-    lines!(ax, grp.time, grp.opinion_new, color = :blue, alpha = 0.5)
+    lines!(ax1, grp.time, grp.opinion_new, color = :blue, alpha = 0.5)
+end
+ax2 = fig[1, 2] = Axis(
+        fig,
+        xlabel = "Step",
+        ylabel = "Attention state",
+        title = "Attention over time",
+    )
+for grp in groupby(results, :id)
+    lines!(ax2, grp.time, grp.attention_state, color = :red, alpha = 0.5)
 end
 fig
 
-
+###
 # Run and plot the model for different values of the hyper parameter
 const cmap = cgrad(:lightrainbow)
 plotsim(ax, data) =
@@ -395,15 +484,29 @@ plotsim(ax, data) =
         lines!(ax, grp.time, grp.opinion_new, color = cmap[grp.id[1]/100])
     end
 
-xs = [0, 0.15, 0.5, 1]
+xs = xbudnetworkparam
 figure = Figure(size = (600, 1200))
 for (i, x) in enumerate(xs)
-    ax = figure[i, 1] = Axis(figure; title = "x = $x")
-    x_data = model_run(damping = x)
+    ax = figure[i, 1] = Axis(figure; title = "budnetworkparam = $x")
+    x_data = model_run([:opinion_new]; 
+        numagents = 13, 
+        biastype = "manual",
+        biasproc = bias_process(xbias[4], 6, 8, 25),
+        opinioninit = "random",
+        numsensing = 4,
+        maxsteps = 25,
+        seed = 23,
+        budnetworkparam = x)
     plotsim(ax, x_data)
 end
 figure
+# Save to the plot subfolder
+save("plots/barabasi_n13_k2_noatt_budnetworkparam.png", figure)
 
+
+# FIGURE 1
+data = model_run([:opinion_new, :attention_state]; 
+                 numagents = 13, damping = 0.01, basal_attention = 0.01, tau_attention = 0.05, seed = 23)
 
 
 #using GLMakie
