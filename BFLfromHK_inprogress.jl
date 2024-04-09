@@ -60,6 +60,7 @@ the model with the specified parameters, which can be used for parameter scannin
 - `attnetworkparam::String`: The attention network type. Default is "identity" (no attention).
 - `opinioninit::String`: The opinion initialization method. Default is "random" (random opinion between -0.5 and 0.5).
 - `maxsteps::Int`: The maximum number of steps to run the model. Default is 1000. 0 means run until convergence.
+- `euler_h::Float64`: The Euler integration step size for the opinion and attention state updates. Default is 0.1.
 - `seed::Int`: The seed for the random number generator. Default is 23.
 
 # Returns
@@ -79,6 +80,7 @@ function init_bfl_model(; numagents::Int = 100,
                         attnetworkparam::String = "identity",
                         opinioninit::String = "random",
                         maxsteps::Int = 500,
+                        euler_h::Float64 = 0.1,
                         seed::Int=23)
     # Create an ABM model with the OpinionatedGuy agent type
     # Use the fastest scheduler for agent updates
@@ -96,7 +98,8 @@ function init_bfl_model(; numagents::Int = 100,
             :biasproc => biasproc,
             :buddies => g_bud, # communication graph
             :adj_att => adj_att, # attention graph
-            :maxsteps => maxsteps
+            :maxsteps => maxsteps,
+            :euler_h => euler_h,
         )
     )
     # Select agents to be sensitive to external information
@@ -326,8 +329,9 @@ function agent_step!(agent, model)
         info = model[buddyidx].opinion_temp .* buddiness
         neighborinfo += info
     end
-    agent.opinion_new = selfinhib + saturation(agent.attention_state * neighborinfo, 
+    opinion_update = selfinhib + saturation(agent.attention_state * neighborinfo, 
                                                type = model.saturation) + abias
+    agent.opinion_new = agent.opinion_prev + model.euler_h*opinion_update
     # Discrete attention update
     basal_attention = model.basal_attention
     attention_gain = model.attention_gain
@@ -339,9 +343,15 @@ function agent_step!(agent, model)
         att = (model[attidx].opinion_temp^2) .* buddiness
         neighboratt += att
     end
-    agent.attention_state = tau_attention*(-agent.attention_state + basal_attention + (attention_gain * neighborinfo))
+    attention_update = tau_attention*(-agent.attention_state + basal_attention + (attention_gain * neighborinfo))
+    agent.attention_state += model.euler_h*attention_update
     if agent.attention_state < 0
         agent.attention_state = 0
+    end
+    # Check and warn for numerical stability of Euler approximation
+    step = abmtime(model)
+    if abs((model.euler_h * attention_update) + 1) > 1
+        println("Warning: Euler approximation of attention update at step $step may be unstable.")
     end
 end
 
@@ -424,7 +434,7 @@ end
 #model[1]
 
 # Hyperparameters vectors
-xdamping = [0, 0.1, 0.5, 1]
+xdamping = [0.01, 0.1, 0.5, 1]
 xbasal_attention = [0, 0.1, 0.5, 1]
 xtau_attention = [0.01, 0.1, 0.5, 1]
 xattention_gain = [0.01, 0.1, 0.5, 1]
@@ -445,10 +455,10 @@ end
 data = model_run([:opinion_new, :attention_state]; 
                  numagents = 13, 
                  biastype = "manual",
-                 biasproc = bias_process(xbias[4], 6, 8, 20),
+                 biasproc = bias_process(xbias[3], 70, 80, 300),
                  opinioninit = "random",
                  numsensing = 4,
-                 maxsteps = 20,
+                 maxsteps = 300,
                  seed = 23)
 results = DataFrame(data)
 # Data has three columns: `:time`, `:id`, and `:opinion_new`.
@@ -463,7 +473,7 @@ ax1 = fig[1, 1] = Axis(
         title = "Opinion formation",
     )
 for grp in groupby(results, :id)
-    lines!(ax1, grp.time, grp.opinion_new, color = :blue, alpha = 0.5)
+    lines!(ax1, grp.time*0.1, grp.opinion_new, color = :blue, alpha = 0.5)
 end
 ax2 = fig[1, 2] = Axis(
         fig,
@@ -472,7 +482,7 @@ ax2 = fig[1, 2] = Axis(
         title = "Attention over time",
     )
 for grp in groupby(results, :id)
-    lines!(ax2, grp.time, grp.attention_state, color = :red, alpha = 0.5)
+    lines!(ax2, grp.time*0.1, grp.attention_state, color = :red, alpha = 0.5)
 end
 fig
 
@@ -484,24 +494,24 @@ plotsim(ax, data) =
         lines!(ax, grp.time, grp.opinion_new, color = cmap[grp.id[1]/100])
     end
 
-xs = xbudnetworkparam
+xs = xdamping
 figure = Figure(size = (600, 1200))
 for (i, x) in enumerate(xs)
-    ax = figure[i, 1] = Axis(figure; title = "budnetworkparam = $x")
+    ax = figure[i, 1] = Axis(figure; title = "damping = $x")
     x_data = model_run([:opinion_new]; 
         numagents = 13, 
         biastype = "manual",
-        biasproc = bias_process(xbias[4], 6, 8, 25),
+        biasproc = bias_process(xbias[3], 7, 8, 30),
         opinioninit = "random",
         numsensing = 4,
-        maxsteps = 25,
+        maxsteps = 30,
         seed = 23,
-        budnetworkparam = x)
+        damping = x)
     plotsim(ax, x_data)
 end
 figure
 # Save to the plot subfolder
-save("plots/barabasi_n13_k2_noatt_budnetworkparam.png", figure)
+save("plots/barabasi_n13_k2_noatt_damping.png", figure)
 
 
 # FIGURE 1
