@@ -65,7 +65,6 @@ the model with the specified parameters, which can be used for parameter scannin
 
 # Returns
 - `model::ABM`: The created ABM model.
-
 """
 function init_bfl_model(; numagents::Int = 100, 
                         damping::Float64 = 0.1, 
