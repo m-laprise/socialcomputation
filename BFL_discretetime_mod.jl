@@ -2,7 +2,6 @@
 # Discrete time version
 # Code author: Marie-Lou Laprise
 # This code was written for Julia 1.10.2 and Agents 6.0.7
-
 using Agents
 using CairoMakie
 using DataFrames
@@ -11,7 +10,6 @@ using Random
 using LinearAlgebra
 using SparseArrays
 using Statistics
-#using DrWatson
 
 # Create agent type.
 # The agent type is defined as a struct with fields for the properties of the agent.
@@ -26,7 +24,7 @@ The `OpinionatedGuy` struct represents an agent with opinionated behavior. It is
 - `opinion_temp::Float64`: The temporary opinion of the agent, used for synchronous agent update (value needed at the start and end of the step).
 - `opinion_new::Float64`: The new opinion of the agent, calculated at the end of the step. 
 - `opinion_prev::Float64`: The previous opinion of the agent, required to check convergence for termination.
-- `attention_state::Float64`: The attention state of the agent.
+- `susceptibility_state::Float64`: The susceptibility state of the agent.
 - `damping::Float64`: The damping factor of the agent for the opinion update. By default, it will be inherited from the model and constant for all agents.
 - `personalbias::Float64`: The bias term for the agent. By default, it will be inherited from the model and set to 0.
 """
@@ -34,15 +32,15 @@ The `OpinionatedGuy` struct represents an agent with opinionated behavior. It is
     opinion_temp::Float64
     opinion_new::Float64
     opinion_prev::Float64
-    attention_state::Float64
+    susceptibility_state::Float64
     damping::Float64
     personalbias::Float64
 end
 
 """
-    init_bfl_model(; numagents, damping, basal_attention, attention_gain,
-                    tau_attention, saturation, biastype, 
-                    budnetworkparam, attnetworkparam, opinioninit, maxsteps, seed) -> model::ABM
+    init_bfl_model(; numagents, damping, basal_susceptibility, susceptibility_gain,
+                    tau_susceptibility, saturation, biastype, 
+                    jz_network, ju_network, opinioninit, maxsteps, seed) -> model::ABM
 
 Create an ABM model for the BFL simulation. It is a keyword function that initializes 
 the model with the specified parameters, which can be used for parameter scanning.
@@ -50,33 +48,44 @@ the model with the specified parameters, which can be used for parameter scannin
 # Arguments
 - `numagents::Int`: The number of agents in the model. Default is 100.
 - `damping::Float64`: The damping factor for the opinion update. 
-- `basal_attention::Float64`: The basal attention state of the agents. 
-- `tau_attention::Float64`: The time constant for the attention state update. 
-- `saturation::String`: The saturation function for the attention state. Default is "tanh" (hyperbolic tangent for opinions between -1 and 1).
+- `basal_susceptibility::Float64`: The basal susceptibility state of the agents. 
+- `tau_susceptibility::Float64`: The time constant for the susceptibility state update. 
+- `saturation::String`: The saturation function for the susceptibility state. Default is "tanh" (hyperbolic tangent for opinions between -1 and 1).
 - `biastype::String`: The bias function. Default is "randomsmall" (small random bias for each agent at each step).
 - `biasproc::Vector{Float64}`: The evolution vector for the bias calculation if biastype = "manual". Default is a vector of random numbers.
 - `numsensing::Int`: The number of agents that are sensitive to external information. Default is 0.
-- `budnetworkparam::Tuple`: The parameters for the communication network. Default is ("barabasialbert", 2) (Barabasi-Albert network with m=2).
-- `attnetworkparam::String`: The attention network type. Default is "identity" (no attention).
+- `jz_network::Tuple`: The parameters for the communication network. Default is ("barabasialbert", 2) (Barabasi-Albert network with m=2).
+- `ju_network::String`: The susceptibility network type. Default is "identity" (no susceptibility).
 - `opinioninit::String`: The opinion initialization method. Default is "random" (random opinion between -0.5 and 0.5).
-- `maxsteps::Int`: The maximum number of steps to run the model. Default is 1000. 0 means run until convergence.
-- `euler_h::Float64`: The Euler integration step size for the opinion and attention state updates. Default is 0.1.
+- `maxsteps::Int`: The maximum number of steps to run the model. Default is 500. 0 means run until convergence.
+- `euler_h::Float64`: The Euler integration step size for the opinion and susceptibility state updates. Default is 0.1.
 - `seed::Int`: The seed for the random number generator. Default is 23.
 
 # Returns
 - `model::ABM`: The created ABM model.
 """
-function init_bfl_model(; numagents::Int = 100, 
-                        damping::Float64 = 0.1, 
-                        basal_attention::Float64 = 0.01, 
-                        attention_gain::Float64 = 0.2,
-                        tau_attention::Float64 = 0.05,
+function init_bfl_model(; numagents::Int = 100,
+                        dampingtype::String = "constant", 
+                        dampingparam::Tuple = (0.5, 0.25),
+                        basal_susceptibility::Float64 = 0.01, 
+                        susceptibility_gain::Float64 = 1.0,
+                        tau_susceptibility::Float64 = 1.0,
                         saturation::String = "tanh",
+                        jz_network::Tuple = ("barabasialbert", 3),
+                        ju_network::String = "identity",
+                        # External input
                         biastype::String = "randomsmall",
                         biasproc::Vector{Float64} = rand(model.maxsteps),
                         numsensing::Int = 0,
-                        budnetworkparam::Tuple = ("barabasialbert", 3),
-                        attnetworkparam::String = "identity",
+                        # Gate parameters
+                        gating::Bool = false,
+                        jx_network::String = "complete",
+                        tau_gate::Float64 = 1.0,
+                        alpha_gate::Float64 = 1.0,
+                        beta_gate::Float64 = 0.0,
+                        scalingtype::String = "gaussian",
+                        scalingparam::Tuple = (1.0,0.5),
+                        # Initialization and simulation
                         opinioninit::String = "random",
                         maxsteps::Int = 500,
                         euler_h::Float64 = 0.1,
@@ -84,19 +93,25 @@ function init_bfl_model(; numagents::Int = 100,
     # Create an ABM model with the OpinionatedGuy agent type
     # Use the fastest scheduler for agent updates
     # Set the properties of the model
-    g_bud, adj_att = network_generation(budnetworkparam, attnetworkparam, numagents, seed)
+    buddies, adj_ju, adj_jx = network_generation(jz_network, ju_network, jx_network, numagents, seed)
     model = StandardABM(OpinionatedGuy; agent_step!, model_step!, 
         rng = MersenneTwister(seed), scheduler = Schedulers.fastest,
         properties = Dict(
-            :damping => damping,
-            :basal_attention => basal_attention,
-            :attention_gain => attention_gain,
-            :tau_attention => tau_attention,
+            :basal_susceptibility => basal_susceptibility,
+            :susceptibility_gain => susceptibility_gain,
+            :tau_susceptibility => tau_susceptibility,
             :saturation => saturation,
             :biastype => biastype,
             :biasproc => biasproc,
-            :buddies => g_bud, # communication graph
-            :adj_att => adj_att, # attention graph
+            :buddies => buddies, # communication graph
+            :adj_ju => adj_ju, # susceptibility graph
+            # Gating parameters
+            :gating => gating,
+            :adj_jx => adj_jx, # gating graph
+            :tau_gate => tau_gate,
+            :alpha_gate => alpha_gate,
+            :beta_gate => beta_gate,
+            # Simulation
             :maxsteps => maxsteps,
             :euler_h => euler_h,
         )
@@ -120,8 +135,15 @@ function init_bfl_model(; numagents::Int = 100,
             personalbias = 0.0
         end
         # Set opinion_temp, opinion_new, opinion_prev to same random initial value
-        # Set initial attention to basal, set damping
-        add_agent!(model, o, o, o, basal_attention, damping, personalbias)
+        # Set initial susceptibility to basal, set damping
+        if dampingtype == "constant"
+            damping = dampingparam[1]
+        elseif dampingtype == "random"
+            damping = dampingparam[1] + dampingparam[2] * (rand(model.rng) - 0.5)
+        else
+            error("Invalid damping type. Use 'constant' or 'random'.")
+        end
+        add_agent!(model, o, o, o, basal_susceptibility, damping, personalbias)
     end
     return model
 end
@@ -153,29 +175,32 @@ function init_opinion(model, index, init)
 end
 
 
-# Generation communication and attention graphs
+# Generation communication and susceptibility graphs
 """
-    network_generation(budnetworkparam, attnetworkparam, numagents, seed)
+    network_generation(jz_network, ju_network, jx_network, numagents, seed)
 
-Generate a communication network and an attention network.
+Generate a communication network and an susceptibility network.
 
 # Arguments
-- `budnetworkparam`: A tuple `(budtype, budparam)` specifying the type and parameters of the communication network.
-- `attnetworkparam`: A string specifying the type of the attention network.
+- `jz_network`: A tuple `(budtype, budparam)` specifying the type and parameters of the communication network.
+- `ju_network`: A string specifying the type of the susceptibility network.
+- `jx_network`: A string specifying the type of the gating network.
 - `numagents`: An integer specifying the number of agents in the network.
 - `seed`: An integer specifying the seed for random number generation.
 
 # Returns
 - `g_bud`: A `LightGraphs.SimpleGraph` object representing the communication network.
-- `adj_att`: A sparse adjacency matrix representing the attention network.
+- `adj_ju`: A sparse adjacency matrix representing the susceptibility network.
+- `adj_jx`: A sparse adjacency matrix representing the gating network.
 
 # Errors
 - Throws an error if `budtype` is not equal to "barabasialbert".
-- Throws an error if `attnetworkparam` is not equal to "identity" or "buddies".
+- Throws an error if `ju_network` is not equal to "identity" or "buddies".
+- Throws an error if `jx_network` is not equal to "complete".
 """
-function network_generation(budnetworkparam::Tuple, attnetworkparam::String, numagents::Int, seed::Int)
-    budtype, budparam = budnetworkparam
-    atttype = attnetworkparam
+function network_generation(jz_network::Tuple, ju_network::String, jx_network::String,
+                            numagents::Int, seed::Int)
+    budtype, budparam = jz_network
     if budtype == "barabasialbert"
         g_bud = barabasi_albert(numagents, budparam, seed = seed)
     elseif budtype == "erdosrenyi"
@@ -185,16 +210,21 @@ function network_generation(budnetworkparam::Tuple, attnetworkparam::String, num
     elseif budtype == "complete"
         g_bud = complete_graph(numagents)
     else
-        error("Invalid communication network type. Use 'barabasialbert', 'erdosrenyi', 'wattsstrogatz', or 'complete'.")
+        error("Unimplemented communication network type. Use 'barabasialbert', 'erdosrenyi', 'wattsstrogatz', or 'complete'.")
     end
-    if atttype == "identity"
-        adj_att = sparse(1:numagents, 1:numagents, 1.0)
-    elseif atttype == "buddies"
-        adj_att = adjacency_matrix(g_bud)
+    if ju_network == "identity"
+        adj_ju = sparse(1:numagents, 1:numagents, 1.0)
+    elseif ju_network == "buddies"
+        adj_ju = adjacency_matrix(g_bud)
     else
-        error("Invalid attention network type. Use 'identity' or 'buddies'.")
+        error("Unimplemented susceptibility network type. Use 'identity' or 'buddies'.")
     end
-    return g_bud, adj_att
+    if jx_network == "complete"
+        adj_jx = sparse(complete_graph(numagents))
+    else
+        error("Unimplemented gating network type. Use 'complete'.")
+    end
+    return g_bud, adj_ju, adj_jx
 end
 
 # Define nearby agents based on communication graph
@@ -264,7 +294,7 @@ end
 """
     bias(agent, model; type::String = "none", evol::Vector{Float64} = rand(1000))
 
-The `bias` function calculates the bias for an agent based on the given model.
+The `bias` function calculates the bias for an agent for a time step based on the given model.
 
 ## Arguments
 - `agent`: The agent for which the bias is calculated.
@@ -298,7 +328,7 @@ end
 """
     agent_step!(agent, model)
 
-The `agent_step!` function updates the state of an agent in a model based on its neighbors' opinions and attention states. 
+The `agent_step!` function updates the state of an agent in a model based on its neighbors' opinions and susceptibility states. 
 
 ## Arguments
 - `agent`: The agent object to update.
@@ -310,7 +340,7 @@ The function performs the following steps:
 2. Updates the agent's previous opinion value.
 3. Calculates the agent-specific bias term based on the model's bias type.
 4. Updates the agent's opinion by combining its self-inhibition, neighbor information, and bias term.
-5. Updates the agent's attention state by considering the basal attention, attention gain, and neighbor opinion.
+5. Updates the agent's susceptibility state by considering the basal susceptibility, susceptibility gain, and neighbor opinion.
 
 ## Returns
 - None.
@@ -328,29 +358,29 @@ function agent_step!(agent, model)
         info = model[buddyidx].opinion_temp .* buddiness
         neighborinfo += info
     end
-    opinion_update = selfinhib + saturation(agent.attention_state * neighborinfo, 
-                                               type = model.saturation) + abias
+    opinion_update = selfinhib + saturation(agent.susceptibility_state * neighborinfo, 
+                                            type = model.saturation) + abias
     agent.opinion_new = agent.opinion_prev + model.euler_h*opinion_update
-    # Discrete attention update
-    basal_attention = model.basal_attention
-    attention_gain = model.attention_gain
-    tau_attention = model.tau_attention
-    attidxs, attweights = findnz(model.adj_att[agent.id, :])
+    # Discrete susceptibility update
+    basal_susceptibility = model.basal_susceptibility
+    susceptibility_gain = model.susceptibility_gain
+    tau_susceptibility = model.tau_susceptibility
+    attidxs, attweights = findnz(model.adj_ju[agent.id, :])
     neighboratt = 0
     for (widx, attidx) in enumerate(attidxs)
         buddiness = attweights[widx]
         att = (model[attidx].opinion_temp^2) .* buddiness
         neighboratt += att
     end
-    attention_update = tau_attention*(-agent.attention_state + basal_attention + (attention_gain * neighborinfo))
-    agent.attention_state += model.euler_h*attention_update
-    if agent.attention_state < 0
-        agent.attention_state = 0
+    susceptibility_update = tau_susceptibility*(-agent.susceptibility_state + basal_susceptibility + (susceptibility_gain * neighborinfo))
+    agent.susceptibility_state += model.euler_h*susceptibility_update
+    if agent.susceptibility_state < 0
+        agent.susceptibility_state = 0
     end
     # Check and warn for numerical stability of Euler approximation
     step = abmtime(model)
-    if abs((model.euler_h * attention_update) + 1) > 1
-        println("Warning: Euler approximation of attention update at step $step may be unstable.")
+    if abs((model.euler_h * susceptibility_update) + 1) > 2
+        println("Warning: Euler approximation of susceptibility update at step $step may be unstable.")
     end
 end
 
@@ -428,95 +458,11 @@ function model_run(torecord = [:opinion_new]; kwargs...)
     return agent_data
 end
 
-#model = init_bfl_model()
-#Agents.step!(model, 20)
-#model[1]
-
-# Hyperparameters vectors
-xdamping = [0.01, 0.1, 0.5, 1]
-xbasal_attention = [0, 0.1, 0.5, 1]
-xtau_attention = [0.01, 0.1, 0.5, 1]
-xattention_gain = [0.01, 0.1, 0.5, 1]
-xsaturation = ["tanh", "sigmoid"]
-xbiastype = ["none", "manual", "randomsmall", "randomlarge", "time"]
-xalpha = [1, 2, 3, 4, 5]
-xbudnetworkparam = [("barabasialbert", xalpha[3]), ("erdosrenyi", xalpha[3]), ("wattsstrogatz", xalpha[3]), ("complete", xalpha[3])]
-xattnetworkparam = ["identity", "buddies"]
-xopinioninit = ["zero", "random", "binary"]
-xbias = [0.1, 0.2, 0.3, 0.4, 0.5]
-
 function bias_process(alpha::Float64, start::Int, stop::Int, maxsteps::Int)
     biasproc = zeros(maxsteps)
     biasproc[start:stop] .= alpha
     return biasproc
 end
-
-data = model_run([:opinion_new, :attention_state]; 
-                 numagents = 13, 
-                 biastype = "manual",
-                 biasproc = bias_process(xbias[3], 70, 80, 300),
-                 opinioninit = "random",
-                 numsensing = 4,
-                 maxsteps = 300,
-                 seed = 23)
-results = DataFrame(data)
-# Data has three columns: `:time`, `:id`, and `:opinion_new`.
-# We can plot the opinion of all agents over time
-# run, collect the data and plot it.
-CairoMakie.activate!() # hide
-fig = Figure(size = (1200, 600))
-ax1 = fig[1, 1] = Axis(
-        fig,
-        xlabel = "Step",
-        ylabel = "Opinion state",
-        title = "Opinion formation",
-    )
-for grp in groupby(results, :id)
-    lines!(ax1, grp.time*0.1, grp.opinion_new, color = :blue, alpha = 0.5)
-end
-ax2 = fig[1, 2] = Axis(
-        fig,
-        xlabel = "Step",
-        ylabel = "Attention state",
-        title = "Attention over time",
-    )
-for grp in groupby(results, :id)
-    lines!(ax2, grp.time*0.1, grp.attention_state, color = :red, alpha = 0.5)
-end
-fig
-
-###
-# Run and plot the model for different values of the hyper parameter
-const cmap = cgrad(:lightrainbow)
-plotsim(ax, data) =
-    for grp in groupby(data, :id)
-        lines!(ax, grp.time, grp.opinion_new, color = cmap[grp.id[1]/100])
-    end
-
-xs = xdamping
-figure = Figure(size = (600, 1200))
-for (i, x) in enumerate(xs)
-    ax = figure[i, 1] = Axis(figure; title = "damping = $x")
-    x_data = model_run([:opinion_new]; 
-        numagents = 13, 
-        biastype = "manual",
-        biasproc = bias_process(xbias[3], 7, 8, 30),
-        opinioninit = "random",
-        numsensing = 4,
-        maxsteps = 30,
-        seed = 23,
-        damping = x)
-    plotsim(ax, x_data)
-end
-figure
-# Save to the plot subfolder
-save("plots/barabasi_n13_k2_noatt_damping.png", figure)
-
-
-# FIGURE 1
-data = model_run([:opinion_new, :attention_state]; 
-                 numagents = 13, damping = 0.01, basal_attention = 0.01, tau_attention = 0.05, seed = 23)
-
 
 #using GLMakie
 #using GraphMakie, GraphMakie.NetworkLayout
