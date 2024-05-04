@@ -2,14 +2,12 @@ using DrWatson
 
 include("BFL_discretetime_mod.jl")
 
-#model = init_bfl_model()
-#Agents.step!(model, 20)
+model = init_bfl_model()
+Agents.step!(model, 20)
 #model[1]
 
 # generate draws from a normal mean 0, variance 0.1 distribution
 x = randn(1000) * 0.01
-
-
 
 # Hyperparameters vectors
 xdamping = [0.01, 0.1, 0.5, 1]
