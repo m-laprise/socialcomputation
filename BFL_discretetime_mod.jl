@@ -24,39 +24,42 @@ The `OpinionatedGuy` struct represents an agent with opinionated behavior. It is
 - `opinion_temp::Float64`: The temporary opinion of the agent, used for synchronous agent update (value needed at the start and end of the step).
 - `opinion_new::Float64`: The new opinion of the agent, calculated at the end of the step. 
 - `opinion_prev::Float64`: The previous opinion of the agent, required to check convergence for termination.
-- `susceptibility_state::Float64`: The susceptibility state of the agent.
-- `damping::Float64`: The damping factor of the agent for the opinion update. By default, it will be inherited from the model and constant for all agents.
+- `scp_state::Float64`: The susceptibility state of the agent.
+- `damping::Float64`: The damping factor of the agent for the opinion update. By default, it will be sampled from a Gaussian.
+- `scaling::Float64`: The scaling factor for the agent. By default, it will be sampled from a Gaussian.
 - `personalbias::Float64`: The bias term for the agent. By default, it will be inherited from the model and set to 0.
 """
 @agent struct OpinionatedGuy(NoSpaceAgent)
     opinion_temp::Float64
     opinion_new::Float64
     opinion_prev::Float64
-    susceptibility_state::Float64
+    scp_state::Float64
+    gating_state::Float64
     damping::Float64
+    scaling::Float64
     personalbias::Float64
 end
 
 """
-    init_bfl_model(; numagents, damping, basal_susceptibility, susceptibility_gain,
-                    tau_susceptibility, saturation, biastype, 
+    init_bfl_model(; numagents, damping, basal_scp, gain_scp,
+                    tau_scp, saturation, biastype, 
                     jz_network, ju_network, opinioninit, maxsteps, seed) -> model::ABM
 
 Create an ABM model for the BFL simulation. It is a keyword function that initializes 
 the model with the specified parameters, which can be used for parameter scanning.
 
 # Arguments
-- `numagents::Int`: The number of agents in the model. Default is 100.
+- `numagents::Int`: The number of agents in the model.
 - `damping::Float64`: The damping factor for the opinion update. 
-- `basal_susceptibility::Float64`: The basal susceptibility state of the agents. 
-- `tau_susceptibility::Float64`: The time constant for the susceptibility state update. 
+- `basal_scp::Float64`: The basal susceptibility state of the agents. 
+- `tau_scp::Float64`: The time constant for the susceptibility state update. 
 - `saturation::String`: The saturation function for the susceptibility state. Default is "tanh" (hyperbolic tangent for opinions between -1 and 1).
 - `biastype::String`: The bias function. Default is "randomsmall" (small random bias for each agent at each step).
 - `biasproc::Vector{Float64}`: The evolution vector for the bias calculation if biastype = "manual". Default is a vector of random numbers.
 - `numsensing::Int`: The number of agents that are sensitive to external information. Default is 0.
 - `jz_network::Tuple`: The parameters for the communication network. Default is ("barabasialbert", 2) (Barabasi-Albert network with m=2).
-- `ju_network::String`: The susceptibility network type. Default is "identity" (no susceptibility).
-- `opinioninit::String`: The opinion initialization method. Default is "random" (random opinion between -0.5 and 0.5).
+- `ju_network::String`: The susceptibility network type. 
+- `opinioninit::String`: The opinion initialization method. 
 - `maxsteps::Int`: The maximum number of steps to run the model. Default is 500. 0 means run until convergence.
 - `euler_h::Float64`: The Euler integration step size for the opinion and susceptibility state updates. Default is 0.1.
 - `seed::Int`: The seed for the random number generator. Default is 23.
@@ -65,46 +68,56 @@ the model with the specified parameters, which can be used for parameter scannin
 - `model::ABM`: The created ABM model.
 """
 function init_bfl_model(; numagents::Int = 100,
-                        dampingtype::String = "constant", 
-                        dampingparam::Tuple = (0.5, 0.25),
-                        basal_susceptibility::Float64 = 0.01, 
-                        susceptibility_gain::Float64 = 1.0,
-                        tau_susceptibility::Float64 = 1.0,
+                        maxsteps::Int = 500,
+                        basal_scp::Float64 = 0.01, 
+                        gain_scp::Float64 = 1.0,
+                        tau_scp::Float64 = 1.0,
                         saturation::String = "tanh",
                         jz_network::Tuple = ("barabasialbert", 3),
                         ju_network::String = "identity",
+                        # Unit-specific parameters
+                        dampingtype::String = "random", 
+                        dampingparam::Tuple = (0.5, 0.25),
+                        scalingtype::String = "random",
+                        scalingparam::Tuple = (1.0,0.5),
                         # External input
+                        inputmatrix::AbstractMatrix{Float64} = zeros(numagents, maxsteps),
                         biastype::String = "randomsmall",
-                        biasproc::Vector{Float64} = rand(model.maxsteps),
+                        biasproc::Vector{Float64} = zeros(maxsteps),
                         numsensing::Int = 0,
+                        grsensing::Int = 0,
                         # Gate parameters
                         gating::Bool = false,
                         jx_network::String = "complete",
                         tau_gate::Float64 = 1.0,
                         alpha_gate::Float64 = 1.0,
                         beta_gate::Float64 = 0.0,
-                        scalingtype::String = "gaussian",
-                        scalingparam::Tuple = (1.0,0.5),
                         # Initialization and simulation
                         opinioninit::String = "random",
-                        maxsteps::Int = 500,
                         euler_h::Float64 = 0.1,
                         seed::Int=23)
+    # Check that input matrix is numagents x maxsteps, otherwise error
+    if size(biasproc) != (maxsteps,)
+        error("Bias process vector must be of length maxsteps.")
+    end
+    if size(inputmatrix) != (numagents, maxsteps)
+        error("Input matrix must be of size numagents x maxsteps.")
+    end
     # Create an ABM model with the OpinionatedGuy agent type
-    # Use the fastest scheduler for agent updates
-    # Set the properties of the model
     buddies, adj_ju, adj_jx = network_generation(jz_network, ju_network, jx_network, numagents, seed)
     model = StandardABM(OpinionatedGuy; agent_step!, model_step!, 
         rng = MersenneTwister(seed), scheduler = Schedulers.fastest,
         properties = Dict(
-            :basal_susceptibility => basal_susceptibility,
-            :susceptibility_gain => susceptibility_gain,
-            :tau_susceptibility => tau_susceptibility,
+            :basal_scp => basal_scp,
+            :gain_scp => gain_scp,
+            :tau_scp => tau_scp,
             :saturation => saturation,
             :biastype => biastype,
             :biasproc => biasproc,
             :buddies => buddies, # communication graph
             :adj_ju => adj_ju, # susceptibility graph
+            # External input
+            :inputmatrix => inputmatrix,
             # Gating parameters
             :gating => gating,
             :adj_jx => adj_jx, # gating graph
@@ -117,33 +130,21 @@ function init_bfl_model(; numagents::Int = 100,
         )
     )
     # Select agents to be sensitive to external information
-    sensors = randperm(numagents)[1:numsensing]
-    sensors_odd = sensors[1:2:end]
-    sensors_even = sensors[2:2:end]
+    if numsensing > 0
+        sensors = randperm(numagents)[1:numsensing]
+        #sensors_odd = sensors[1:2:end]
+        #sensors_even = sensors[2:2:end]
+    end
     # Add numagents agents to the model
     for i in 1:numagents
-        o = init_opinion(model, i, opinioninit)
-        if biastype == "manual"
-            if i in sensors_even
-                personalbias = 1.0
-            elseif i in sensors_odd
-                personalbias = -1.0
-            else
-                personalbias = 0.0
-            end
-        else
-            personalbias = 0.0
-        end
+        personalbias = 0.0
         # Set opinion_temp, opinion_new, opinion_prev to same random initial value
-        # Set initial susceptibility to basal, set damping
-        if dampingtype == "constant"
-            damping = dampingparam[1]
-        elseif dampingtype == "random"
-            damping = dampingparam[1] + dampingparam[2] * (rand(model.rng) - 0.5)
-        else
-            error("Invalid damping type. Use 'constant' or 'random'.")
-        end
-        add_agent!(model, o, o, o, basal_susceptibility, damping, personalbias)
+        o = init_opinion(model, i, opinioninit)
+        # Set initial gating state to zero
+        x = 0.0
+        # Set initial susceptibility to basal, set damping and scaling
+        d, k = init_unitparam(model, i, dampingtype, dampingparam, scalingtype, scalingparam)
+        add_agent!(model, o, o, o, basal_scp, x, d, k, personalbias)
     end
     return model
 end
@@ -165,7 +166,7 @@ function init_opinion(model, index, init)
     if init == "zero"
         opinion = 0.0
     elseif init == "random"
-        opinion = 0.1 * (rand(abmrng(model)) - 0.5)
+        opinion = 0.01 * (rand(abmrng(model)) - 0.5)
     elseif init == "binary"
         opinion = rand(abmrng(model)) > 0.5 ? 1.0 : -1.0
     else
@@ -174,8 +175,43 @@ function init_opinion(model, index, init)
     return opinion
 end
 
+# Unit parameter initialization function
+"""
+    init_unitparam(model, index, dampingtype, dampingparam, scalingtype, scalingparam)
 
-# Generation communication and susceptibility graphs
+Initialize the damping and scaling parameters for an agent in the model.
+
+# Arguments
+- `model`: The model containing the agents.
+- `index`: The index of the agent for which the parameters are initialized.
+- `dampingtype`: The type of damping parameter initialization.
+- `dampingparam`: The parameters for the damping initialization.
+- `scalingtype`: The type of scaling parameter initialization.
+- `scalingparam`: The parameters for the scaling initialization.
+
+# Returns
+- `d`: The initialized damping parameter.
+- `k`: The initialized scaling parameter.
+"""
+function init_unitparam(model, index, dampingtype, dampingparam, scalingtype, scalingparam)
+    if dampingtype == "random"
+        d = randn(abmrng(model)) * dampingparam[2] + dampingparam[1]
+    elseif dampingtype == "constant"
+        d = dampingparam[1]
+    else
+        error("Invalid damping type. Use 'random' or 'constant'.")
+    end
+    if scalingtype == "random"
+        k = randn(abmrng(model)) * scalingparam[2] + scalingparam[1]
+    elseif scalingtype == "constant"
+        k = scalingparam[1]
+    else
+        error("Invalid scaling type. Use 'random' or 'constant'.")
+    end
+    return d, k
+end
+
+# Generation of connectivity graphs
 """
     network_generation(jz_network, ju_network, jx_network, numagents, seed)
 
@@ -250,13 +286,13 @@ function nearby_agents(agent, model; type = "undir")
     graph = model.buddies
     adj_a = adjacency_matrix(graph)
     if !has_vertex(graph, agent.id)
-        error("Agent ID does not correspond to a valid vertex in the graph")
+        error("Agent ID does not correspond to a valid vertex in the graph.")
     end
     if type == "undir"
         agentbuddies = adj_a[agent.id, :]
         ng_idxs, ng_weights = findnz(agentbuddies)
     else
-        error("Invalid type.")
+        error("Unimplemented type. Use 'undir' for undirected graph.")
     end
     return ng_idxs, ng_weights
 end
@@ -281,11 +317,11 @@ The result of applying the saturation function to `x`.
 ## Raises
 - `Error`: If the specified type of saturation function is not implemented.
 """
-function saturation(x; type::String = "tanh")
+function saturation(x; type::String = "tanh", alpha::Float64 = 1.0, beta::Float64 = 0.0)
     if type == "tanh"
         return tanh(x)
     elseif type == "sigmoid"
-        return 1 / (1 + exp(-x))
+        return 1 / (1 + exp(-alpha*x + beta))
     else
         error("Saturation function not implemented. Use 'tanh' or 'sigmoid'.")
     end
@@ -294,7 +330,7 @@ end
 """
     bias(agent, model; type::String = "none", evol::Vector{Float64} = rand(1000))
 
-The `bias` function calculates the bias for an agent for a time step based on the given model.
+The `bias` function calculates the internal bias for an agent for a time step.
 
 ## Arguments
 - `agent`: The agent for which the bias is calculated.
@@ -302,12 +338,12 @@ The `bias` function calculates the bias for an agent for a time step based on th
 - `type::String`: The type of bias calculation.
 
 ## Returns
-- The calculated bias value.
+- The internal bias value.
 
 ## Raises
 - `Error`: If the specified type of bias function is not implemented.
 """
-function bias(agent, model; type::String)
+function intbias(agent, model; type::String)
     step = abmtime(model) + 1
     if type == "none"
         return 0.0
@@ -326,6 +362,23 @@ function bias(agent, model; type::String)
 end
 
 """
+    extinput(agent, model)
+
+The `extinput` function returns the external input for an agent at a given time step.
+
+## Arguments
+- `agent`: The agent for which the external input is calculated.
+- `model`: The model used to calculate the external input.
+
+## Returns
+- The external input value.
+"""
+function extinput(agent, model)
+    step = abmtime(model) + 1
+    return model.inputmatrix[agent.id, step]
+end
+
+"""
     agent_step!(agent, model)
 
 The `agent_step!` function updates the state of an agent in a model based on its neighbors' opinions and susceptibility states. 
@@ -338,7 +391,7 @@ The `agent_step!` function updates the state of an agent in a model based on its
 The function performs the following steps:
 1. Retrieves the indices and weights of the nearby agents using the `nearby_agents` function.
 2. Updates the agent's previous opinion value.
-3. Calculates the agent-specific bias term based on the model's bias type.
+3. Obtain the agent-specific bias term based on internal bias and external input.
 4. Updates the agent's opinion by combining its self-inhibition, neighbor information, and bias term.
 5. Updates the agent's susceptibility state by considering the basal susceptibility, susceptibility gain, and neighbor opinion.
 
@@ -346,11 +399,43 @@ The function performs the following steps:
 - None.
 """
 function agent_step!(agent, model)
-    buddiesidxs, buddiesweights = nearby_agents(agent, model; type = "undir")
     agent.opinion_prev = agent.opinion_temp
     # Time or agent-specific bias term
-    abias = bias(agent, model; type = model.biastype)
+    abias = intbias(agent, model; type = model.biastype) + extinput(agent, model)
     # Discrete opinion update
+    opinion_update = ddt_opinionstate(agent, model, abias)
+    opinion_alt = agent.opinion_prev + model.euler_h/2 * opinion_update
+    agent.opinion_new = agent.opinion_prev + model.euler_h * opinion_update
+    # Discrete susceptibility update
+    scp_update = ddt_scpstate(agent, model)
+    scp_alt = agent.scp_state + model.euler_h/2 * scp_update
+    agent.scp_state += model.euler_h * scp_update
+    if agent.scp_state < 0
+        agent.scp_state = 0
+    end
+    # Discrete gate update 
+    if model.gating
+        gate_update = ddt_gatingstate(agent, model, abias)
+        gate_alt = agent.gating_state + model.euler_h/2 * gate_update
+        agent.gating_state += model.euler_h * gate_update
+    else
+        gate_alt = 0.0
+    end
+    # Check and warn for numerical stability of Euler approximation
+    step = abmtime(model)
+    newstate = [agent.opinion_new, agent.scp_state, agent.gating_state]
+    altstate = [opinion_alt, scp_alt, gate_alt]
+    # maximum norm of the difference vector
+    stability_distance = maximum(abs.(newstate - altstate))
+    tolerance = 1e-3
+    if stability_distance > tolerance
+        println("Warning: Euler approximation of update at step $step may be unstable:")
+        println("Maximum norm of difference vector is $stability_distance")
+    end
+end
+
+function ddt_opinionstate(agent, model, abias)
+    buddiesidxs, buddiesweights = nearby_agents(agent, model; type = "undir")
     selfinhib = -agent.damping * agent.opinion_temp
     neighborinfo = 0
     for (widx, buddyidx) in enumerate(buddiesidxs)
@@ -358,31 +443,42 @@ function agent_step!(agent, model)
         info = model[buddyidx].opinion_temp .* buddiness
         neighborinfo += info
     end
-    opinion_update = selfinhib + saturation(agent.susceptibility_state * neighborinfo, 
-                                            type = model.saturation) + abias
-    agent.opinion_new = agent.opinion_prev + model.euler_h*opinion_update
-    # Discrete susceptibility update
-    basal_susceptibility = model.basal_susceptibility
-    susceptibility_gain = model.susceptibility_gain
-    tau_susceptibility = model.tau_susceptibility
-    attidxs, attweights = findnz(model.adj_ju[agent.id, :])
-    neighboratt = 0
-    for (widx, attidx) in enumerate(attidxs)
-        buddiness = attweights[widx]
-        att = (model[attidx].opinion_temp^2) .* buddiness
-        neighboratt += att
+    phigate = 1.0
+    if model.gating
+        phigate = saturation(agent.gating_state, type = "sigmoid",
+                             alpha = model.alpha_gate, beta = model.beta_gate)
     end
-    susceptibility_update = tau_susceptibility*(-agent.susceptibility_state + basal_susceptibility + (susceptibility_gain * neighborinfo))
-    agent.susceptibility_state += model.euler_h*susceptibility_update
-    if agent.susceptibility_state < 0
-        agent.susceptibility_state = 0
-    end
-    # Check and warn for numerical stability of Euler approximation
-    step = abmtime(model)
-    if abs((model.euler_h * susceptibility_update) + 1) > 2
-        println("Warning: Euler approximation of susceptibility update at step $step may be unstable.")
-    end
+    opinion_update = phigate * (selfinhib + saturation(agent.scp_state * neighborinfo, 
+                                                       type = model.saturation)) + abias
+    return opinion_update                   
 end
+
+function ddt_scpstate(agent, model)
+    scpidxs, scpweights = findnz(model.adj_ju[agent.id, :])
+    neighborscp = 0
+    for (widx, scpidx) in enumerate(scpidxs)
+        buddiness = scpweights[widx]
+        scp = (model[scpidx].opinion_temp^2) .* buddiness
+        neighborscp += scp
+    end
+    scp_update = 1/model.tau_scp * (-agent.scp_state + model.basal_scp + (model.gain_scp * neighborscp))
+    return scp_update
+end
+
+function ddt_gatingstate(agent, model, abias)
+    gateidxs, gateweights = findnz(model.adj_jx[agent.id, :])
+    addx = 0
+    for (widx, gateidx) in enumerate(gateidxs)
+        buddiness = gateweights[widx]
+        x = saturation(model[gateidx].opinion_temp, 
+                       type = model.saturation) .* buddiness
+        addx += x
+    end
+    scaledbias = agent.scaling * abias
+    gate_update = 1/model.tau_gate * (-agent.gating_state + addx + scaledbias)
+    return gate_update
+end
+
 
 """
 Update the opinions of all agents in the model.
@@ -420,16 +516,14 @@ Check if the maximum number of steps has been reached or if the opinions of all 
 - `tol::Float64`: The tolerance for convergence. Default is 1e-12.
 
 # Returns
-- `true` if the opinions of all agents have converged, `false` otherwise.
+- `true` if the opinions of all agents have converged or maxsteps is exceeded, `false` otherwise.
 """
 function terminate(model, s; tol::Float64 = 1e-12)
     if abmtime(model) <= 2
         return false
-    end
-    if model.maxsteps > 0 && abmtime(model) >= model.maxsteps
+    elseif model.maxsteps > 0 && abmtime(model) >= model.maxsteps
         return true
-    end
-    if any(
+    elseif any(
         !isapprox(a.opinion_prev, a.opinion_new; rtol = tol)
         for a in allagents(model)
     )
@@ -456,12 +550,6 @@ function model_run(torecord = [:opinion_new]; kwargs...)
     model = init_bfl_model(; kwargs...)
     agent_data, _ = run!(model, terminate; adata = torecord)
     return agent_data
-end
-
-function bias_process(alpha::Float64, start::Int, stop::Int, maxsteps::Int)
-    biasproc = zeros(maxsteps)
-    biasproc[start:stop] .= alpha
-    return biasproc
 end
 
 #using GLMakie
