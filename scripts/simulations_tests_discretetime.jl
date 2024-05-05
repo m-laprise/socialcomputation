@@ -69,7 +69,7 @@ end
 
 numagents = 100
 euler_h = 0.01
-maxsteps = Int(10 / euler_h)
+maxsteps = Int(50 / euler_h)
 
 myinputmatrix = create_extsignal(numagents, maxsteps,
                                 prestimulus_delay = Int(5 / euler_h),
@@ -82,16 +82,16 @@ mynoisematrix = create_extnoise(numagents, maxsteps,
 
 res = runsim_oneparam(numagents, maxsteps,
                     myinputmatrix, mynoisematrix, 
-                    gating=false, 
+                    gating=true, 
                     seed=25, 
                     dampingparam=(0.75, 0.25), 
                     scalingparam=(1, 0.25),
-                    #alpha_gate=0.0, beta_gate=4.0,
+                    alpha_gate=10.0, beta_gate=0.0,
                     euler_h=euler_h)
 fig = plot_sim(res, gating=true)
 fig
 
-save("plots/wg_hetd_medsig.png", fig)
+save("plots/wg_hetd_medsig_alpha10beta0.png", fig)
 
 ###
 

@@ -207,6 +207,12 @@ Given the form of the dynamical equations, the value of $d_i$ determines the val
 		\caption{My simulation, input $b = \pm 0.25 $} \label{fig:hetdamping2}
 	\end{subfigure}
 	
+	\begin{subfigure}[t]{0.6\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../plots/nog_hetd_hisig.png} 
+		\caption{My simulation, input $b = \pm 0.4 $} \label{fig:hetdamping3}
+	\end{subfigure}
+	
 	\caption{Opinion cascades under heterogeneous damping, as external inputs grow larger. My simulations, same conditions as Figure \ref{fig:homdamping} (b) and (c), but this time, $d_i \sim \mathcal{N}(0.75,0.25)$.}\label{fig:hetdamping}
 \end{figure}
 
@@ -228,7 +234,13 @@ As can be seen in Figure \ref{fig:hetdamping}, a majority of agents converge to 
 		\caption{My simulation, input $b = \pm 0.25 $} \label{fig:gating2}
 	\end{subfigure}
 	
-	\caption{Impact of naively adding an update gate to the model without further changes, with scaling factor $k_i \sim \mathcal{N}(1,0.5)$.}\label{fig:gatingintro}
+	\begin{subfigure}[t]{0.75\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../plots/wg_hetd_hisig.png} 
+		\caption{My simulation, input $b = \pm 0.4 $} \label{fig:gating3}
+	\end{subfigure}
+	
+	\caption{Impact of naively adding an update gate to the model without further changes, with scaling factor $k_i \sim \mathcal{N}(1,0.25)$. Convergence becomes impossible and behavior chaotic at levels of signal previously sufficient to achieve indecision breaking.}\label{fig:gatingintro}
 \end{figure}
 
 \section{Discussion}
@@ -248,11 +260,56 @@ Ongoing research efforts (\cite{malachAutoRegressiveNextTokenPredictors2023}) su
 \printbibliography[heading=bibintoc, title={References}]
 
 
+\newpage
 
 \appendix
 
 \section{Simulation results}
 
-Contents
+Varying parameters of the gated network.
+Medium signal, medium anti-signal, 25\% each, with same Gaussian noise, and $k_i \sim \mathcal{N}(1, 0.25)$.
+
+\noindent\begin{minipage}{\linewidth}
+	
+		\centering
+		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_moredamping}
+		\captionof{figure}{Damping $d_i \sim \mathcal{N}(1,0.2)$, $\alpha = 1$, $\beta = 0$. Increased damping is insufficient to recover indecision breaking or rapid convergence to a stable state.}
+		\label{fig:wghetdmedsigmoredamping}
+
+		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha0beta0}
+		\captionof{figure}{$\alpha = 0$, $\beta = 0$. Here, $\phi(x_i(t)) = 0.5$ for all $x_i$. The gating is constant for all opinion updates, and the gate is half open.}
+		\label{fig:wghetdmedsigalpha0beta0}
+
+		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha0beta2}
+		\captionof{figure}{$\alpha = 0$, $\beta = 2$. Here, $\phi(x_i(t)) \approx 0.12$ for all $x_i$.}
+		\label{fig:wghetdmedsigalpha0beta2}
+
+		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha0beta3}
+		\captionof{figure}{$\alpha = 0$, $\beta = 3$. Here, $\phi(x_i(t)) \approx 0.05$ for all $x_i$.}
+		\label{fig:wghetdmedsigalpha0beta3}
+\end{minipage}
+
+\noindent\begin{minipage}{\linewidth}
+		\centering
+		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha0beta4}
+		\captionof{figure}{$\alpha = 0$, $\beta = 4$. Here, $\phi(x_i(t))  \approx 0.02$ for all $x_i$.}
+		\label{fig:wghetdmedsigalpha0beta4}
+
+		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha0beta5}
+		\captionof{figure}{$\alpha = 0$, $\beta = 5$. Here, $\phi(x_i(t))  \approx 0.01$ for all $x_i$. The gate is almost entirely closed.}
+		\label{fig:wghetdmedsigalpha0beta5}
+		
+		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alphan1beta0}
+		\captionof{figure}{$\alpha = -1$, $\beta = 0$. The gate is sigmoidal again, but reversed. The gate is open to negative values, closed to large positive values.}
+		\label{fig:wghetdmedsigalphan1beta0}
+		
+		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha2beta0}
+		\captionof{figure}{$\alpha = 2$, $\beta = 0$. The gate is sigmoidal. Compared to the main experiment, the gate is slightly closer to a step function with zero threshold: more open to lower positive values, and more closed to higher negative values}
+		\label{fig:wghetdmedsigalpha2beta0}
+		
+		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha10beta0}
+		\captionof{figure}{$\alpha = 10$, $\beta = 0$. The gate is sigmoidal, and much closer to a step function with zero threshold.}
+		\label{fig:wghetdmedsigalpha10beta0}
+\end{minipage}
 
 \end{document}
