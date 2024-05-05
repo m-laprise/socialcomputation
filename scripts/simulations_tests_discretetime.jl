@@ -4,7 +4,7 @@ using JLD2
 include("BFL_discretetime_mod.jl")
 include("noise_and_input_patterns.jl")
 
-@quickactivate "socialcomputation"
+#@quickactivate "socialcomputation"
 
 # Create function that passes any kwargs to model_run, run simulations and generate figure
 function runsim_oneparam(numagents, maxsteps, inputmatrix, noisematrix, gating=false, seed=25; kwargs...)
@@ -28,7 +28,7 @@ end
 function plot_sim(results; gating=false)
     CairoMakie.activate!() # hide
     if gating
-        fig = Figure(size = (1100, 400))
+        fig = Figure(size = (1100, 350))
     else
         fig = Figure(size = (1000, 400))
     end
@@ -69,28 +69,29 @@ end
 
 numagents = 100
 euler_h = 0.01
-maxsteps = Int(50 / euler_h)
+maxsteps = Int(10 / euler_h)
 
 myinputmatrix = create_extsignal(numagents, maxsteps,
                                 prestimulus_delay = Int(5 / euler_h),
-                                group1 = 0.25, signal1_nbbursts = 1, signal1_strength = "low", 
+                                group1 = 0.25, signal1_nbbursts = 1, signal1_strength = "medium", 
                                 signal1_dir = 1.0, signal1_timeon = Int(2 / euler_h),
-                                group2 = 0.25, signal2_nbbursts = 1, signal2_strength = "low", 
+                                group2 = 0.25, signal2_nbbursts = 1, signal2_strength = "medium", 
                                 signal2_dir = -1.0, signal2_timeon = Int(2 / euler_h))
 mynoisematrix = create_extnoise(numagents, maxsteps,
                                 noise_mean = 0.0, noise_var = 0.05)
 
 res = runsim_oneparam(numagents, maxsteps,
                     myinputmatrix, mynoisematrix, 
-                    gating=true, 
+                    gating=false, 
                     seed=25, 
                     dampingparam=(0.75, 0.25), 
                     scalingparam=(1, 0.25),
+                    #alpha_gate=0.0, beta_gate=4.0,
                     euler_h=euler_h)
 fig = plot_sim(res, gating=true)
 fig
 
-save("plots/wg_hetd_lowsig.png", fig)
+save("plots/wg_hetd_medsig.png", fig)
 
 ###
 

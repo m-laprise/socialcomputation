@@ -105,7 +105,7 @@ function init_bfl_model(; numagents::Int = 100,
         error("Input and noise matrices must be of size numagents x maxsteps.")
     end
     # Create an ABM model with the OpinionatedGuy agent type
-    buddies, adj_ju, adj_jx = network_generation(jz_network, ju_network, jx_network, numagents, seed)
+    buddies, adj_jz, adj_ju, adj_jx = network_generation(jz_network, ju_network, jx_network, numagents, seed)
     # Print some basic statistics about the resulting social graph buddies
     println("Social graph initialized with $(jz_network[1]) network.")
     println("Number of edges: $(ne(buddies))")
@@ -129,13 +129,14 @@ function init_bfl_model(; numagents::Int = 100,
             #:biastype => biastype,
             #:biasproc => biasproc,
             :buddies => buddies, # communication graph
-            :adj_ju => adj_ju, # susceptibility graph
+            :adj_jz => adj_jz, # communication matrix
+            :adj_ju => adj_ju, # susceptibility matrix
             # External input
             :inputmatrix => inputmatrix,
             :noisematrix => noisematrix,
             # Gating parameters
             :gating => gating,
-            :adj_jx => adj_jx, # gating graph
+            :adj_jx => adj_jx, # gating matrix
             :tau_gate => tau_gate,
             :alpha_gate => alpha_gate,
             :beta_gate => beta_gate,
@@ -267,13 +268,15 @@ function network_generation(jz_network::Tuple, ju_network::String, jx_network::S
     else
         error("Unimplemented communication network type. Use 'barabasialbert', 'erdosrenyi', 'wattsstrogatz', or 'complete'.")
     end
+    adj_jz = adjacency_matrix(g_bud) + 1I(numagents)
     if ju_network == "identity"
-        adj_ju = sparse(1:numagents, 1:numagents, 1.0)
+        adj_ju = sparse(1:numagents, 1:numagents, 1)
     elseif ju_network == "buddies"
         adj_ju = adjacency_matrix(g_bud)
     else
         error("Unimplemented susceptibility network type. Use 'identity' or 'buddies'.")
     end
+    adj_ju = adj_ju + 1I(numagents)
     if jx_network == "complete"
         adj_jx = sparse(complete_graph(numagents))
     elseif jx_network == "2degree"
@@ -281,45 +284,48 @@ function network_generation(jz_network::Tuple, ju_network::String, jx_network::S
         adj_jx = adjacency_matrix(g_bud)
         adj_jx = adj_jx * adj_jx 
         adj_jx = adj_jx .> 0  # Convert to binary adjacency matrix
+    elseif jx_network == "buddies"
+        adj_jx = adjacency_matrix(g_bud)
     else
-        error("Unimplemented gating network type. Use 'complete' or '2degree'.")
+        error("Unimplemented gating network type. Use 'complete', '2degree', or 'buddies'.")
     end
-    return g_bud, adj_ju, adj_jx
+    adj_jx = adj_jx + 1I(numagents)
+    return g_bud, adj_jz, adj_ju, adj_jx
 end
 
 # Define nearby agents based on communication graph
-"""
-    nearby_agents(agent, model; type = "undir")
+# """
+#     nearby_agents(agent, model; type = "undir")
 
-Given an agent and a model, this function returns the indices and weights of the nearby agents in the graph.
+# Given an agent and a model, this function returns the indices and weights of the nearby agents in the graph.
 
-# Arguments
-- `agent`: The agent for which nearby agents are to be found.
-- `model`: The model containing the graph of agents.
-- `type`: (optional) The type of nearby agents to find. Default is "undir".
+# # Arguments
+# - `agent`: The agent for which nearby agents are to be found.
+# - `model`: The model containing the graph of agents.
+# - `type`: (optional) The type of nearby agents to find. Default is "undir".
 
-# Returns
-- `ng_idxs`: The indices of the nearby agents.
-- `ng_weights`: The weights of the connections to the nearby agents.
+# # Returns
+# - `ng_idxs`: The indices of the nearby agents.
+# - `ng_weights`: The weights of the connections to the nearby agents.
 
-# Raises
-- `Error`: If the agent ID does not correspond to a valid vertex in the graph.
-- `Error`: If an invalid type is specified.
-"""
-function nearby_agents(agent, model; type = "undir")
-    graph = model.buddies
-    adj_a = adjacency_matrix(graph)
-    if !has_vertex(graph, agent.id)
-        error("Agent ID does not correspond to a valid vertex in the graph.")
-    end
-    if type == "undir"
-        agentbuddies = adj_a[agent.id, :]
-        ng_idxs, ng_weights = findnz(agentbuddies)
-    else
-        error("Unimplemented type. Use 'undir' for undirected graph.")
-    end
-    return ng_idxs, ng_weights
-end
+# # Raises
+# - `Error`: If the agent ID does not correspond to a valid vertex in the graph.
+# - `Error`: If an invalid type is specified.
+# """
+# function nearby_agents(agent, model; type = "undir")
+#     graph = model.buddies
+#     adj_a = adjacency_matrix(graph)
+#     if !has_vertex(graph, agent.id)
+#         error("Agent ID does not correspond to a valid vertex in the graph.")
+#     end
+#     if type == "undir"
+#         agentbuddies = adj_a[agent.id, :]
+#         ng_idxs, ng_weights = findnz(agentbuddies)
+#     else
+#         error("Unimplemented type. Use 'undir' for undirected graph.")
+#     end
+#     return ng_idxs, ng_weights
+# end
 
 # Synchronous scheduling:
 # Agents have  `temp` and `new` fields for attributes that are changed via synchronous update. 
@@ -430,20 +436,20 @@ function agent_step!(agent, model)
     stoch_input = extinput(agent, model, model.noisematrix)
     # Discrete opinion update
     det_opinion_update, stoch_opinion_update = ddt_opinionstate(agent, model, det_input, stoch_input)
-    opinion_alt = agent.opinion_prev + model.euler_h/2 * det_opinion_update + sqrt(model.euler_h/2) * stoch_opinion_update
-    agent.opinion_new = agent.opinion_prev + model.euler_h * det_opinion_update + sqrt(model.euler_h) * stoch_opinion_update
+    opinion_alt = agent.opinion_prev + (model.euler_h/2 * det_opinion_update) + (sqrt(model.euler_h/2) * stoch_opinion_update)
+    agent.opinion_new = agent.opinion_prev + (model.euler_h * det_opinion_update) + (sqrt(model.euler_h) * stoch_opinion_update)
     # Discrete susceptibility update
     scp_update = ddt_scpstate(agent, model)
     scp_alt = agent.scp_state + model.euler_h/2 * scp_update
     agent.scp_state += (model.euler_h * scp_update)
-    if agent.scp_state < 0
-        agent.scp_state = 0
+    if agent.scp_state < 0.0
+        agent.scp_state = 0.0
     end
     # Discrete gate update 
     if model.gating
         det_gate_update, stoch_gate_update = ddt_gatingstate(agent, model, det_input, stoch_input)
-        gate_alt = agent.gating_state + model.euler_h/2 * det_gate_update + sqrt(model.euler_h/2) * stoch_gate_update
-        agent.gating_state += (model.euler_h * det_gate_update) + sqrt(model.euler_h) * stoch_gate_update
+        gate_alt = agent.gating_state + (model.euler_h/2 * det_gate_update) + (sqrt(model.euler_h/2) * stoch_gate_update)
+        agent.gating_state += (model.euler_h * det_gate_update) + (sqrt(model.euler_h) * stoch_gate_update)
     else
         gate_alt = 0.0
     end
@@ -454,18 +460,19 @@ function agent_step!(agent, model)
         altstate = [opinion_alt, scp_alt, gate_alt]
         # maximum norm of the difference vector
         stability_distance = maximum(abs.(newstate - altstate))
-        tolerance = 1e-3
+        tolerance = 2e-3
         if stability_distance > tolerance
-            println("Warning: Euler approximation of update at step $step for agent $agent may be unstable:")
+            println("Warning: Euler approximation of update at step $step for agent $(agent.id) may be unstable:")
             println("Maximum norm of difference vector is $stability_distance")
         end
     end
 end
 
 function ddt_opinionstate(agent, model, det_input, stoch_input)
-    buddiesidxs, buddiesweights = nearby_agents(agent, model; type = "undir")
+    #buddiesidxs, buddiesweights = nearby_agents(agent, model; type = "undir")
+    buddiesidxs, buddiesweights = findnz(model.adj_jz[agent.id, :])
     selfinhib = -agent.damping * agent.opinion_temp
-    neighborinfo = 0
+    neighborinfo = 0.0
     for (widx, buddyidx) in enumerate(buddiesidxs)
         buddiness = buddiesweights[widx]
         info = model[buddyidx].opinion_temp .* buddiness
@@ -473,18 +480,19 @@ function ddt_opinionstate(agent, model, det_input, stoch_input)
     end
     phigate = 1.0
     if model.gating
-        phigate = saturation(agent.gating_state, type = "sigmoid",
+        phigate = saturation(agent.gating_state, 
+                             type = "sigmoid",
                              alpha = model.alpha_gate, beta = model.beta_gate)
     end
-    det_opinion_update = phigate * (selfinhib + saturation(agent.scp_state * (neighborinfo + agent.opinion_temp), 
-                                                       type = model.saturation)) + det_input
+    det_opinion_update = phigate * (selfinhib + saturation(agent.scp_state * neighborinfo, 
+                                                           type = model.saturation)) + det_input
     stoch_opinion_update = stoch_input
     return det_opinion_update, stoch_opinion_update                   
 end
 
 function ddt_scpstate(agent, model)
     scpidxs, scpweights = findnz(model.adj_ju[agent.id, :])
-    neighborscp = 0
+    neighborscp = 0.0
     for (widx, scpidx) in enumerate(scpidxs)
         buddiness = scpweights[widx]
         scp = (model[scpidx].opinion_temp^2) .* buddiness
@@ -496,7 +504,7 @@ end
 
 function ddt_gatingstate(agent, model, det_input, stoch_input)
     gateidxs, gateweights = findnz(model.adj_jx[agent.id, :])
-    addx = 0
+    addx = 0.0
     for (widx, gateidx) in enumerate(gateidxs)
         buddiness = gateweights[widx]
         x = saturation(model[gateidx].opinion_temp, 
