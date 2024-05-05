@@ -28,10 +28,12 @@ function create_extsignal(n::Int, maxsteps::Int;
                          group1::Float64 = 0.0,
                          signal1_nbbursts::Int = 1,
                          signal1_strength::String = "low",
+                         signal1_dir::Float64 = 1.0,
                          signal1_timeon::Int = 10,
                          group2::Float64 = 0.0,
                          signal2_nbbursts::Int = 1,
                          signal2_strength::String = "none",
+                         signal2_dir::Float64 = 1.0,
                          signal2_timeon::Int = 10,
                          mutuallyexclusivegroups::Bool = true)
     numagents_g1 = Int(round(group1 * n))
@@ -65,11 +67,11 @@ function create_extsignal(n::Int, maxsteps::Int;
     # Add the first signal
     if group1 > 0 && signal1_strength != "none"
         if signal1_strength == "low"
-            signal1 = 0.1
+            signal1 = 0.1 * signal1_dir
         elseif signal1_strength == "medium"
-            signal1 = 0.25
+            signal1 = 0.25 * signal1_dir
         elseif signal1_strength == "high"
-            signal1 = 0.4
+            signal1 = 0.4 * signal1_dir
         else
             error("Invalid signal strength. Choose from 'low', 'medium', 'high', or 'none'.")
         end
@@ -82,11 +84,11 @@ function create_extsignal(n::Int, maxsteps::Int;
     # Add the second signal, taking into account betweensignals_delay
     if group2 > 0 && signal2_strength != "none"
         if signal2_strength == "low"
-            signal2 = 0.1
+            signal2 = 0.1 * signal2_dir
         elseif signal2_strength == "medium"
-            signal2 = 0.25
+            signal2 = 0.25 * signal2_dir
         elseif signal2_strength == "high"
-            signal2 = 0.4
+            signal2 = 0.4 * signal2_dir
         else
             error("Invalid signal strength. Choose from 'low', 'medium', 'high', or 'none'.")
         end
@@ -109,7 +111,7 @@ function test_create_extsignal()
     @test all(extinput .>= 0)
     @test all(extinput .<= 0.4)
 end
-test_create_extinput()
+test_create_extsignal()
 
 # test for the function above, for different values of the parameters
 #Random.seed!(1234)
