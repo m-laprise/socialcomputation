@@ -163,12 +163,11 @@ The number of simulations is $2 \times 2 \times 3 \times 37 = 444$ (with and wit
 
 Supposing that there is a decision to be made, and that only agents strongly in favor will make it, after they have accumulated sufficient evidence for it, I set a threshold $c = 1.75$ and record, for each simulation, which agents make the decision, how many they are, and their location on the social graph.
 
-
 \section{Results}
 
 \subsection{First modification: heterogeneous $d_i$}
 
-Given the form of the dynamical equations, the value of $d_i$ determines the value at which the opinion state of each agent $i$ will saturate. Allowing $d_i$ to be unit-specific means that instead of all agents converging to identical scalar opinion states, agents will converge to opinion states of different magnitudes. This seems more realistic for social decision-making: even if a group collectively agrees with an option, different agents may be more or less convinced that it is the right choice. Insofar as agents are away from the neutral state, they have still broken indecision, even if they don't converge to same scalar opinion magnitude. I illustrate this difference in Figure \ref{fig:homdamping}.
+Given the form of the dynamical equations, the value of $d_i$ determines the value at which the opinion state of each agent $i$ will saturate. Allowing $d_i$ to be unit-specific means that instead of all agents converging to identical scalar opinion states, agents will converge to opinion states of different magnitudes. This seems more realistic for social decision-making: even if a group collectively agrees with an option, different agents may be more or less convinced that it is the right choice. Insofar as agents are away from the neutral state, they have still broken indecision, even if they don't converge to same scalar opinion magnitude. I illustrate this difference in Figure \ref{fig:homdamping} and \ref{fig:hetdamping}.
 
 \begin{figure}
 	\centering
@@ -178,28 +177,63 @@ Given the form of the dynamical equations, the value of $d_i$ determines the val
 		\caption{Results (Figure 2) of Leonard et al. 2024} \label{fig:damping1}
 	\end{subfigure}
 	
-	\begin{subfigure}[t]{0.5\textwidth}
+	\begin{subfigure}[t]{0.6\textwidth}
 		\centering
 		\includegraphics[width=\textwidth]{../plots/nog_constd_lowsig.png} 
 		\caption{My simulation, input $b = \pm 0.1 $} \label{fig:damping2}
 	\end{subfigure}
 	
-	\begin{subfigure}[t]{0.5\textwidth}
+	\begin{subfigure}[t]{0.6\textwidth}
 		\centering
 		\includegraphics[width=\textwidth]{../plots/nog_constd_medsig.png} 
 		\caption{My simulation, input $b = \pm 0.25 $} \label{fig:damping3}
 	\end{subfigure}
 	
-	\caption{Opinion cascades under homogeneous damping, occurring when external inputs grow larger. (\subref{fig:damping1}) is the top panel of Figure 2 of the BFL 2024 paper. In a small network of 13 agents, two agents receive a short signal of strength $b$ in favor of option 1 and concurrently, two agents receive a short signal of strength $-b$ in disfavor of option 1. Susceptibility state is not included. (\subref{fig:damping2}) and (\subref{fig:damping3}) are my simulations reproducing the same phenomena, with a network of 100 agents. Opinion state in blue, susceptibility state in red. 25 agents receive a short signal in favor of option 1, while 25 other agents receive a similar signal in disfavor. }\label{fig:homdamping}
+	\caption{Opinion cascades under homogeneous damping, as external inputs grow larger. (\subref{fig:damping1}) is the top panel of Figure 2 of the BFL 2024 paper. In a small network of 13 agents, two agents receive a short signal of strength $b$ in favor of option 1 and concurrently, two agents receive a short signal of strength $-b$ in disfavor of option 1. Susceptibility state is not included. (\subref{fig:damping2}) and (\subref{fig:damping3}) are my simulations reproducing the same phenomena, with a network of 100 agents, with $d_i=d=0.75$. Opinion state in blue, susceptibility state in red. 25 agents receive a short signal in favor of option 1, while 25 other agents receive a similar signal in disfavor. }\label{fig:homdamping}
 \end{figure}
 
 
-In panel (c) agents have heterogeneous damping sampled from a Gaussian, showing the distinct stable opinion states, with most agents being moderately convinced, and some agents developing more extreme views. 
+\begin{figure}
+	\centering
+	\begin{subfigure}[t]{0.6\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../plots/nog_hetd_lowsig.png} 
+		\caption{My simulation, input $b = \pm 0.1 $} \label{fig:hetdamping1}
+	\end{subfigure}
+	
+	\begin{subfigure}[t]{0.6\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../plots/nog_hetd_medsig.png} 
+		\caption{My simulation, input $b = \pm 0.25 $} \label{fig:hetdamping2}
+	\end{subfigure}
+	
+	\caption{Opinion cascades under heterogeneous damping, as external inputs grow larger. My simulations, same conditions as Figure \ref{fig:homdamping} (b) and (c), but this time, $d_i \sim \mathcal{N}(0.75,0.25)$.}\label{fig:hetdamping}
+\end{figure}
+
+As can be seen in Figure \ref{fig:hetdamping}, a majority of agents converge to a similar opinion state, but a small number of agents converge to a more intense version of the majority view, while a smaller number still converge to the opposite view. This appears closer to real-life opinion dynamics, with a majority of agents getting moderately convinced, while some agents develop more extreme or contrarian views.
 
 \subsection{Second modification: gating}
 
+\begin{figure}
+	\centering
+	\begin{subfigure}[t]{0.6\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../plots/wg_hetd_lowsig.png} 
+		\caption{My simulation, input $b = \pm 0.1 $} \label{fig:gating1}
+	\end{subfigure}
+	
+	\begin{subfigure}[t]{0.6\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../plots/wg_hetd_medsig.png} 
+		\caption{My simulation, input $b = \pm 0.25 $} \label{fig:gating2}
+	\end{subfigure}
+	
+	\caption{Impact of naively adding an update gate to the model without further changes, with scaling factor $k_i \sim \mathcal{N}(1,0.5)$.}\label{fig:gatingintro}
+\end{figure}
+
 \section{Discussion}
 
+\newpage
 
 \section{Future directions}
 
