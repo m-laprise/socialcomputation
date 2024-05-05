@@ -37,9 +37,9 @@ How do social networks of heterogeneous agents collect and exchange noisy inform
 
 Interacting adaptive agents face some collective challenges that resemble those of neurons in the brain or nodes in an artificial network: (i) implementing distributed computation robustly and flexibly, over a range of time scales, and (ii) building predictive models of their environment. Together, I call tackling those goals collective intelligence. If there exists common principles underlying collective intelligence across settings, then models of neural computation may help us understand social computation. Conversely, models of social computation between complex agents might in turn suggest new models for how groups of neurons or regions of the brain interact to create a richer dynamical repertoire.
 
-For instance, Naomi Leonard and colleagues developed a model of multi-agent opinion formation that takes the form of a recurrent neural network (RNN) (\cite{bizyaevaNonlinearOpinionDynamics2022}, \cite{leonardFastFlexibleMultiAgent2024}) (the “BFL” model). I describe it in Section 2 below. The BFL model exhibits fast convergence to a steady state of consensus (all agents agree) or disagreement (agreement within subgroups but not between them) in a way that, its authors argue, parallels the observed behavior of bees choosing a nesting site or voters choosing a candidate.
+For instance, Naomi Leonard and colleagues developed a model of multi-agent opinion formation that takes a form similar to a recurrent neural network (RNN) (\cite{bizyaevaNonlinearOpinionDynamics2022}, \cite{leonardFastFlexibleMultiAgent2024}) (the “BFL” model). I describe it in Section 2 below. The BFL model introduced nonlinearity to better model information saturation, in contrast to the linear averaging models that dominated the field of opinion dynamics. The BFL model exhibits the ability to break indecision and rapidly converge to a steady state of consensus (all agents agree) or disagreement (agreement within subgroups but not between them) in a way that, its authors argue, parallels the observed behavior of bees choosing a nesting site or voters choosing a candidate.
 
-The BFL model offers an elegant solution to a long-standing problem in the field of opinion formation: how to craft a system that may generate stable disagreement as a function of inputs and initial conditions, rather than one that inevitably converges to consensus or avoids consensus only at the cost of a fixed, carefully hand-picked connectivity matrix (\cite{ravazziDynamicalSocialNetworks2021}, \cite{bernardoBoundedConfidenceOpinion2024}). This problem is sometimes called Abelson's diversity puzzle (\cite{abelsonMathematicalModelsDistribution1964}).
+The BFL model offered an elegant solution to a long-standing problem in the field of opinion formation: how to craft a system that may generate stable disagreement as a function of inputs and initial conditions, rather than one that inevitably converges to consensus or avoids consensus only at the cost of a fixed, carefully hand-picked connectivity matrix (\cite{ravazziDynamicalSocialNetworks2021}, \cite{bernardoBoundedConfidenceOpinion2024}). This problem is sometimes called Abelson's diversity puzzle (\cite{abelsonMathematicalModelsDistribution1964}).
 
 The BFL model, however, features simple, homogeneous agents, without memory or intelligence.  For this project, I take a first step to improve this aspect of the BFL model by adding a unit-specific dynamical time constant to the model. I then examine the behavior of the modified model using simulations in Julia.
 
@@ -82,7 +82,8 @@ A few things should be noted about the assumptions involved in this model:
 		\item While this is realistic for integrate-and-fire neurons, it may not be appropriate for agents forming opinions. A more realistic assumption might be inertia, such that opinions tend to stay the same, not revert to zero.
 	\end{itemize}
 	\item It is not clear why opinion states must be squared in the susceptibility update. This assumes symmetry in the impact of negative and positive opinions, which is disproved by behavioral data. It is possible that the difference between the two is small enough that this does not impact results. 
-	\item In the presence of large external inputs, the opinion state can grow arbitrarily large
+	\item In the presence of large external inputs, the opinion state update can be arbitrarily large.
+	\item While the damping coefficient $d_i$ is indexed as unit-specific, in most reported simulations and experiments, the authors set a homogeneous $d_i=d$. 
 \end{enumerate}
 
 It should also be emphasized that contrary to the RNN case (and the main difference with the RNN case) is that each agent $i$ has only access to its own input $I_i$. The only way for an agent to access inputs that were distributed to other agents is by communication through the adjacency graph.
@@ -104,6 +105,29 @@ I modify the model to include an input-dependent adaptive time-constant for the 
 Where $J^x$ is a coupling matrix for the gate, $\phi (x) = (1 + e^{- \alpha x + \beta })^{-1}$, and $k_i I_i$ is a scaled version of $I_i$.
 
 The number of parameters, if all networks are directed (all $J$ asymmetric), is $3 N^2 + 2N + 6$ (three $N \times N$ matrices, two unit-specific parameters $d_i$ and $k_i$, and six global parameters $\tau^u$, $\tau^x$, $u_0$, $g^u$, $\alpha$, $\beta$). In this set-up, parameters are not learned through back-propagation; they must be set as hyper-parameters. 
+
+\subsection{Goal of the simulations}
+
+With the initial model, the authors examined indecision-breaking bifurcations. In the BFL model, the dynamic susceptibility state represents a bifurcation parameter for opinion cascades. 
+
+With neutral initial opinions and in the absence of inputs, the state vector representing the opinions of all agents remains at the zero fixed point, the only stable state. When some agents receive short external inputs, the system may go back to the zero fixed point, or undergo a an indecision-breaking bifurcation toward a regime of multistability, in which case the agents will converge to some stable opinionated state that will outlast the external inputs. 
+
+The bifurcation parameter for this transition is the susceptibility state vector. This is because the susceptibility determines the relative importance, for each agent, of self-inhibition versus recurrent excitation from the network (including self-excitation, if any).
+
+The authors also showed that at the bifurcation, indecision-breaking occurs very rapidly, in a switch-like manner. As the system nears bifurcation, it becomes ``selectively ultrasensitive to inputs," meaning that it will respond strongly to input vectors that align with the right eigenspace of the Jacobian at the bifurcation, but ignore input vectors that do not. Away from the bifurcation, opinion states remain stable even in the presence of small perturbations, but large perturbations can move the system to a different fixed point.
+
+In the modified model, I let $d_i$ be unit specific, sampled from a Gaussian, and I add a gating variable, and examine how this impacts indecision-breaking bifurcations and the dynamics of the system in response to various patterns of signal and noise. 
+
+\subsubsection{First modification: heterogeneous $d_i$}
+
+Given the form of the dynamical equations, the value of $d_i$ determines the value at which the opinion state of each agent $i$ will saturate. Allowing $d_i$ to be unit-specific means that instead of all agents converging to identical scalar opinion states, agents will converge to opinion states of different magnitudes. This seems more realistic for social decision-making: even if a group collectively agrees with an option, different agents may be more or less convinced that it is the right choice. Insofar as agents are away from the neutral state, they have still broken indecision, even if they don't converge to same scalar opinion magnitude. I illustrate this difference in Figure ... .
+
+(a) Reproduced from top panel of Figure 2 of the BFL 2024 paper. In a small network of 13 agents, two agents receive a short signal of strength $b$ in favor of option 1 and concurrently, two agents receive a short signal of strength $-b$ in disfavor of option 1. The authors showed an opinion cascade occurring when external inputs grow large, for a small network of 13 agents.
+(b and c) Results from my simulations for a network of 100 agents receiving a similar external input pattern. 25 agents receive a short signal in favor, while 25 other agents receive a similar signal in disfavor. In panel (b) agents have homogeneous damping. (Should reproduce the phenomena observed by BFL 2024).
+In panel (c) agents have heterogeneous damping sampled from a Gaussian, showing the distinct stable opinion states, with most agents being moderately convinced, and some agents developing more extreme views. 
+
+\subsubsection{Second modification: gating}
+
 
 \subsection{Simulations}
 
@@ -139,7 +163,7 @@ The last thing to determine is the pattern of time and unit varying external inp
 	\item In the control condition, all agents receive Gaussian noise at every step.
 \end{enumerate}
 
-I run each simulation for both the original and the gated models. I first simulate in discrete time using agent-based modeling and Euler's approximation with a step size $h = 0.1$, and then in continuous time using differential equations solvers.
+I run each simulation for both the original and the gated models. I first simulate in discrete time using agent-based modeling and Euler-Maruyama approximation with a step size $h = 0.1$, and then in continuous time using differential equations solvers.
 
 The number of simulations is $2 \times 2 \times 3 \times 37 = 444$ (with and without gating, discrete or continuous time, different social graphs, noise patterns).
 

@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.12.6)  3 MAY 2024 18:06
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.12.6)  5 MAY 2024 10:29
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -717,48 +717,54 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 al/texlive/2023/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc}] [2] [3]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 116.
+(hyperref)                removing `math shift' on input line 131.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 116.
+(hyperref)                removing `superscript' on input line 131.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 116.
+(hyperref)                removing `math shift' on input line 131.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 116.
+(hyperref)                removing `math shift' on input line 131.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 116.
+(hyperref)                removing `superscript' on input line 131.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 116.
+(hyperref)                removing `math shift' on input line 131.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 116.
+(hyperref)                removing `math shift' on input line 131.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 116.
+(hyperref)                removing `superscript' on input line 131.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 116.
+(hyperref)                removing `math shift' on input line 131.
 
-[4] [5] [6] (./neu537writeup.aux)
+[4] [5] [6] [7] (./neu537writeup.aux)
  ***********
 LaTeX2e <2023-11-01>
 L3 programming layer <2023-11-09>
  ***********
-Package rerunfilecheck Info: File `neu537writeup.out' has not changed.
-(rerunfilecheck)             Checksum: CAF33C8DE5F07515C7875177E8F62A52;2377.
 
+
+Package rerunfilecheck Warning: File `neu537writeup.out' has changed.
+(rerunfilecheck)                Rerun to get outlines right
+(rerunfilecheck)                or use package `bookmark'.
+
+Package rerunfilecheck Info: Checksums for `neu537writeup.out':
+(rerunfilecheck)             Before: CAF33C8DE5F07515C7875177E8F62A52;2377
+(rerunfilecheck)             After:  E91EDAB67D806615A863686D84C51C21;2559.
 
 Package biblatex Warning: Please rerun LaTeX.
 (biblatex)                Page breaks have changed.
@@ -768,13 +774,13 @@ Package logreq Info: Writing requests to 'neu537writeup.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 19499 strings out of 474273
- 336092 string characters out of 5747714
- 1938555 words of memory out of 5000000
+ 19506 strings out of 474273
+ 336195 string characters out of 5747714
+ 1939555 words of memory out of 5000000
  41454 multiletter control sequences out of 15000+600000
  568068 words of font info for 74 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,11n,81p,2029b,1558s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 75i,11n,81p,2029b,1554s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
 pdfTeX warning (dest): name{Hfootnote.2} has been referenced but does not exist
 , replaced by a fixed one
@@ -782,6 +788,22 @@ pdfTeX warning (dest): name{Hfootnote.2} has been referenced but does not exist
 
 pdfTeX warning (dest): name{Hfootnote.1} has been referenced but does not exist
 , replaced by a fixed one
+
+
+pdfTeX warning (dest): name{subsubsection.2.3.4} has been referenced but does n
+ot exist, replaced by a fixed one
+
+
+pdfTeX warning (dest): name{subsubsection.2.3.3} has been referenced but does n
+ot exist, replaced by a fixed one
+
+
+pdfTeX warning (dest): name{subsubsection.2.3.2} has been referenced but does n
+ot exist, replaced by a fixed one
+
+
+pdfTeX warning (dest): name{subsubsection.2.3.1} has been referenced but does n
+ot exist, replaced by a fixed one
 
 </usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb><
 /usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></
@@ -805,10 +827,10 @@ f-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb></usr/local/texlive/2023/texmf
 exmf-dist/fonts/type1/public/cm-super/sfrm0600.pfb></usr/local/texlive/2023/tex
 mf-dist/fonts/type1/public/cm-super/sfrm0800.pfb></usr/local/texlive/2023/texmf
 -dist/fonts/type1/public/cm-super/sfrm1000.pfb>
-Output written on neu537writeup.pdf (6 pages, 263763 bytes).
+Output written on neu537writeup.pdf (7 pages, 266172 bytes).
 PDF statistics:
- 267 PDF objects out of 1000 (max. 8388607)
- 212 compressed objects within 3 object streams
- 46 named destinations out of 1000 (max. 500000)
+ 280 PDF objects out of 1000 (max. 8388607)
+ 224 compressed objects within 3 object streams
+ 53 named destinations out of 1000 (max. 500000)
  113 words of extra memory for PDF output out of 10000 (max. 10000000)
 
