@@ -211,6 +211,8 @@ Initialize the damping and scaling parameters for an agent in the model.
 function init_unitparam(model, index, dampingtype, dampingparam, scalingtype, scalingparam)
     if dampingtype == "random"
         d = randn(abmrng(model)) * dampingparam[2] + dampingparam[1]
+        # clip at zero
+        d = d < 0 ? 0 : d
     elseif dampingtype == "constant"
         d = dampingparam[1]
     else
@@ -218,6 +220,8 @@ function init_unitparam(model, index, dampingtype, dampingparam, scalingtype, sc
     end
     if scalingtype == "random"
         k = randn(abmrng(model)) * scalingparam[2] + scalingparam[1]
+        # clip at zero
+        k = k < 0 ? 0 : k
     elseif scalingtype == "constant"
         k = scalingparam[1]
     else
