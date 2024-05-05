@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.12.6)  5 MAY 2024 10:29
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.12.6)  5 MAY 2024 14:14
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -347,12 +347,39 @@ LaTeX Font Info:    Redeclaring math symbol \hbar on input line 98.
 LaTeX Font Info:    Overwriting math alphabet `\mathfrak' in version `bold'
 (Font)                  U/euf/m/n --> U/euf/b/n on input line 106.
 )
+(/usr/local/texlive/2023/texmf-dist/tex/latex/caption/caption.sty
+Package: caption 2023/08/05 v3.6o Customizing captions (AR)
+
+(/usr/local/texlive/2023/texmf-dist/tex/latex/caption/caption3.sty
+Package: caption3 2023/07/31 v2.4d caption3 kernel (AR)
+\caption@tempdima=\dimen168
+\captionmargin=\dimen169
+\caption@leftmargin=\dimen170
+\caption@rightmargin=\dimen171
+\caption@width=\dimen172
+\caption@indent=\dimen173
+\caption@parindent=\dimen174
+\caption@hangindent=\dimen175
+Package caption Info: Standard document class detected.
+)
+\c@caption@flags=\count301
+\c@continuedfloat=\count302
+Package caption Info: hyperref package is loaded.
+Package caption Info: listings package is loaded.
+)
+(/usr/local/texlive/2023/texmf-dist/tex/latex/caption/subcaption.sty
+Package: subcaption 2023/07/28 v1.6b Sub-captions (AR)
+Package caption Info: New subtype `subfigure' on input line 238.
+\c@subfigure=\count303
+Package caption Info: New subtype `subtable' on input line 238.
+\c@subtable=\count304
+)
 (/usr/local/texlive/2023/texmf-dist/tex/latex/biblatex/biblatex.sty
 Package: biblatex 2023/03/05 v3.19 programmable bibliographies (PK/MW)
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/logreq/logreq.sty
 Package: logreq 2010/08/04 v1.0 xml request logger
-\lrq@indent=\count301
+\lrq@indent=\count305
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/logreq/logreq.def
 File: logreq.def 2010/08/04 v1.0 logreq spec v1.0
@@ -360,49 +387,49 @@ File: logreq.def 2010/08/04 v1.0 logreq spec v1.0
 (/usr/local/texlive/2023/texmf-dist/tex/latex/base/ifthen.sty
 Package: ifthen 2022/04/13 v1.1d Standard LaTeX ifthen package (DPC)
 )
-\c@tabx@nest=\count302
-\c@listtotal=\count303
-\c@listcount=\count304
-\c@liststart=\count305
-\c@liststop=\count306
-\c@citecount=\count307
-\c@citetotal=\count308
-\c@multicitecount=\count309
-\c@multicitetotal=\count310
-\c@instcount=\count311
-\c@maxnames=\count312
-\c@minnames=\count313
-\c@maxitems=\count314
-\c@minitems=\count315
-\c@citecounter=\count316
-\c@maxcitecounter=\count317
-\c@savedcitecounter=\count318
-\c@uniquelist=\count319
-\c@uniquename=\count320
-\c@refsection=\count321
-\c@refsegment=\count322
-\c@maxextratitle=\count323
-\c@maxextratitleyear=\count324
-\c@maxextraname=\count325
-\c@maxextradate=\count326
-\c@maxextraalpha=\count327
-\c@abbrvpenalty=\count328
-\c@highnamepenalty=\count329
-\c@lownamepenalty=\count330
-\c@maxparens=\count331
-\c@parenlevel=\count332
-\blx@tempcnta=\count333
-\blx@tempcntb=\count334
-\blx@tempcntc=\count335
-\c@blx@maxsection=\count336
-\blx@maxsegment@0=\count337
-\blx@notetype=\count338
-\blx@parenlevel@text=\count339
-\blx@parenlevel@foot=\count340
-\blx@sectionciteorder@0=\count341
-\blx@sectionciteorderinternal@0=\count342
-\blx@entrysetcounter=\count343
-\blx@biblioinstance=\count344
+\c@tabx@nest=\count306
+\c@listtotal=\count307
+\c@listcount=\count308
+\c@liststart=\count309
+\c@liststop=\count310
+\c@citecount=\count311
+\c@citetotal=\count312
+\c@multicitecount=\count313
+\c@multicitetotal=\count314
+\c@instcount=\count315
+\c@maxnames=\count316
+\c@minnames=\count317
+\c@maxitems=\count318
+\c@minitems=\count319
+\c@citecounter=\count320
+\c@maxcitecounter=\count321
+\c@savedcitecounter=\count322
+\c@uniquelist=\count323
+\c@uniquename=\count324
+\c@refsection=\count325
+\c@refsegment=\count326
+\c@maxextratitle=\count327
+\c@maxextratitleyear=\count328
+\c@maxextraname=\count329
+\c@maxextradate=\count330
+\c@maxextraalpha=\count331
+\c@abbrvpenalty=\count332
+\c@highnamepenalty=\count333
+\c@lownamepenalty=\count334
+\c@maxparens=\count335
+\c@parenlevel=\count336
+\blx@tempcnta=\count337
+\blx@tempcntb=\count338
+\blx@tempcntc=\count339
+\c@blx@maxsection=\count340
+\blx@maxsegment@0=\count341
+\blx@notetype=\count342
+\blx@parenlevel@text=\count343
+\blx@parenlevel@foot=\count344
+\blx@sectionciteorder@0=\count345
+\blx@sectionciteorderinternal@0=\count346
+\blx@entrysetcounter=\count347
+\blx@biblioinstance=\count348
 \labelnumberwidth=\skip54
 \labelalphawidth=\skip55
 \biblabelsep=\skip56
@@ -414,9 +441,9 @@ Package: ifthen 2022/04/13 v1.1d Standard LaTeX ifthen package (DPC)
 \blx@bcfin=\read2
 \blx@bcfout=\write3
 \blx@langwohyphens=\language87
-\c@mincomprange=\count345
-\c@maxcomprange=\count346
-\c@mincompwidth=\count347
+\c@mincomprange=\count349
+\c@maxcomprange=\count350
+\c@mincompwidth=\count351
 Package biblatex Info: Trying to load biblatex default data model...
 Package biblatex Info: ... file 'blx-dm.def' found.
 
@@ -427,74 +454,74 @@ Package biblatex Info: Trying to load biblatex style data model...
 Package biblatex Info: ... file 'authoryear-comp.dbx' not found.
 Package biblatex Info: Trying to load biblatex custom data model...
 Package biblatex Info: ... file 'biblatex-dm.cfg' not found.
-\c@afterword=\count348
-\c@savedafterword=\count349
-\c@annotator=\count350
-\c@savedannotator=\count351
-\c@author=\count352
-\c@savedauthor=\count353
-\c@bookauthor=\count354
-\c@savedbookauthor=\count355
-\c@commentator=\count356
-\c@savedcommentator=\count357
-\c@editor=\count358
-\c@savededitor=\count359
-\c@editora=\count360
-\c@savededitora=\count361
-\c@editorb=\count362
-\c@savededitorb=\count363
-\c@editorc=\count364
-\c@savededitorc=\count365
-\c@foreword=\count366
-\c@savedforeword=\count367
-\c@holder=\count368
-\c@savedholder=\count369
-\c@introduction=\count370
-\c@savedintroduction=\count371
-\c@namea=\count372
-\c@savednamea=\count373
-\c@nameb=\count374
-\c@savednameb=\count375
-\c@namec=\count376
-\c@savednamec=\count377
-\c@translator=\count378
-\c@savedtranslator=\count379
-\c@shortauthor=\count380
-\c@savedshortauthor=\count381
-\c@shorteditor=\count382
-\c@savedshorteditor=\count383
-\c@labelname=\count384
-\c@savedlabelname=\count385
-\c@institution=\count386
-\c@savedinstitution=\count387
-\c@lista=\count388
-\c@savedlista=\count389
-\c@listb=\count390
-\c@savedlistb=\count391
-\c@listc=\count392
-\c@savedlistc=\count393
-\c@listd=\count394
-\c@savedlistd=\count395
-\c@liste=\count396
-\c@savedliste=\count397
-\c@listf=\count398
-\c@savedlistf=\count399
-\c@location=\count400
-\c@savedlocation=\count401
-\c@organization=\count402
-\c@savedorganization=\count403
-\c@origlocation=\count404
-\c@savedoriglocation=\count405
-\c@origpublisher=\count406
-\c@savedorigpublisher=\count407
-\c@publisher=\count408
-\c@savedpublisher=\count409
-\c@language=\count410
-\c@savedlanguage=\count411
-\c@origlanguage=\count412
-\c@savedoriglanguage=\count413
-\c@pageref=\count414
-\c@savedpageref=\count415
+\c@afterword=\count352
+\c@savedafterword=\count353
+\c@annotator=\count354
+\c@savedannotator=\count355
+\c@author=\count356
+\c@savedauthor=\count357
+\c@bookauthor=\count358
+\c@savedbookauthor=\count359
+\c@commentator=\count360
+\c@savedcommentator=\count361
+\c@editor=\count362
+\c@savededitor=\count363
+\c@editora=\count364
+\c@savededitora=\count365
+\c@editorb=\count366
+\c@savededitorb=\count367
+\c@editorc=\count368
+\c@savededitorc=\count369
+\c@foreword=\count370
+\c@savedforeword=\count371
+\c@holder=\count372
+\c@savedholder=\count373
+\c@introduction=\count374
+\c@savedintroduction=\count375
+\c@namea=\count376
+\c@savednamea=\count377
+\c@nameb=\count378
+\c@savednameb=\count379
+\c@namec=\count380
+\c@savednamec=\count381
+\c@translator=\count382
+\c@savedtranslator=\count383
+\c@shortauthor=\count384
+\c@savedshortauthor=\count385
+\c@shorteditor=\count386
+\c@savedshorteditor=\count387
+\c@labelname=\count388
+\c@savedlabelname=\count389
+\c@institution=\count390
+\c@savedinstitution=\count391
+\c@lista=\count392
+\c@savedlista=\count393
+\c@listb=\count394
+\c@savedlistb=\count395
+\c@listc=\count396
+\c@savedlistc=\count397
+\c@listd=\count398
+\c@savedlistd=\count399
+\c@liste=\count400
+\c@savedliste=\count401
+\c@listf=\count402
+\c@savedlistf=\count403
+\c@location=\count404
+\c@savedlocation=\count405
+\c@organization=\count406
+\c@savedorganization=\count407
+\c@origlocation=\count408
+\c@savedoriglocation=\count409
+\c@origpublisher=\count410
+\c@savedorigpublisher=\count411
+\c@publisher=\count412
+\c@savedpublisher=\count413
+\c@language=\count414
+\c@savedlanguage=\count415
+\c@origlanguage=\count416
+\c@savedoriglanguage=\count417
+\c@pageref=\count418
+\c@savedpageref=\count419
 \shorthandwidth=\skip62
 \shortjournalwidth=\skip63
 \shortserieswidth=\skip64
@@ -520,19 +547,19 @@ Package biblatex Info: ... file 'biblatex.def' found.
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/biblatex/biblatex.def
 File: biblatex.def 2023/03/05 v3.19 biblatex compatibility (PK/MW)
-\c@textcitecount=\count416
-\c@textcitetotal=\count417
-\c@textcitemaxnames=\count418
-\c@biburlbigbreakpenalty=\count419
-\c@biburlbreakpenalty=\count420
-\c@biburlnumpenalty=\count421
-\c@biburlucpenalty=\count422
-\c@biburllcpenalty=\count423
+\c@textcitecount=\count420
+\c@textcitetotal=\count421
+\c@textcitemaxnames=\count422
+\c@biburlbigbreakpenalty=\count423
+\c@biburlbreakpenalty=\count424
+\c@biburlnumpenalty=\count425
+\c@biburlucpenalty=\count426
+\c@biburllcpenalty=\count427
 \biburlbigskip=\muskip18
 \biburlnumskip=\muskip19
 \biburlucskip=\muskip20
 \biburllcskip=\muskip21
-\c@smartand=\count424
+\c@smartand=\count428
 )
 Package biblatex Info: Trying to load bibliography style 'authoryear-comp'...
 Package biblatex Info: ... file 'authoryear-comp.bbx' found.
@@ -549,8 +576,8 @@ Package biblatex Info: ... file 'standard.bbx' found.
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/biblatex/bbx/standard.bbx
 File: standard.bbx 2023/03/05 v3.19 biblatex bibliography style (PK/MW)
-\c@bbx:relatedcount=\count425
-\c@bbx:relatedtotal=\count426
+\c@bbx:relatedcount=\count429
+\c@bbx:relatedtotal=\count430
 )))
 Package biblatex Info: Trying to load citation style 'authoryear-comp'...
 Package biblatex Info: ... file 'authoryear-comp.cbx' found.
@@ -583,7 +610,7 @@ Package: expl3 2023-11-09 L3 programming layer (loader)
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def
 File: l3backend-pdftex.def 2023-11-09 L3 backend support: PDF output (pdfTeX)
-\l__color_backend_stack_int=\count427
+\l__color_backend_stack_int=\count431
 \l__pdf_internal_box=\box55
 ))
 Package biblatex Info: ... and expl3
@@ -603,26 +630,26 @@ Package csquotes Info: ... none found.
 (./neu537writeup.aux)
 \openout1 = `neu537writeup.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-\c@lstlisting=\count428
-Package hyperref Info: Link coloring OFF on input line 27.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 30.
+LaTeX Font Info:    ... okay on input line 30.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 30.
+LaTeX Font Info:    ... okay on input line 30.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 30.
+LaTeX Font Info:    ... okay on input line 30.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 30.
+LaTeX Font Info:    ... okay on input line 30.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 30.
+LaTeX Font Info:    ... okay on input line 30.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 30.
+LaTeX Font Info:    ... okay on input line 30.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 30.
+LaTeX Font Info:    ... okay on input line 30.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 30.
+LaTeX Font Info:    ... okay on input line 30.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 30.
+LaTeX Font Info:    ... okay on input line 30.
+\c@lstlisting=\count432
+Package hyperref Info: Link coloring OFF on input line 30.
  (./neu537writeup.out) (./neu537writeup.out)
 \@outlinefile=\write4
 \openout4 = `neu537writeup.out'.
@@ -630,16 +657,16 @@ Package hyperref Info: Link coloring OFF on input line 27.
 
 (/usr/local/texlive/2023/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
 [Loading MPS to PDF converter (version 2006.09.02).]
-\scratchcounter=\count429
-\scratchdimen=\dimen168
+\scratchcounter=\count433
+\scratchdimen=\dimen176
 \scratchbox=\box56
-\nofMPsegments=\count430
-\nofMParguments=\count431
+\nofMPsegments=\count434
+\nofMParguments=\count435
 \everyMPshowfont=\toks26
-\MPscratchCnt=\count432
-\MPscratchDim=\dimen169
-\MPnumerator=\count433
-\makeMPintoPDFobject=\count434
+\MPscratchCnt=\count436
+\MPscratchDim=\dimen177
+\MPnumerator=\count437
+\makeMPintoPDFobject=\count438
 \everyMPtoPDFconversion=\toks27
 ) (/usr/local/texlive/2023/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
 Package: epstopdf-base 2020-01-24 v2.11 Base part for package epstopdf
@@ -684,6 +711,8 @@ e
 * \@reversemarginfalse
 * (1in=72.27pt=25.4mm, 1cm=28.453pt)
 
+Package caption Info: Begin \AtBeginDocument code.
+Package caption Info: End \AtBeginDocument code.
 Package biblatex Info: Trying to load language 'english'...
 Package biblatex Info: ... file 'english.lbx' found.
 (/usr/local/texlive/2023/texmf-dist/tex/latex/biblatex/lbx/english.lbx
@@ -698,15 +727,15 @@ Package biblatex Info: Trying to load bibliographic data...
 Package biblatex Info: ... file 'neu537writeup.bbl' found.
 
 (./neu537writeup.bbl)
-Package biblatex Info: Reference section=0 on input line 27.
-Package biblatex Info: Reference segment=0 on input line 27.
-LaTeX Font Info:    Trying to load font information for U+msa on input line 30.
+Package biblatex Info: Reference section=0 on input line 30.
+Package biblatex Info: Reference segment=0 on input line 30.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 33.
 
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/amsfonts/umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 30.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 33.
 
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/amsfonts/umsb.fd
@@ -717,70 +746,90 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 al/texlive/2023/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc}] [2] [3]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 131.
+(hyperref)                removing `math shift' on input line 134.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 131.
+(hyperref)                removing `superscript' on input line 134.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 131.
+(hyperref)                removing `math shift' on input line 134.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 131.
+(hyperref)                removing `math shift' on input line 134.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 131.
+(hyperref)                removing `superscript' on input line 134.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 131.
+(hyperref)                removing `math shift' on input line 134.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 131.
+(hyperref)                removing `math shift' on input line 134.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 131.
+(hyperref)                removing `superscript' on input line 134.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 131.
+(hyperref)                removing `math shift' on input line 134.
 
-[4] [5] [6] [7] (./neu537writeup.aux)
+[4] [5]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 169.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 169.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 169.
+
+<../plots/leonardfig2panA.png, id=147, 810.02625pt x 272.01625pt>
+File: ../plots/leonardfig2panA.png Graphic file (type png)
+<use ../plots/leonardfig2panA.png>
+Package pdftex.def Info: ../plots/leonardfig2panA.png  used on input line 177.
+(pdftex.def)             Requested size: 375.80544pt x 126.19984pt.
+<../plots/nog_constd_lowsig.png, id=149, 2409.0pt x 1204.5pt>
+File: ../plots/nog_constd_lowsig.png Graphic file (type png)
+<use ../plots/nog_constd_lowsig.png>
+Package pdftex.def Info: ../plots/nog_constd_lowsig.png  used on input line 183
+.
+(pdftex.def)             Requested size: 234.8775pt x 117.42448pt.
+<../plots/nog_constd_medsig.png, id=150, 2409.0pt x 1204.5pt>
+File: ../plots/nog_constd_medsig.png Graphic file (type png)
+<use ../plots/nog_constd_medsig.png>
+Package pdftex.def Info: ../plots/nog_constd_medsig.png  used on input line 189
+.
+(pdftex.def)             Requested size: 234.8775pt x 117.42448pt.
+[6] [7 <../plots/leonardfig2panA.png> <../plots/nog_constd_lowsig.png> <../plot
+s/nog_constd_medsig.png>] [8] (./neu537writeup.aux)
  ***********
 LaTeX2e <2023-11-01>
 L3 programming layer <2023-11-09>
  ***********
-
-
-Package rerunfilecheck Warning: File `neu537writeup.out' has changed.
-(rerunfilecheck)                Rerun to get outlines right
-(rerunfilecheck)                or use package `bookmark'.
-
-Package rerunfilecheck Info: Checksums for `neu537writeup.out':
-(rerunfilecheck)             Before: CAF33C8DE5F07515C7875177E8F62A52;2377
-(rerunfilecheck)             After:  E91EDAB67D806615A863686D84C51C21;2559.
-
-Package biblatex Warning: Please rerun LaTeX.
-(biblatex)                Page breaks have changed.
-
+Package rerunfilecheck Info: File `neu537writeup.out' has not changed.
+(rerunfilecheck)             Checksum: 6B7C537C22905B69A0615FCD94B2E974;3005.
 Package logreq Info: Writing requests to 'neu537writeup.run.xml'.
 \openout1 = `neu537writeup.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 19506 strings out of 474273
- 336195 string characters out of 5747714
+ 20962 strings out of 474273
+ 364715 string characters out of 5747714
  1939555 words of memory out of 5000000
- 41454 multiletter control sequences out of 15000+600000
- 568068 words of font info for 74 fonts, out of 8000000 for 9000
+ 42898 multiletter control sequences out of 15000+600000
+ 569613 words of font info for 80 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,11n,81p,2029b,1554s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 75i,11n,81p,2029b,1564s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
 pdfTeX warning (dest): name{Hfootnote.2} has been referenced but does not exist
 , replaced by a fixed one
@@ -789,48 +838,36 @@ pdfTeX warning (dest): name{Hfootnote.2} has been referenced but does not exist
 pdfTeX warning (dest): name{Hfootnote.1} has been referenced but does not exist
 , replaced by a fixed one
 
-
-pdfTeX warning (dest): name{subsubsection.2.3.4} has been referenced but does n
-ot exist, replaced by a fixed one
-
-
-pdfTeX warning (dest): name{subsubsection.2.3.3} has been referenced but does n
-ot exist, replaced by a fixed one
-
-
-pdfTeX warning (dest): name{subsubsection.2.3.2} has been referenced but does n
-ot exist, replaced by a fixed one
-
-
-pdfTeX warning (dest): name{subsubsection.2.3.1} has been referenced but does n
-ot exist, replaced by a fixed one
-
 </usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb><
 /usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></
 usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx8.pfb></us
 r/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmcsc10.pfb></us
 r/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr
 /local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/
-local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/lo
-cal/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/loca
-l/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/
-texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/local/te
-xlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/local/texl
-ive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/local/texlive
-/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/20
-23/texmf-dist/fonts/type1/public/amsfonts/cm/cmr8.pfb></usr/local/texlive/2023/
-texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2023/t
-exmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb></usr/local/texlive/2023/tex
-mf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/local/texlive/2023/texm
-f-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb></usr/local/texlive/2023/texmf
--dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr/local/texlive/2023/t
-exmf-dist/fonts/type1/public/cm-super/sfrm0600.pfb></usr/local/texlive/2023/tex
-mf-dist/fonts/type1/public/cm-super/sfrm0800.pfb></usr/local/texlive/2023/texmf
--dist/fonts/type1/public/cm-super/sfrm1000.pfb>
-Output written on neu537writeup.pdf (7 pages, 266172 bytes).
+local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi12.pfb></usr/l
+ocal/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/loc
+al/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/local
+/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi9.pfb></usr/local/t
+exlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/tex
+live/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/local/texli
+ve/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/local/texlive
+/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/local/texlive/20
+23/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2023/
+texmf-dist/fonts/type1/public/amsfonts/cm/cmr8.pfb></usr/local/texlive/2023/tex
+mf-dist/fonts/type1/public/amsfonts/cm/cmr9.pfb></usr/local/texlive/2023/texmf-
+dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2023/texmf-d
+ist/fonts/type1/public/amsfonts/cm/cmsy7.pfb></usr/local/texlive/2023/texmf-dis
+t/fonts/type1/public/amsfonts/cm/cmsy9.pfb></usr/local/texlive/2023/texmf-dist/
+fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/local/texlive/2023/texmf-dist/f
+onts/type1/public/amsfonts/cm/cmtt10.pfb></usr/local/texlive/2023/texmf-dist/fo
+nts/type1/public/amsfonts/symbols/msbm10.pfb></usr/local/texlive/2023/texmf-dis
+t/fonts/type1/public/cm-super/sfrm0600.pfb></usr/local/texlive/2023/texmf-dist/
+fonts/type1/public/cm-super/sfrm0800.pfb></usr/local/texlive/2023/texmf-dist/fo
+nts/type1/public/cm-super/sfrm1000.pfb>
+Output written on neu537writeup.pdf (8 pages, 1524779 bytes).
 PDF statistics:
- 280 PDF objects out of 1000 (max. 8388607)
- 224 compressed objects within 3 object streams
+ 324 PDF objects out of 1000 (max. 8388607)
+ 252 compressed objects within 3 object streams
  53 named destinations out of 1000 (max. 500000)
- 113 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 152 words of extra memory for PDF output out of 10000 (max. 10000000)
 

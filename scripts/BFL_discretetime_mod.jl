@@ -426,7 +426,7 @@ function agent_step!(agent, model)
     stoch_input = extinput(agent, model, model.noisematrix)
     # Discrete opinion update
     det_opinion_update, stoch_opinion_update = ddt_opinionstate(agent, model, det_input, stoch_input)
-    opinion_alt = agent.opinion_prev + model.euler_h/2 * opinion_update
+    opinion_alt = agent.opinion_prev + model.euler_h/2 * det_opinion_update + sqrt(model.euler_h/2) * stoch_opinion_update
     agent.opinion_new = agent.opinion_prev + model.euler_h * det_opinion_update + sqrt(model.euler_h) * stoch_opinion_update
     # Discrete susceptibility update
     scp_update = ddt_scpstate(agent, model)
@@ -438,7 +438,7 @@ function agent_step!(agent, model)
     # Discrete gate update 
     if model.gating
         det_gate_update, stoch_gate_update = ddt_gatingstate(agent, model, det_input, stoch_input)
-        gate_alt = agent.gating_state + model.euler_h/2 * gate_update
+        gate_alt = agent.gating_state + model.euler_h/2 * det_gate_update + sqrt(model.euler_h/2) * stoch_gate_update
         agent.gating_state += (model.euler_h * det_gate_update) + sqrt(model.euler_h) * stoch_gate_update
     else
         gate_alt = 0.0

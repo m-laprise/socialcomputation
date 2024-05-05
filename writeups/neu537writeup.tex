@@ -9,6 +9,9 @@
 \usepackage[]{amsmath}
 \usepackage[]{amsfonts}
 \usepackage[]{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{graphicx}
 \usepackage[
 backend=biber,
 style=authoryear-comp,
@@ -118,16 +121,7 @@ The authors also showed that at the bifurcation, indecision-breaking occurs very
 
 In the modified model, I let $d_i$ be unit specific, sampled from a Gaussian, and I add a gating variable, and examine how this impacts indecision-breaking bifurcations and the dynamics of the system in response to various patterns of signal and noise. 
 
-\subsubsection{First modification: heterogeneous $d_i$}
-
-Given the form of the dynamical equations, the value of $d_i$ determines the value at which the opinion state of each agent $i$ will saturate. Allowing $d_i$ to be unit-specific means that instead of all agents converging to identical scalar opinion states, agents will converge to opinion states of different magnitudes. This seems more realistic for social decision-making: even if a group collectively agrees with an option, different agents may be more or less convinced that it is the right choice. Insofar as agents are away from the neutral state, they have still broken indecision, even if they don't converge to same scalar opinion magnitude. I illustrate this difference in Figure ... .
-
-(a) Reproduced from top panel of Figure 2 of the BFL 2024 paper. In a small network of 13 agents, two agents receive a short signal of strength $b$ in favor of option 1 and concurrently, two agents receive a short signal of strength $-b$ in disfavor of option 1. The authors showed an opinion cascade occurring when external inputs grow large, for a small network of 13 agents.
-(b and c) Results from my simulations for a network of 100 agents receiving a similar external input pattern. 25 agents receive a short signal in favor, while 25 other agents receive a similar signal in disfavor. In panel (b) agents have homogeneous damping. (Should reproduce the phenomena observed by BFL 2024).
-In panel (c) agents have heterogeneous damping sampled from a Gaussian, showing the distinct stable opinion states, with most agents being moderately convinced, and some agents developing more extreme views. 
-
-\subsubsection{Second modification: gating}
-
+...
 
 \subsection{Simulations}
 
@@ -172,6 +166,37 @@ Supposing that there is a decision to be made, and that only agents strongly in 
 
 \section{Results}
 
+\subsection{First modification: heterogeneous $d_i$}
+
+Given the form of the dynamical equations, the value of $d_i$ determines the value at which the opinion state of each agent $i$ will saturate. Allowing $d_i$ to be unit-specific means that instead of all agents converging to identical scalar opinion states, agents will converge to opinion states of different magnitudes. This seems more realistic for social decision-making: even if a group collectively agrees with an option, different agents may be more or less convinced that it is the right choice. Insofar as agents are away from the neutral state, they have still broken indecision, even if they don't converge to same scalar opinion magnitude. I illustrate this difference in Figure \ref{fig:homdamping}.
+
+\begin{figure}
+	\centering
+	\begin{subfigure}[t]{0.8\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../plots/leonardfig2panA.png} 
+		\caption{Results (Figure 2) of Leonard et al. 2024} \label{fig:damping1}
+	\end{subfigure}
+	
+	\begin{subfigure}[t]{0.5\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../plots/nog_constd_lowsig.png} 
+		\caption{My simulation, input $b = \pm 0.1 $} \label{fig:damping2}
+	\end{subfigure}
+	
+	\begin{subfigure}[t]{0.5\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../plots/nog_constd_medsig.png} 
+		\caption{My simulation, input $b = \pm 0.25 $} \label{fig:damping3}
+	\end{subfigure}
+	
+	\caption{Opinion cascades under homogeneous damping, occurring when external inputs grow larger. (\subref{fig:damping1}) is the top panel of Figure 2 of the BFL 2024 paper. In a small network of 13 agents, two agents receive a short signal of strength $b$ in favor of option 1 and concurrently, two agents receive a short signal of strength $-b$ in disfavor of option 1. Susceptibility state is not included. (\subref{fig:damping2}) and (\subref{fig:damping3}) are my simulations reproducing the same phenomena, with a network of 100 agents. Opinion state in blue, susceptibility state in red. 25 agents receive a short signal in favor of option 1, while 25 other agents receive a similar signal in disfavor. }\label{fig:homdamping}
+\end{figure}
+
+
+In panel (c) agents have heterogeneous damping sampled from a Gaussian, showing the distinct stable opinion states, with most agents being moderately convinced, and some agents developing more extreme views. 
+
+\subsection{Second modification: gating}
 
 \section{Discussion}
 
