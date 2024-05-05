@@ -8,10 +8,20 @@ function bias_process(alpha::Float64, start::Int, stop::Int, maxsteps::Int)
     return biasproc
 end
 
-function create_extinput(n::Int, maxsteps::Int; 
-                         gaussiannoise::Bool = false,
+function create_extnoise(n::Int, maxsteps::Int;
+                         noisetype::String = "gaussian",
                          noise_mean::Float64 = 0.0,
-                         noise_var::Float64 = 0.1,
+                         noise_var::Float64 = 0.1)
+    extnoise = zeros(n, maxsteps)
+    if noisetype == "gaussian"
+        noise = rand(Normal(noise_mean, noise_var), n, maxsteps)
+        extnoise .= noise
+    else
+        error("Invalid noise type. Only 'gaussian' is supported.")
+    end
+end
+
+function create_extsignal(n::Int, maxsteps::Int; 
                          prestimulus_delay::Int = 50,
                          betweensignals_delay::Int = 0,
                          betweenbursts_delay::Int = 0,
@@ -52,11 +62,6 @@ function create_extinput(n::Int, maxsteps::Int;
     # Each row corresponds to the external input for one agent
     # Each column corresponds to the external input at one time step
     extinput = zeros(n, maxsteps)
-    # Add Gaussian noise to the external input
-    if gaussiannoise
-        noise = rand(Normal(noise_mean, noise_var), n, maxsteps)
-        extinput .= noise
-    end
     # Add the first signal
     if group1 > 0 && signal1_strength != "none"
         if signal1_strength == "low"
@@ -97,9 +102,9 @@ end
 using Test
 
 # Create unit test for the function above
-function test_create_extinput()
+function test_create_extsignal()
     Random.seed!(1234)
-    extinput = create_extinput(10, 100)
+    extinput = create_extsignal(10, 100)
     @test size(extinput) == (10, 100)
     @test all(extinput .>= 0)
     @test all(extinput .<= 0.4)
@@ -108,14 +113,14 @@ test_create_extinput()
 
 # test for the function above, for different values of the parameters
 #Random.seed!(1234)
-_extinput0 = create_extinput(10, 50, prestimulus_delay = 10)
-_extinput1 = create_extinput(10, 50, gaussiannoise = true, noise_mean = 0.0, noise_var = 0.2, prestimulus_delay = 10)
-_extinput2 = create_extinput(10, 50, group1 = 0.5, signal1_nbbursts = 2, betweenbursts_delay = 2,
-                              signal1_strength = "medium", signal1_timeon = 2, prestimulus_delay = 10)
-_extinput3 = create_extinput(10, 50, group1 = 0.5, signal1_nbbursts = 2, signal1_strength = "medium", signal1_timeon = 20, 
-                                    group2 = 0.3, signal2_nbbursts = 1, signal2_strength = "high", signal2_timeon = 10, prestimulus_delay = 10)                                   
-_extinput4 = create_extinput(10, 50, mutuallyexclusivegroups = false, group1 = 0.5, group2 = 0.5, signal1_strength = "low", signal2_strength = "high", 
-                            prestimulus_delay = 10)
-_extinput5 = create_extinput(10, 50, mutuallyexclusivegroups = false, group1 = 0.5, group2 = 0.5, betweensignals_delay = 3,
-                            signal1_strength = "low", signal2_strength = "high", 
-                            prestimulus_delay = 10)
+# _extinput0 = create_extinput(10, 50, prestimulus_delay = 10)
+# _extinput1 = create_extinput(10, 50, gaussiannoise = true, noise_mean = 0.0, noise_var = 0.2, prestimulus_delay = 10)
+# _extinput2 = create_extinput(10, 50, group1 = 0.5, signal1_nbbursts = 2, betweenbursts_delay = 2,
+#                               signal1_strength = "medium", signal1_timeon = 2, prestimulus_delay = 10)
+# _extinput3 = create_extinput(10, 50, group1 = 0.5, signal1_nbbursts = 2, signal1_strength = "medium", signal1_timeon = 20, 
+#                                     group2 = 0.3, signal2_nbbursts = 1, signal2_strength = "high", signal2_timeon = 10, prestimulus_delay = 10)                                   
+# _extinput4 = create_extinput(10, 50, mutuallyexclusivegroups = false, group1 = 0.5, group2 = 0.5, signal1_strength = "low", signal2_strength = "high", 
+#                             prestimulus_delay = 10)
+# _extinput5 = create_extinput(10, 50, mutuallyexclusivegroups = false, group1 = 0.5, group2 = 0.5, betweensignals_delay = 3,
+#                             signal1_strength = "low", signal2_strength = "high", 
+#                             prestimulus_delay = 10)

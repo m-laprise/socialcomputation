@@ -74,7 +74,7 @@ function init_bfl_model(; numagents::Int = 100,
                         tau_scp::Float64 = 1.0,
                         saturation::String = "tanh",
                         jz_network::Tuple = ("barabasialbert", 3),
-                        ju_network::String = "identity",
+                        ju_network::String = "buddies",
                         # Unit-specific parameters
                         dampingtype::String = "random", 
                         dampingparam::Tuple = (0.5, 0.25),
@@ -82,13 +82,14 @@ function init_bfl_model(; numagents::Int = 100,
                         scalingparam::Tuple = (1.0,0.5),
                         # External input
                         inputmatrix::AbstractMatrix{Float64} = zeros(numagents, maxsteps),
-                        biastype::String = "randomsmall",
-                        biasproc::Vector{Float64} = zeros(maxsteps),
-                        numsensing::Int = 0,
-                        grsensing::Int = 0,
+                        noisematrix::AbstractMatrix{Float64} = zeros(numagents, maxsteps),
+                        #biastype::String = "randomsmall",
+                        #biasproc::Vector{Float64} = zeros(maxsteps),
+                        #numsensing::Int = 0,
+                        #grsensing::Int = 0,
                         # Gate parameters
                         gating::Bool = false,
-                        jx_network::String = "complete",
+                        jx_network::String = "2degree",
                         tau_gate::Float64 = 1.0,
                         alpha_gate::Float64 = 1.0,
                         beta_gate::Float64 = 0.0,
@@ -97,14 +98,27 @@ function init_bfl_model(; numagents::Int = 100,
                         euler_h::Float64 = 0.1,
                         seed::Int=23)
     # Check that input matrix is numagents x maxsteps, otherwise error
-    if size(biasproc) != (maxsteps,)
-        error("Bias process vector must be of length maxsteps.")
-    end
-    if size(inputmatrix) != (numagents, maxsteps)
-        error("Input matrix must be of size numagents x maxsteps.")
+    #if size(biasproc) != (maxsteps,)
+    #    error("Bias process vector must be of length maxsteps.")
+    #end
+    if size(inputmatrix) != (numagents, maxsteps) || size(noisematrix) != (numagents, maxsteps)
+        error("Input and noise matrices must be of size numagents x maxsteps.")
     end
     # Create an ABM model with the OpinionatedGuy agent type
     buddies, adj_ju, adj_jx = network_generation(jz_network, ju_network, jx_network, numagents, seed)
+    # Print some basic statistics about the resulting social graph buddies
+    println("Social graph initialized with $(jz_network[1]) network.")
+    println("Number of edges: $(ne(buddies))")
+    avgdeg = mean(Graphs.degree(buddies))
+    println("Average degree: $(avgdeg)")
+    println("Maximum degree: $(maximum(Graphs.degree(buddies)))")
+    println("Edge density: $(Graphs.density(buddies))")
+    println("Assortativity coef: $(assortativity(buddies))")
+    println("Global clustering coef: $(global_clustering_coefficient(buddies))")
+    println("Rich-club coef, k=mean: $(rich_club(buddies, Int(round(avgdeg))))")
+    println("Vertices with self-loops? $(has_self_loops(buddies))")
+    println("Graph is connected? $(is_connected(buddies))")
+    # core_periphery_deg(test)
     model = StandardABM(OpinionatedGuy; agent_step!, model_step!, 
         rng = MersenneTwister(seed), scheduler = Schedulers.fastest,
         properties = Dict(
@@ -112,12 +126,13 @@ function init_bfl_model(; numagents::Int = 100,
             :gain_scp => gain_scp,
             :tau_scp => tau_scp,
             :saturation => saturation,
-            :biastype => biastype,
-            :biasproc => biasproc,
+            #:biastype => biastype,
+            #:biasproc => biasproc,
             :buddies => buddies, # communication graph
             :adj_ju => adj_ju, # susceptibility graph
             # External input
             :inputmatrix => inputmatrix,
+            :noisematrix => noisematrix,
             # Gating parameters
             :gating => gating,
             :adj_jx => adj_jx, # gating graph
@@ -130,11 +145,11 @@ function init_bfl_model(; numagents::Int = 100,
         )
     )
     # Select agents to be sensitive to external information
-    if numsensing > 0
-        sensors = randperm(numagents)[1:numsensing]
+    #if numsensing > 0
+        #sensors = randperm(numagents)[1:numsensing]
         #sensors_odd = sensors[1:2:end]
         #sensors_even = sensors[2:2:end]
-    end
+    #end
     # Add numagents agents to the model
     for i in 1:numagents
         personalbias = 0.0
@@ -257,8 +272,13 @@ function network_generation(jz_network::Tuple, ju_network::String, jx_network::S
     end
     if jx_network == "complete"
         adj_jx = sparse(complete_graph(numagents))
+    elseif jx_network == "2degree"
+        # Get the 2-degree neighbors of each agent from the adjacency matrix of the social graph
+        adj_jx = adjacency_matrix(g_bud)
+        adj_jx = adj_jx * adj_jx 
+        adj_jx = adj_jx .> 0  # Convert to binary adjacency matrix
     else
-        error("Unimplemented gating network type. Use 'complete'.")
+        error("Unimplemented gating network type. Use 'complete' or '2degree'.")
     end
     return g_bud, adj_ju, adj_jx
 end
@@ -373,9 +393,9 @@ The `extinput` function returns the external input for an agent at a given time 
 ## Returns
 - The external input value.
 """
-function extinput(agent, model)
+function extinput(agent, model, matrix)
     step = abmtime(model) + 1
-    return model.inputmatrix[agent.id, step]
+    return matrix[agent.id, step]
 end
 
 """
@@ -401,40 +421,44 @@ The function performs the following steps:
 function agent_step!(agent, model)
     agent.opinion_prev = agent.opinion_temp
     # Time or agent-specific bias term
-    abias = intbias(agent, model; type = model.biastype) + extinput(agent, model)
+    #det_input = intbias(agent, model; type = model.biastype) + extinput(agent, model)
+    det_input = extinput(agent, model, model.inputmatrix)
+    stoch_input = extinput(agent, model, model.noisematrix)
     # Discrete opinion update
-    opinion_update = ddt_opinionstate(agent, model, abias)
+    det_opinion_update, stoch_opinion_update = ddt_opinionstate(agent, model, det_input, stoch_input)
     opinion_alt = agent.opinion_prev + model.euler_h/2 * opinion_update
-    agent.opinion_new = agent.opinion_prev + model.euler_h * opinion_update
+    agent.opinion_new = agent.opinion_prev + model.euler_h * det_opinion_update + sqrt(model.euler_h) * stoch_opinion_update
     # Discrete susceptibility update
     scp_update = ddt_scpstate(agent, model)
     scp_alt = agent.scp_state + model.euler_h/2 * scp_update
-    agent.scp_state += model.euler_h * scp_update
+    agent.scp_state += (model.euler_h * scp_update)
     if agent.scp_state < 0
         agent.scp_state = 0
     end
     # Discrete gate update 
     if model.gating
-        gate_update = ddt_gatingstate(agent, model, abias)
+        det_gate_update, stoch_gate_update = ddt_gatingstate(agent, model, det_input, stoch_input)
         gate_alt = agent.gating_state + model.euler_h/2 * gate_update
-        agent.gating_state += model.euler_h * gate_update
+        agent.gating_state += (model.euler_h * det_gate_update) + sqrt(model.euler_h) * stoch_gate_update
     else
         gate_alt = 0.0
     end
     # Check and warn for numerical stability of Euler approximation
     step = abmtime(model)
-    newstate = [agent.opinion_new, agent.scp_state, agent.gating_state]
-    altstate = [opinion_alt, scp_alt, gate_alt]
-    # maximum norm of the difference vector
-    stability_distance = maximum(abs.(newstate - altstate))
-    tolerance = 1e-3
-    if stability_distance > tolerance
-        println("Warning: Euler approximation of update at step $step may be unstable:")
-        println("Maximum norm of difference vector is $stability_distance")
+    if step % 100 == 0
+        newstate = [agent.opinion_new, agent.scp_state, agent.gating_state]
+        altstate = [opinion_alt, scp_alt, gate_alt]
+        # maximum norm of the difference vector
+        stability_distance = maximum(abs.(newstate - altstate))
+        tolerance = 1e-3
+        if stability_distance > tolerance
+            println("Warning: Euler approximation of update at step $step for agent $agent may be unstable:")
+            println("Maximum norm of difference vector is $stability_distance")
+        end
     end
 end
 
-function ddt_opinionstate(agent, model, abias)
+function ddt_opinionstate(agent, model, det_input, stoch_input)
     buddiesidxs, buddiesweights = nearby_agents(agent, model; type = "undir")
     selfinhib = -agent.damping * agent.opinion_temp
     neighborinfo = 0
@@ -448,9 +472,10 @@ function ddt_opinionstate(agent, model, abias)
         phigate = saturation(agent.gating_state, type = "sigmoid",
                              alpha = model.alpha_gate, beta = model.beta_gate)
     end
-    opinion_update = phigate * (selfinhib + saturation(agent.scp_state * neighborinfo, 
-                                                       type = model.saturation)) + abias
-    return opinion_update                   
+    det_opinion_update = phigate * (selfinhib + saturation(agent.scp_state * (neighborinfo + agent.opinion_temp), 
+                                                       type = model.saturation)) + det_input
+    stoch_opinion_update = stoch_input
+    return det_opinion_update, stoch_opinion_update                   
 end
 
 function ddt_scpstate(agent, model)
@@ -465,7 +490,7 @@ function ddt_scpstate(agent, model)
     return scp_update
 end
 
-function ddt_gatingstate(agent, model, abias)
+function ddt_gatingstate(agent, model, det_input, stoch_input)
     gateidxs, gateweights = findnz(model.adj_jx[agent.id, :])
     addx = 0
     for (widx, gateidx) in enumerate(gateidxs)
@@ -474,9 +499,11 @@ function ddt_gatingstate(agent, model, abias)
                        type = model.saturation) .* buddiness
         addx += x
     end
-    scaledbias = agent.scaling * abias
-    gate_update = 1/model.tau_gate * (-agent.gating_state + addx + scaledbias)
-    return gate_update
+    scaledsignal = agent.scaling * det_input
+    det_gate_update = 1/model.tau_gate * (-agent.gating_state + addx + scaledsignal)
+    scalednoise = agent.scaling * stoch_input
+    stoch_gate_update = 1/model.tau_gate * scalednoise
+    return det_gate_update, stoch_gate_update
 end
 
 
