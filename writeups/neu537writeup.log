@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.12.6)  5 MAY 2024 14:14
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.12.6)  5 MAY 2024 15:30
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -783,53 +783,75 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 [4] [5]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 169.
+(hyperref)                removing `math shift' on input line 168.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `subscript' on input line 169.
+(hyperref)                removing `subscript' on input line 168.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 169.
+(hyperref)                removing `math shift' on input line 168.
 
-<../plots/leonardfig2panA.png, id=147, 810.02625pt x 272.01625pt>
+<../plots/leonardfig2panA.png, id=148, 810.02625pt x 272.01625pt>
 File: ../plots/leonardfig2panA.png Graphic file (type png)
 <use ../plots/leonardfig2panA.png>
-Package pdftex.def Info: ../plots/leonardfig2panA.png  used on input line 177.
+Package pdftex.def Info: ../plots/leonardfig2panA.png  used on input line 176.
 (pdftex.def)             Requested size: 375.80544pt x 126.19984pt.
-<../plots/nog_constd_lowsig.png, id=149, 2409.0pt x 1204.5pt>
+<../plots/nog_constd_lowsig.png, id=150, 2007.5pt x 1003.75pt>
 File: ../plots/nog_constd_lowsig.png Graphic file (type png)
 <use ../plots/nog_constd_lowsig.png>
-Package pdftex.def Info: ../plots/nog_constd_lowsig.png  used on input line 183
+Package pdftex.def Info: ../plots/nog_constd_lowsig.png  used on input line 182
 .
-(pdftex.def)             Requested size: 234.8775pt x 117.42448pt.
-<../plots/nog_constd_medsig.png, id=150, 2409.0pt x 1204.5pt>
+(pdftex.def)             Requested size: 281.85587pt x 140.92226pt.
+<../plots/nog_constd_medsig.png, id=151, 2007.5pt x 1003.75pt>
 File: ../plots/nog_constd_medsig.png Graphic file (type png)
 <use ../plots/nog_constd_medsig.png>
-Package pdftex.def Info: ../plots/nog_constd_medsig.png  used on input line 189
+Package pdftex.def Info: ../plots/nog_constd_medsig.png  used on input line 188
 .
-(pdftex.def)             Requested size: 234.8775pt x 117.42448pt.
+(pdftex.def)             Requested size: 281.85587pt x 140.92226pt.
+<../plots/nog_hetd_lowsig.png, id=158, 2007.5pt x 803.0pt>
+File: ../plots/nog_hetd_lowsig.png Graphic file (type png)
+<use ../plots/nog_hetd_lowsig.png>
+Package pdftex.def Info: ../plots/nog_hetd_lowsig.png  used on input line 200.
+(pdftex.def)             Requested size: 281.85587pt x 112.73781pt.
+<../plots/nog_hetd_medsig.png, id=159, 2007.5pt x 803.0pt>
+File: ../plots/nog_hetd_medsig.png Graphic file (type png)
+<use ../plots/nog_hetd_medsig.png>
+Package pdftex.def Info: ../plots/nog_hetd_medsig.png  used on input line 206.
+(pdftex.def)             Requested size: 281.85587pt x 112.73781pt.
+<../plots/wg_hetd_lowsig.png, id=163, 2208.25pt x 803.0pt>
+File: ../plots/wg_hetd_lowsig.png Graphic file (type png)
+<use ../plots/wg_hetd_lowsig.png>
+Package pdftex.def Info: ../plots/wg_hetd_lowsig.png  used on input line 221.
+(pdftex.def)             Requested size: 281.85587pt x 102.48222pt.
+<../plots/wg_hetd_medsig.png, id=164, 2208.25pt x 803.0pt>
+File: ../plots/wg_hetd_medsig.png Graphic file (type png)
+<use ../plots/wg_hetd_medsig.png>
+Package pdftex.def Info: ../plots/wg_hetd_medsig.png  used on input line 227.
+(pdftex.def)             Requested size: 281.85587pt x 102.48222pt.
 [6] [7 <../plots/leonardfig2panA.png> <../plots/nog_constd_lowsig.png> <../plot
-s/nog_constd_medsig.png>] [8] (./neu537writeup.aux)
+s/nog_constd_medsig.png>] [8 <../plots/nog_hetd_lowsig.png> <../plots/nog_hetd_
+medsig.png> <../plots/wg_hetd_lowsig.png> <../plots/wg_hetd_medsig.png>]
+[9] [10] (./neu537writeup.aux)
  ***********
 LaTeX2e <2023-11-01>
 L3 programming layer <2023-11-09>
  ***********
 Package rerunfilecheck Info: File `neu537writeup.out' has not changed.
-(rerunfilecheck)             Checksum: 6B7C537C22905B69A0615FCD94B2E974;3005.
+(rerunfilecheck)             Checksum: 0E9597ED92507868894DB88A3896592C;3005.
 Package logreq Info: Writing requests to 'neu537writeup.run.xml'.
 \openout1 = `neu537writeup.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 20962 strings out of 474273
- 364715 string characters out of 5747714
- 1939555 words of memory out of 5000000
- 42898 multiletter control sequences out of 15000+600000
+ 21004 strings out of 474273
+ 365891 string characters out of 5747714
+ 1940555 words of memory out of 5000000
+ 42936 multiletter control sequences out of 15000+600000
  569613 words of font info for 80 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,11n,81p,2029b,1564s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 75i,11n,81p,2029b,1347s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
 pdfTeX warning (dest): name{Hfootnote.2} has been referenced but does not exist
 , replaced by a fixed one
@@ -864,10 +886,10 @@ nts/type1/public/amsfonts/symbols/msbm10.pfb></usr/local/texlive/2023/texmf-dis
 t/fonts/type1/public/cm-super/sfrm0600.pfb></usr/local/texlive/2023/texmf-dist/
 fonts/type1/public/cm-super/sfrm0800.pfb></usr/local/texlive/2023/texmf-dist/fo
 nts/type1/public/cm-super/sfrm1000.pfb>
-Output written on neu537writeup.pdf (8 pages, 1524779 bytes).
+Output written on neu537writeup.pdf (10 pages, 2767701 bytes).
 PDF statistics:
- 324 PDF objects out of 1000 (max. 8388607)
- 252 compressed objects within 3 object streams
- 53 named destinations out of 1000 (max. 500000)
- 152 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 343 PDF objects out of 1000 (max. 8388607)
+ 264 compressed objects within 3 object streams
+ 57 named destinations out of 1000 (max. 500000)
+ 172 words of extra memory for PDF output out of 10000 (max. 10000000)
 

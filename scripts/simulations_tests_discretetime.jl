@@ -8,13 +8,12 @@ include("noise_and_input_patterns.jl")
 
 # Create function that passes any kwargs to model_run, run simulations and generate figure
 function runsim_oneparam(numagents, maxsteps, inputmatrix, noisematrix, gating=false, seed=25; kwargs...)
-    possiblevars = [:opinion_new, :scp_state, :gating_state]
     if gating
-        varstocollect = possiblevars
+        varstocollect = [:opinion_new, :scp_state, :gating_state]
     else
-        varstocollect = possiblevars[1:2]
+        varstocollect = [:opinion_new, :scp_state]
     end
-    data = model_run(varstocollect; 
+    data = model_run([:opinion_new, :scp_state, :gating_state]; 
                      numagents = numagents, 
                      maxsteps = maxsteps, 
                      inputmatrix = inputmatrix, 
@@ -23,8 +22,16 @@ function runsim_oneparam(numagents, maxsteps, inputmatrix, noisematrix, gating=f
                      seed = seed, 
                      kwargs...)
     results = DataFrame(data)
+    return results
+end
+
+function plot_sim(results; gating=false)
     CairoMakie.activate!() # hide
-    fig = Figure(size = (1000, 500))
+    if gating
+        fig = Figure(size = (1100, 400))
+    else
+        fig = Figure(size = (1000, 400))
+    end
     ax1 = fig[1, 1] = Axis(
             fig,
             xlabel = "Step",
@@ -57,7 +64,7 @@ function runsim_oneparam(numagents, maxsteps, inputmatrix, noisematrix, gating=f
             lines!(ax3, grp.time*euler_h, grp.gating_state, color = :green, alpha = 0.5)
         end
     end
-    return results, fig
+    return fig
 end
 
 numagents = 100
@@ -66,26 +73,28 @@ maxsteps = Int(50 / euler_h)
 
 myinputmatrix = create_extsignal(numagents, maxsteps,
                                 prestimulus_delay = Int(5 / euler_h),
-                                group1 = 0.25, signal1_nbbursts = 1, signal1_strength = "medium", 
+                                group1 = 0.25, signal1_nbbursts = 1, signal1_strength = "low", 
                                 signal1_dir = 1.0, signal1_timeon = Int(2 / euler_h),
-                                group2 = 0.25, signal2_nbbursts = 1, signal2_strength = "medium", 
+                                group2 = 0.25, signal2_nbbursts = 1, signal2_strength = "low", 
                                 signal2_dir = -1.0, signal2_timeon = Int(2 / euler_h))
 mynoisematrix = create_extnoise(numagents, maxsteps,
                                 noise_mean = 0.0, noise_var = 0.05)
 
-res, fig = runsim_oneparam(numagents, maxsteps,
-                           myinputmatrix, mynoisematrix, 
-                           gating=false, 
-                           seed=25, 
-                           dampingparam=(0.75, 0), 
-                           euler_h=euler_h)
+res = runsim_oneparam(numagents, maxsteps,
+                    myinputmatrix, mynoisematrix, 
+                    gating=true, 
+                    seed=25, 
+                    dampingparam=(0.75, 0.25), 
+                    scalingparam=(1, 0.25),
+                    euler_h=euler_h)
+fig = plot_sim(res, gating=true)
 fig
 
-save("plots/nog_constd_medsig.png", fig)
+save("plots/wg_hetd_lowsig.png", fig)
 
 ###
 
-model = init_bfl_model()
+model = init_bfl_model(gating = true)
 Agents.step!(model, 20)
 #model[1]
 
