@@ -30,66 +30,58 @@ sorting=ynt]{biblatex}
 \begin{document}
 	
 	\maketitle
-	
-``Think how hard physics would be if particles could think" --Murray Gell-Mann
 
-\section{Introduction: Seeking inspiration from neural computation to model social dynamics}
-A variety of complex systems across scales, from colonies of ants to neurons in the brain, exhibit the capacity to map noisy inputs to useful outputs in a decentralized, emergent manner: they perform distributed computation.\footnote{ I loosely follow Crutchfield (\cite{crutchfieldCalculiEmergenceComputation1994}) by defining \textbf{computation} as a useful mapping from an input to an output; and \textbf{distributed} to mean that computation emerges from the time-varying state of a system of many interacting elements.} Social networks also do so; a prominent example being price discovery in financial markets. However, this remains a blind spot for both social science and theories of collective computation. Social scientists tend to study decision-making by looking at individual behaviors or aggregate outcomes. They rarely take a complex systems approach, and they have not thought of social networks in terms of computation. On the other hand, existing models and theories of collective computation do not provide satisfactory explanations for the social setting, where agents are complex and heterogeneous. In neuroscience or biophysics, models often feature homogeneous, memory-less agents. In control systems and opinion formation studies, many models rely on linear dynamics that cannot replicate phenomena like threshold effects or information saturation.
+\section{Introduction}
 
-How do social networks of heterogeneous agents collect and exchange noisy information to collectively form opinions and make decisions? Can we extend models of neural computation to explore this setting?
+\rightline{``\textit{Think how hard physics would be if particles could think}" --Murray Gell-Mann}
 
-Interacting adaptive agents face some collective challenges that resemble those of neurons in the brain or nodes in an artificial network: (i) implementing distributed computation robustly and flexibly, over a range of time scales, and (ii) building predictive models of their environment. Together, I call tackling those goals collective intelligence. If there exists common principles underlying collective intelligence across settings, then models of neural computation may help us understand social computation. Conversely, models of social computation between complex agents might in turn suggest new models for how groups of neurons or regions of the brain interact to create a richer dynamical repertoire.
+A variety of complex systems across scales, from colonies of ants to neurons in the brain, map noisy inputs to useful outputs in a decentralized, emergent manner: they perform distributed computation.\footnote{ I loosely follow Crutchfield (\cite{crutchfieldCalculiEmergenceComputation1994}) by defining \textbf{computation} as a useful mapping from an input to an output; and \textbf{distributed} to mean that computation emerges from the time-varying state of a system of many interacting elements.} Repeated interactions in social networks also produce emergent computation; a prominent example being price discovery in financial markets. This remains a blind spot for both social science and theories of collective computation. 
 
-For instance, Naomi Leonard and colleagues developed a model of multi-agent opinion formation that takes a form similar to a recurrent neural network (RNN) (\cite{bizyaevaNonlinearOpinionDynamics2022}, \cite{leonardFastFlexibleMultiAgent2024}) (the “BFL” model). I describe it in Section 2 below. The BFL model introduced nonlinearity to better model information saturation, in contrast to the linear averaging models that dominated the field of opinion dynamics. The BFL model exhibits the ability to break indecision and rapidly converge to a steady state of consensus (all agents agree) or disagreement (agreement within subgroups but not between them) in a way that, its authors argue, parallels the observed behavior of bees choosing a nesting site or voters choosing a candidate.
+\textbf{Nonlinearity.} In studies of opinion formation in the fields of control systems, swarm robotics, or social science, traditional opinion models rely on linear dynamics that have limited expressivity and cannot replicate phenomena like threshold effects or information saturation. Meanwhile, in neuroscience or biophysics, rich and expressive nonlinear models of distributed computation have been developed and studied extensively.
 
-The BFL model offered an elegant solution to a long-standing problem in the field of opinion formation: how to craft a system that may generate stable disagreement as a function of inputs and initial conditions, rather than one that inevitably converges to consensus or avoids consensus only at the cost of a fixed, carefully hand-picked connectivity matrix (\cite{ravazziDynamicalSocialNetworks2021}, \cite{bernardoBoundedConfidenceOpinion2024}). This problem is sometimes called Abelson's diversity puzzle (\cite{abelsonMathematicalModelsDistribution1964}).
+\textbf{Heterogeneity.} Both nonlinear models from neuroscience and opinion formation models generally feature simple, homogeneous, and memory-less units (neurons or agents)--in the first case, for realism; in the second case, for tractability only. Social agents, however, are complex and heterogeneous. 
 
-The BFL model, however, features simple, homogeneous agents, without memory or intelligence.  For this project, I take a first step to improve this aspect of the BFL model by adding a unit-specific dynamical time constant to the model. I then examine the behavior of the modified model using simulations in Julia.
+\textbf{Questions.} Can we extend nonlinear models of neural computation to explore how heterogeneous social agents collect and exchange noisy information to collectively form opinions and make decisions? How much heterogeneity and complexity can we add to the agents and their connectivity patterns, while keeping a tractable model that tracks empirical phenomena closely enough to be informative about social dynamics?
+
+\textbf{RNN model of opinion formation.} In recent work, Naomi Leonard and colleagues developed a model of multi-agent opinion formation that takes a form similar to a recurrent neural network (RNN) (\cite{bizyaevaNonlinearOpinionDynamics2022}, \cite{leonardFastFlexibleMultiAgent2024}) (the “BFL” model). I describe it in Section 2 below. The BFL model introduced nonlinearity to model information saturation, in contrast to linear averaging models that dominated the field of opinion dynamics. The BFL model is robust to small perturbations but exhibits the ability to break indecision in the face of contradictory inputs. It rapidly converges to a steady state of consensus (all agents agree) or disagreement (agreement within subgroups but not between them) in a way that, its authors argue, parallels the observed behavior of bees choosing a nesting site or voters choosing a candidate.
+
+\textbf{Contribution.} The BFL model features simple, homogeneous agents, without memory or intelligence.  For this project, I take a first step towards richer agent-level behavior by adding an adaptive time constant (or gate) to the opinion update. I then examine the dynamics of the gated model for different signal strengths and different types of connectivity matrices, compared to the initial model, using simulations in Julia.
 
 \section{Methods}
-\subsection{Previous model}
+\subsection{The BFL model}
 
-While the BFL model allows for multi-opinion formation, here I focus on the case of two mutually exclusive opinions represented by a scalar value $z$. The agent favors a given option when $z>0$, he disfavors it when $z<0$, and he is neutral when $z = 0$.
+While the BFL model can model multi-opinion formation, here I focus on the case of two mutually exclusive opinions represented by a scalar value $z$. The agent favors a given option when $z>0$, he disfavors it when $z<0$, and he is neutral when $z = 0$.
 
-In the BFL model, each agent is represented by coupled ODEs. The instantaneous rate of change of (1) the opinion $z$ of agent $i$ and (2) the susceptibility or excitability $u$ of agent $i$, for a network of size $N$, are as follows:
+Each agent is represented by coupled ODEs. Agents communicate through a connectivity network. The instantaneous rate of change of (1) the opinion $z$ of agent $i$ and (2) the susceptibility or excitability $u$ of agent $i$,\footnote{In the initial model, the $u$ term is called attention. Here, we call it susceptibility to avoid any confusion with other uses of the word attention in machine learning and neuroscience.} for a network of size $N$, are as follows:
 \begin{align}
 	\dot{z}_{i}(t) &= -d_{i}z_{i}(t) + S \left( u_i(t) \cdot  \sum^{N}_{j=1} J^z_{ij}z_{j}(t)  \right) + I_{i}(t) \\
 	\tau^u \dot{u}_i(t) &= -u_i(t)+u_0+g^u \sum ^{N}_{j=1} J^u_{ij}(z_{j}(t))^2
 \end{align}
 
-In the opinion update equation, the first term corresponds to linear negative feedback or self-inhibition, the second term to nonlinear positive feedback or recurrent excitation, and the last term is a time-varying input (stimuli or bias).
+\textbf{Difference with vanilla RNNs.} It should be emphasized at the outset that contrary to the traditional RNN case, each agent $i$ has access only to its own input $I_i$. The only way for an agent to access inputs that were distributed to other agents is indirectly, by communication through the adjacency graph.
 
-Susceptibility $u$ to network information controls the relative strength of the external input vs the recurrent excitation received from the network.\footnote{In the initial model, the $u$ term is called attention. Here, we call it susceptibility to avoid any confusion with other uses of the word attention in machine learning and neuroscience.} The susceptibility update is independent of the input; it only depends on the strength of the opinions of connected agents received through the network. The intuition here is that you will pay more attention to the opinion of your friends if they are highly convinced than if they are neutral. If all your friends are neutral, you may ignore their input, and only use external information to make a decision. Conversely, if all your friends are highly convinced, you may use their opinion more than external information when making a decision.
+\textbf{Components of the opinion update.} In the opinion update, the first term corresponds to linear negative feedback or self-inhibition, the second term to nonlinear positive feedback or recurrent excitation, and the last term is a time-varying input $I_i(t)$ that includes external input (signal and noise) and internal bias.
 
-Terms are defined as follows:
-\begin{itemize}
-	\item $d_{i} > 0$ is a damping or resistance coefficient 
-	\item $S: \mathbb{R} \rightarrow \mathbb{R}$ is a bounded, sufficiently smooth saturation function such that: $S(0)=0$; $S'(0)=1$; $S'''(0)\neq0$, which we set to be $tanh(x)$
-	\item $J^z \in \mathbb{R}^{N \times N}$ is the communication matrix and $J^u \in \mathbb{R}^{N \times N}$ is the susceptibility matrix (they can be the same or different)
-	\item $I_i(t)$ is a time-varying input that includes external input and internal bias
-	\item $\tau^u \geq 0$ is a time-constant
-	\item $u_0$ is a basal level of susceptibility
-	\item $g^u \geq 0$ is a constant susceptibility gain
+\textbf{Role of susceptibility.} The susceptibility $u_i$ of an agent to network information controls the relative strength of the external input vs the recurrent excitation received from the network. The susceptibility update is independent of the input; it only depends on the strength of the opinions of connected agents received through the network. The intuition here is that you will pay more attention to the opinion of your friends if they are highly convinced than if they are neutral. If all your friends are neutral, you may ignore their input, and only use external information to make a decision. Conversely, if all your friends are highly convinced, you may use their opinion more than external information when making a decision.
+
+\textbf{Other definitions.} The other terms are defined as follows. \begin{itemize}
+	\item $d_{i} > 0$ is a damping or resistance coefficient. 
+	\item $S: \mathbb{R} \rightarrow \mathbb{R}$ is a bounded, sufficiently smooth saturation function such that: $S(0)=0$; $S'(0)=1$; $S'''(0)\neq0$, which is set to be $tanh(x)$.
+	\item $J^z \in \mathbb{R}^{N \times N}$ is the communication matrix and $J^u \in \mathbb{R}^{N \times N}$ is the susceptibility matrix (they can be the same or different).
+	\item $u_0$ is a basal level of susceptibility and $g^u \geq 0$ is a susceptibility gain. Both are constant and homogeneous.
 \end{itemize}
 
-A few things should be noted about the assumptions involved in this model:
+\textbf{Technical features of the BFL model.} The BFL model offered an elegant solution to a long-standing problem in the field of opinion formation: how to craft a system that may break indecision and generate stable disagreement as a function of inputs and initial conditions, rather than one that inevitably converges to consensus or avoids consensus only at the cost of a fixed, carefully hand-picked connectivity matrix (\cite{ravazziDynamicalSocialNetworks2021}, \cite{bernardoBoundedConfidenceOpinion2024}). This problem is sometimes called Abelson's diversity puzzle (\cite{abelsonMathematicalModelsDistribution1964}). The system described by the BFL model undergoes indecision-breaking bifurcations, in which it transitions to multi-stable regime. The susceptibility state acts a dynamic bifurcation parameter for this transition. The authors also note that near the bifurcation point, the system is increasingly sensitive to certain inputs and robust to others, depending on their alignment with the eigenspace of the Jacobian.
+
+\textbf{Assumptions of the BFL model.} A few things should be noted about the assumptions involved in this model.
 \begin{enumerate}
-	\item Agents are homogeneous between each other (only their state distinguishes them, with the exception of the damping term $d_i$) and across time (they do not learn or remember, only their state changes)
-	\begin{itemize}
-		\item Agents all share a susceptibility time constant of $\tau^u$ and an opinion time constant of $1$ 
-		\item Agents all share a constant basal susceptibility and constant susceptibility gain
-		\item Agents all share an identical, non-parameterized input-output function 
-	\end{itemize}
-	\item The self-inhibition implies that the opinion activation of each agent tends to revert to zero. This is balanced out by the self-excitation represented by the diagonal term of the $J^z$ matrix, but modulated by the susceptibility state. At a low susceptibility, self-inhibition dominates. 
-	\begin{itemize}
-		\item While this is realistic for integrate-and-fire neurons, it may not be appropriate for agents forming opinions. A more realistic assumption might be inertia, such that opinions tend to stay the same, not revert to zero.
-	\end{itemize}
-	\item It is not clear why opinion states must be squared in the susceptibility update. This assumes symmetry in the impact of negative and positive opinions, which is disproved by behavioral data. It is possible that the difference between the two is small enough that this does not impact results. 
-	\item In the presence of large external inputs, the opinion state update can be arbitrarily large.
-	\item While the damping coefficient $d_i$ is indexed as unit-specific, in most reported simulations and experiments, the authors set a homogeneous $d_i=d$. 
+	\item \textbf{Homogeneity.} Agents are homogeneous between each other (only their state distinguishes them) and across time (they do not learn or remember, only their state changes). For instance, agents all share a susceptibility time constant of $\tau^u$ and an opinion time constant of $1$. Agents all share an identical, non-parameterized input-output function. Agents all share a constant basal susceptibility and susceptibility gain. 
+	\item \textbf{Balance of self-inhibition and recurrent excitation.} The self-inhibition implies that the opinion activation of each agent tends to revert to zero. This is balanced out by the self-excitation represented by the diagonal term of the $J^z$ matrix and the recurrent excitation represented by its non-diagonal terms, but modulated by the susceptibility state. At a low susceptibility, self-inhibition dominates and opinions tend to revert to zero. This is very close to the modeling of integrate-and-fire neurons, but it may not be as appropriate for agents forming opinions. A more realistic assumption might be that opinions tend to stay the same, not revert to zero.
+	\item \textbf{Functional form and unboundedness of the susceptibility update.} It is not clear why opinion states must be squared in the susceptibility update. This assumes symmetry in the impact of negative and positive opinions, which is disproved by behavioral data. It is possible that the difference between the two is small enough that this does not impact results. 
+	\item \textbf{Damping sets the saturation levels.} While the damping coefficient $d_i$ is indexed as unit-specific, in most reported simulations and experiments, the authors set a homogeneous $d_i=d$. In most experiments by the original authors, a homogeneous value is assigned and $d_i = d$ for all agents. In the solution to the dynamical equations, $\pm d^{-1}$ is the scalar value of the stable opinionated states that the system may reach. Given the form of the dynamical equations, the value of $d_i$ determines the value at which the opinion state of each agent $i$ will saturate. Allowing $d_i$ to be unit-specific means that instead of all agents converging to identical scalar opinion states, agents will converge to opinion states of different magnitudes. This seems more realistic for social decision-making: even if a group collectively agrees with an option, different agents may be more or less convinced that it is the right choice. Insofar as agents are away from the neutral state, they have still broken indecision, even if they don't converge to same scalar opinion magnitude. 
 \end{enumerate}
 
-It should also be emphasized that contrary to the RNN case (and the main difference with the RNN case) is that each agent $i$ has only access to its own input $I_i$. The only way for an agent to access inputs that were distributed to other agents is by communication through the adjacency graph.
+
 
 \subsection{Modified model}
 
@@ -167,7 +159,7 @@ Supposing that there is a decision to be made, and that only agents strongly in 
 
 \subsection{First modification: heterogeneous $d_i$}
 
-Given the form of the dynamical equations, the value of $d_i$ determines the value at which the opinion state of each agent $i$ will saturate. Allowing $d_i$ to be unit-specific means that instead of all agents converging to identical scalar opinion states, agents will converge to opinion states of different magnitudes. This seems more realistic for social decision-making: even if a group collectively agrees with an option, different agents may be more or less convinced that it is the right choice. Insofar as agents are away from the neutral state, they have still broken indecision, even if they don't converge to same scalar opinion magnitude. I illustrate this difference in Figure \ref{fig:homdamping} and \ref{fig:hetdamping}.
+
 
 \begin{figure}
 	\centering
@@ -179,13 +171,13 @@ Given the form of the dynamical equations, the value of $d_i$ determines the val
 	
 	\begin{subfigure}[t]{0.6\textwidth}
 		\centering
-		\includegraphics[width=\textwidth]{../plots/nog_constd_lowsig.png} 
+		\includegraphics[width=\textwidth]{../plots/old/nog_constd_lowsig.png} 
 		\caption{My simulation, input $b = \pm 0.1 $} \label{fig:damping2}
 	\end{subfigure}
 	
 	\begin{subfigure}[t]{0.6\textwidth}
 		\centering
-		\includegraphics[width=\textwidth]{../plots/nog_constd_medsig.png} 
+		\includegraphics[width=\textwidth]{../plots/old/nog_constd_medsig.png} 
 		\caption{My simulation, input $b = \pm 0.25 $} \label{fig:damping3}
 	\end{subfigure}
 	
@@ -193,72 +185,30 @@ Given the form of the dynamical equations, the value of $d_i$ determines the val
 \end{figure}
 
 
-\begin{figure}
-	\centering
-	\begin{subfigure}[t]{0.6\textwidth}
-		\centering
-		\includegraphics[width=\textwidth]{../plots/nog_hetd_lowsig.png} 
-		\caption{My simulation, input $b = \pm 0.1 $} \label{fig:hetdamping1}
-	\end{subfigure}
-	
-	\begin{subfigure}[t]{0.6\textwidth}
-		\centering
-		\includegraphics[width=\textwidth]{../plots/nog_hetd_medsig.png} 
-		\caption{My simulation, input $b = \pm 0.25 $} \label{fig:hetdamping2}
-	\end{subfigure}
-	
-	\begin{subfigure}[t]{0.6\textwidth}
-		\centering
-		\includegraphics[width=\textwidth]{../plots/nog_hetd_hisig.png} 
-		\caption{My simulation, input $b = \pm 0.4 $} \label{fig:hetdamping3}
-	\end{subfigure}
-	
-	\caption{Opinion cascades under heterogeneous damping, as external inputs grow larger. My simulations, same conditions as Figure \ref{fig:homdamping} (b) and (c), but this time, $d_i \sim \mathcal{N}(0.75,0.25)$.}\label{fig:hetdamping}
-\end{figure}
-
-As can be seen in Figure \ref{fig:hetdamping}, a majority of agents converge to a similar opinion state, but a small number of agents converge to a more intense version of the majority view, while a smaller number still converge to the opposite view. This appears closer to real-life opinion dynamics, with a majority of agents getting moderately convinced, while some agents develop more extreme or contrarian views.
 
 \subsection{Second modification: gating}
 
-\begin{figure}
-	\centering
-	\begin{subfigure}[t]{0.75\textwidth}
-		\centering
-		\includegraphics[width=\textwidth]{../plots/wg_hetd_lowsig.png} 
-		\caption{My simulation, input $b = \pm 0.1 $} \label{fig:gating1}
-	\end{subfigure}
-	
-	\begin{subfigure}[t]{0.75\textwidth}
-		\centering
-		\includegraphics[width=\textwidth]{../plots/wg_hetd_medsig.png} 
-		\caption{My simulation, input $b = \pm 0.25 $} \label{fig:gating2}
-	\end{subfigure}
-	
-	\begin{subfigure}[t]{0.75\textwidth}
-		\centering
-		\includegraphics[width=\textwidth]{../plots/wg_hetd_hisig.png} 
-		\caption{My simulation, input $b = \pm 0.4 $} \label{fig:gating3}
-	\end{subfigure}
-	
-	\caption{Impact of naively adding an update gate to the model without further changes, with scaling factor $k_i \sim \mathcal{N}(1,0.25)$. Convergence becomes impossible and behavior chaotic at levels of signal previously sufficient to achieve indecision breaking.}\label{fig:gatingintro}
-\end{figure}
+
 
 \section{Discussion}
+
+Interacting adaptive agents face some collective challenges that resemble those of neurons in the brain or nodes in an artificial network: (i) implementing distributed computation robustly and flexibly, over a range of time scales, and (ii) building predictive models of their environment. Together, I call tackling those goals collective intelligence. If there exists common principles underlying collective intelligence across settings, then models of neural computation may help us understand social computation. Conversely, models of social computation between complex agents might in turn suggest new models for how groups of neurons or regions of the brain interact to create a richer dynamical repertoire.
 
 \newpage
 
 \section{Future directions}
 
-\textbf{Building predictive models of the environment from partial information.} Building predictive models of their environment is a crucial component collective intelligence. Here, I take model building to mean the discovery of structure and regularity in a dynamic environment so that a system can predict its next inputs better than at random; such models can be implicit and behavioral (\cite{crutchfieldCalculiEmergenceComputation1994}). In real social networks, the information acquired by agents in order to do so is not only noisy, it is also partial and heterogeneous across agents. Settings of partial and heterogeneous information have rarely been explicitly studied in the network dynamics literature.
+\textbf{Further modifications to the model.}
 
-The BFL model only examines subjective beliefs, not the ability to converge to correct or useful answers. In the future, I plan to change the task from belief propagation to the collective recovery of a model of the environment from partial and heterogeneous information. A ground truth will exist, and I will examine under what conditions the network is successful at recovering it from noisy, partial and asymmetric inputs, including varying the distribution of information, noise, and other system parameters. This will be formalized in two ways, first as a static matrix reconstruction problem, and then as a dynamic hidden Markov problem.
+
+\textbf{Building predictive models of the environment from partial information.} Building predictive models of their environment is a crucial component collective intelligence. Here, I take model building to mean the discovery of structure and regularity in a dynamic environment so that a system can predict its next inputs better than at random; such models can be implicit and behavioral (\cite{crutchfieldCalculiEmergenceComputation1994}). In real social networks, the information acquired by agents in order to do so is not only noisy, it is also partial and heterogeneous across agents. Settings of partial and heterogeneous information have rarely been explicitly studied in the network dynamics literature.
 
 Ongoing research efforts (\cite{malachAutoRegressiveNextTokenPredictors2023}) suggest that in some settings, next-token prediction of structured sequences may enable a model to learn complex data-generating processes (DGP) accurately. However, if and how a DGP can be recovered by a network when different nodes each receive noisy and imperfect measurements of the sequences remains unknown.
 
-\textbf{Hysteresis as a mechanism for the reproduction of social inequality.} ...
+The BFL model only examines subjective beliefs, not the ability to converge to correct or useful answers. In the future, I plan to change the task from belief propagation to the collective recovery of a model of the environment from partial and heterogeneous information. A ground truth will exist, and I will examine under what conditions the network is successful at recovering it from noisy, partial and asymmetric inputs, including varying the distribution of information, noise, and other system parameters. This will be formalized in two ways, first as a static matrix reconstruction problem, and then as a dynamic hidden Markov problem.
+
 
 \printbibliography[heading=bibintoc, title={References}]
-
 
 \newpage
 
@@ -266,50 +216,6 @@ Ongoing research efforts (\cite{malachAutoRegressiveNextTokenPredictors2023}) su
 
 \section{Simulation results}
 
-Varying parameters of the gated network.
-Medium signal, medium anti-signal, 25\% each, with same Gaussian noise, and $k_i \sim \mathcal{N}(1, 0.25)$.
 
-\noindent\begin{minipage}{\linewidth}
-	
-		\centering
-		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_moredamping}
-		\captionof{figure}{Damping $d_i \sim \mathcal{N}(1,0.2)$, $\alpha = 1$, $\beta = 0$. Increased damping is insufficient to recover indecision breaking or rapid convergence to a stable state.}
-		\label{fig:wghetdmedsigmoredamping}
-
-		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha0beta0}
-		\captionof{figure}{$\alpha = 0$, $\beta = 0$. Here, $\phi(x_i(t)) = 0.5$ for all $x_i$. The gating is constant for all opinion updates, and the gate is half open.}
-		\label{fig:wghetdmedsigalpha0beta0}
-
-		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha0beta2}
-		\captionof{figure}{$\alpha = 0$, $\beta = 2$. Here, $\phi(x_i(t)) \approx 0.12$ for all $x_i$.}
-		\label{fig:wghetdmedsigalpha0beta2}
-
-		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha0beta3}
-		\captionof{figure}{$\alpha = 0$, $\beta = 3$. Here, $\phi(x_i(t)) \approx 0.05$ for all $x_i$.}
-		\label{fig:wghetdmedsigalpha0beta3}
-\end{minipage}
-
-\noindent\begin{minipage}{\linewidth}
-		\centering
-		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha0beta4}
-		\captionof{figure}{$\alpha = 0$, $\beta = 4$. Here, $\phi(x_i(t))  \approx 0.02$ for all $x_i$.}
-		\label{fig:wghetdmedsigalpha0beta4}
-
-		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha0beta5}
-		\captionof{figure}{$\alpha = 0$, $\beta = 5$. Here, $\phi(x_i(t))  \approx 0.01$ for all $x_i$. The gate is almost entirely closed.}
-		\label{fig:wghetdmedsigalpha0beta5}
-		
-		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alphan1beta0}
-		\captionof{figure}{$\alpha = -1$, $\beta = 0$. The gate is sigmoidal again, but reversed. The gate is open to negative values, closed to large positive values.}
-		\label{fig:wghetdmedsigalphan1beta0}
-		
-		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha2beta0}
-		\captionof{figure}{$\alpha = 2$, $\beta = 0$. The gate is sigmoidal. Compared to the main experiment, the gate is slightly closer to a step function with zero threshold: more open to lower positive values, and more closed to higher negative values}
-		\label{fig:wghetdmedsigalpha2beta0}
-		
-		\includegraphics[width=0.7\linewidth]{../plots/wg_hetd_medsig_alpha10beta0}
-		\captionof{figure}{$\alpha = 10$, $\beta = 0$. The gate is sigmoidal, and much closer to a step function with zero threshold.}
-		\label{fig:wghetdmedsigalpha10beta0}
-\end{minipage}
 
 \end{document}

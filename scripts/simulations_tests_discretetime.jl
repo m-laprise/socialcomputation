@@ -95,32 +95,32 @@ maxsteps = Int(50 / euler_h)
 
 myinputmatrix = create_extsignal(numagents, maxsteps,
                                 prestimulus_delay = Int(5 / euler_h),
-                                group1 = 0.0, signal1_nbbursts = 1, signal1_strength = "high", 
+                                group1 = 0.25, signal1_nbbursts = 1, signal1_strength = "medium", 
                                 signal1_dir = 1.0, signal1_timeon = Int(2 / euler_h),
-                                group2 = 0.0, signal2_nbbursts = 1, signal2_strength = "high", 
+                                group2 = 0.25, signal2_nbbursts = 1, signal2_strength = "medium", 
                                 signal2_dir = -1.0, signal2_timeon = Int(2 / euler_h))
 mynoisematrix = create_extnoise(numagents, maxsteps,
-                                noise_mean = 0.0, noise_var = 0.04)
+                                noise_mean = 0.0, noise_var = 0.0)
 
 nog_res, wg_res, g = runsim_oneparam_g(numagents, maxsteps,
                     myinputmatrix, mynoisematrix, 
-                    #jz_network = ("wattsstrogatz", 3),
-                    jz_network = ("erdosrenyi", 4),
-                    #jz_network = ("barabasialbert", 3),
+                    jz_network = ("wattsstrogatz", 5),
+                    #jz_network = ("erdosrenyi", 5),
+                    #jz_network = ("barabasialbert", 4),
                     jx_network = "buddies",
                     gain_scp=0.5,
-                    seed=2239, 
+                    seed=2854, 
                     dampingparam=(0.75, 0.0), 
                     scalingparam=(1, 0.25),
                     tau_gate=5.0,
                     alpha_gate=2.0, #beta_gate=0.0,
                     euler_h=euler_h)
 
-#nog_fig = plot_sim(nog_res, gating=false)
-#save("plots/nog_hetd_lowsig_g05_nvar004_ER4.png", nog_fig)
+nog_fig = plot_sim(nog_res, gating=false)
+save("plots/nvar0_nog_homd_medsig_g05_WS5_s2854.png", nog_fig)
 
 wg_fig = plot_sim(wg_res, gating=true)
-save("plots/wg_homd_nosig_g05_nvar004_ER4_a2_taux5.png", wg_fig)
+save("plots/nvar0_wg_homd_medsig_g05_WS5_a2_taux5_s2854.png", wg_fig)
 
 ###
 using GraphMakie
@@ -158,7 +158,7 @@ function viz_socgraph(g, res)
     return f, enddata, sortedenddata
 end
 
-f, _, _ = viz_socgraph(g, res)
+f, _, _ = viz_socgraph(g, wg_res)
 f
 
 ###
@@ -204,7 +204,7 @@ function plot_3dtrajectory(results, nb)
     return fig
 end
 
-fig3d = plot_3dtrajectory(res, 50)
+fig3d = plot_3dtrajectory(wg_res, 50)
 
 # cmap = cgrad(:lightrainbow), color = cmap[grp.id[1]/100]
 # agentcolor = cmap[grp.opinion_new[end] + 0.5]
