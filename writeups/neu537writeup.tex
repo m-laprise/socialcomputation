@@ -127,16 +127,11 @@ Each agent is represented by coupled ODEs. Agents communicate through a connecti
 
 \subsection{Simulations}
 
-In my simulations, I examined how gating impacts indecision-breaking bifurcations after the reception of contradictory signals of similar strengths. In all cases, one fourth of the agents receive a burst of positive signal, and another fourth concurrently receive a burst of negative signal. I compared the initial and gated models while varying the \textbf{strength of inputs} (low, medium, or high signal) and the \textbf{type of connectivity matrix} (random, scale-free, or small-world; see below).
+In my simulations, I examined how gating impacts indecision-breaking bifurcations after the reception of contradictory signals of similar strengths. In all cases, one fourth of the agents receive a burst of positive signal, and another fourth concurrently receive a burst of negative signal. I compared the initial and gated models while varying the \textbf{strength of inputs} (low, medium, or high signal) and the \textbf{type of connectivity matrix} (random, scale-free, or small-world; see below). To more clearly visualize what happens in each combination of parameters, I turn off the noise in the system, so that evolution is deterministic based on the parameters and initial conditions.
 
-To more clearly visualize what happens in each combination of parameters, I turn off the noise in the system, so that evolution is deterministic based on the parameters and initial conditions.
-
-For now, I simulated the system's evolution using the Julia \texttt{Agent.jl} package and Euler's approximation with a step size $h = 0.01$. I plan to replicate the results later using differential equations solvers and higher order approximations methods.
-
-All results are preliminary, as I have only had time to reproduce them with a couple of different seeds, and robustness across a variety of random seeds should be verified. Selected simulation results are included in a separate appendix. The code used to generate them is available at href{github.com/m-laprise/socialcomputation}{github.com/m-laprise/socialcomputation}.
+For now, I simulated the system's evolution using the Julia \texttt{Agent.jl} package and Euler's approximation with a step size $h = 0.01$. I plan to replicate the results later using differential equations solvers and higher order approximations methods. All results are preliminary, as I have only had time to reproduce them with a couple of different seeds, and robustness across a variety of random seeds should be verified. Selected simulation results are included in a separate appendix. The code used to generate them is available at \href{http://github.com/m-laprise/socialcomputation}{github.com/m-laprise/socialcomputation}.
 
 \textbf{Parameters for the simulations.} Some parameters must be held constant to focus on the effect of gating, signal strength, and connectivity. I set $N = 100$, which should be sufficient to generate graphs that are structurally distinct while remaining computationally tractable. After some exploration of the model's behavior in various regimes, I set the parameters as follows for all simulations in this report. $\tau^u = 1$, $g^u = 0.5$, $u_0=0$, $\tau^x = 5$, $\alpha = 2$, and $\beta = 0$. The damping coefficient is set constant at $d_i = d = 0.75$ and the scaling factor is sampled from a Gaussian, $k_i \sim \mathcal{N}(1,0.25)$, to create heterogeneity across agents. Any of these assumptions may be relaxed or modified in future work. 
-
 
 \textbf{Initial conditions.} Agents at a random, almost neutral opinion state $z_i \sim \mathcal{N}(0, 0.01)$. Gating and susceptibility states are initialized at zero (if the basal susceptibility was above zero, we would initialize susceptibility at the basal level).
 
@@ -149,41 +144,41 @@ I examine the dynamics associated with three different types of social graphs: E
 \begin{figure}
 	\begin{subfigure}{0.45\textwidth}
 		\centering
-		\includegraphics[width=0.9\linewidth]{../plots/g_erdosrenyi_n100_p3_s33} 
+		\includegraphics[width=0.8\linewidth]{../plots/g_erdosrenyi_n100_p3_s33} 
 		\caption{ER graph}  \label{fig:subim11}
 	\end{subfigure}
-	\hfill
+	\hspace{-1cm}
 	\begin{subfigure}{0.45\textwidth}
 		\centering
-		\includegraphics[width=0.6\linewidth]{../plots/g_erdosrenyi_hist_degree_n100_p3_s33}
+		\includegraphics[width=0.5\linewidth]{../plots/g_erdosrenyi_hist_degree_n100_p3_s33}
 		\caption{ER degree distribution} \label{fig:subim12}
 	\end{subfigure}
 	
-		\begin{subfigure}{0.45\textwidth}
-		\centering
-		\includegraphics[width=0.9\linewidth]{../plots/g_barabasialbert_n100_m3_s33} 
-		\caption{BA graph}  \label{fig:subim21}
-	\end{subfigure}
-	\hfill
 	\begin{subfigure}{0.45\textwidth}
 		\centering
-		\includegraphics[width=0.6\linewidth]{../plots/g_barabasialbert_hist_degree_n100_m3_s33}
+		\includegraphics[width=0.8\linewidth]{../plots/g_barabasialbert_n100_m3_s33} 
+		\caption{BA graph}  \label{fig:subim21}
+	\end{subfigure}
+	\hspace{-1cm}
+	\begin{subfigure}{0.45\textwidth}
+		\centering
+		\includegraphics[width=0.5\linewidth]{../plots/g_barabasialbert_hist_degree_n100_m3_s33}
 		\caption{BA degree distribution} \label{fig:subim22}
 	\end{subfigure}
 	
-		\begin{subfigure}{0.45\textwidth}
-		\centering
-		\includegraphics[width=0.9\linewidth]{../plots/g_wattsstrogatz_n100_k3_p01_s33} 
-		\caption{WS graph}  \label{fig:subim31}
-	\end{subfigure}
-	\hfill
 	\begin{subfigure}{0.45\textwidth}
 		\centering
-		\includegraphics[width=0.6\linewidth]{../plots/g_wattsstrogatz_hist_degree_n100_k3_p01_s33}
+		\includegraphics[width=0.8\linewidth]{../plots/g_wattsstrogatz_n100_k3_p01_s33} 
+		\caption{WS graph}  \label{fig:subim31}
+	\end{subfigure}
+	\hspace{-1cm}
+	\begin{subfigure}{0.45\textwidth}
+		\centering
+		\includegraphics[width=0.5\linewidth]{../plots/g_wattsstrogatz_hist_degree_n100_k3_p01_s33}
 		\caption{WS degree distribution} \label{fig:subim32}
 	\end{subfigure}
 	
-	\caption{Example structure for the three types of social graphs explored in simulations.}
+	\caption{Example structure for 100 agents for the three types of social graphs explored in simulations.}
 	\label{fig:graphtypes}
 \end{figure}
 
@@ -202,13 +197,11 @@ Figure \ref{fig:graphtypes} illustrates this range by depicting a randomly gener
 
 \textbf{Further modifications to the model.} As mentioned above, some changes to the form of the susceptibility update may be tested, to replace the squared opinion by a different function and add saturation so that the susceptibility state does not grow so large. In addition, it could be interesting to add some form of memory to the agents, or a more complicated input-output function.
 
-\textbf{Further exploring the impact of various connectivity matrices.} In addition to more rigorously theorizing the link between the structure of the adjacency matrix and the dynamics of the system, future work should explore the impact of using weighted and directed connectivity matrices, to represent directed and heterogeneous flows of information, and the consequences of having different connectivity matrices associated with each of the state variables.
+\textbf{Further exploring the impact of various connectivity matrices.} In addition to more rigorously theorizing the link between the structure and density of the adjacency matrix and the dynamics of the system, future work should explore the impact of using weighted and directed connectivity matrices (to represent directed and heterogeneous flows of information), and the consequences of having different connectivity matrices associated with each of the state variables.
 
-\textbf{Building predictive models of the environment from partial information.} Building predictive models of their environment is a crucial component collective intelligence. Here, I take model building to mean the discovery of structure and regularity in a dynamic environment so that a system can predict its next inputs better than at random; such models can be implicit and behavioral (\cite{crutchfieldCalculiEmergenceComputation1994}). In real social networks, the information acquired by agents in order to do so is not only noisy, it is also partial and heterogeneous across agents. Settings of partial and heterogeneous information have rarely been explicitly studied in the network dynamics literature.
+\textbf{Building predictive models of the environment from partial information.} Building predictive models of their environment is a crucial component collective intelligence. Here, I take model building to mean the discovery of structure and regularity in a dynamic environment so that a system can predict its next inputs better than at random; such models can be implicit and behavioral (\cite{crutchfieldCalculiEmergenceComputation1994}). In real social networks, the information acquired by agents in order to do so is not only noisy, it is also partial and heterogeneous across agents. Settings of partial and heterogeneous information have rarely been explicitly studied in the network dynamics literature. Ongoing research efforts (\cite{malachAutoRegressiveNextTokenPredictors2023}) suggest that in some settings, next-token prediction of structured sequences may enable a model to learn complex data-generating processes (DGP) accurately. However, if and how a DGP can be recovered by a network when different nodes each receive noisy and imperfect measurements of the sequences remains unknown.
 
-Ongoing research efforts (\cite{malachAutoRegressiveNextTokenPredictors2023}) suggest that in some settings, next-token prediction of structured sequences may enable a model to learn complex data-generating processes (DGP) accurately. However, if and how a DGP can be recovered by a network when different nodes each receive noisy and imperfect measurements of the sequences remains unknown.
-
-The BFL model only examines subjective beliefs, not the ability to converge to correct or useful answers. In the future, I plan to change the task from belief propagation to the collective recovery of a model of the environment from partial and heterogeneous information. A ground truth will exist, and I will examine under what conditions the network is successful at recovering it from noisy, partial and asymmetric inputs, including varying the distribution of information, noise, and other system parameters. This will be formalized in two ways, first as a static matrix reconstruction problem, and then as a dynamic hidden Markov problem.
+The BFL model only examines subjective beliefs, not the ability to converge to correct or useful answers. In the future, I plan to change the task from belief propagation to the collective recovery of a model of the environment from partial and heterogeneous information. A ground truth will exist, and I will examine under what conditions the network is successful at recovering it from noisy, partial and asymmetric inputs, including varying the distribution of information, noise, and other system parameters. This can be formalized as a dynamic hidden Markov problem.
 
 Interacting adaptive agents face some collective challenges that resemble those of neurons in the brain or nodes in an artificial network: (i) implementing distributed computation robustly and flexibly, over a range of time scales, and (ii) building predictive models of their environment. Together, I call tackling those goals collective intelligence. If there exists common principles underlying collective intelligence across settings, then models of neural computation may help us understand social computation. Conversely, models of social computation between complex agents might in turn suggest new models for how groups of neurons or regions of the brain interact to create a richer dynamical repertoire.
 
