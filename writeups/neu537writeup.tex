@@ -141,7 +141,48 @@ It might be particularly interesting to vary both assumptions in future work. Th
 
 I examine the dynamics associated with three different types of social graphs: Erdős-Rényi $G(n, M)$ (ER), Barabási-Albert (BA), and Watts-Strogatz (WS). I set the parameters of each of the three generators such that the average degree is comparable.\footnote{$N = 100$ agents. For ER, $M = N*3$ and $N*4$. For BA, $k = 3$ and $4$. For WS, $k = 6$ and $8$, $\beta = 0.1$.} ER is a classic random graph model without hubs or local clusters. BA is a scale-free network based on preferential attachment and has a power law degree distribution (and hence hubs). WS has a small-world structure and hence local clusters. While none is a perfectly realistic depiction of social networks, together they cover an interesting range of network structures.
 
-Figure \ref{} illustrates this range by depicting a randomly generated graph of each type, along with its degree distribution.
+\begin{figure}
+	\begin{subfigure}{0.45\textwidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{../plots/g_erdosrenyi_n100_p3_s33} 
+		\caption{ER graph}  \label{fig:subim11}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.45\textwidth}
+		\centering
+		\includegraphics[width=0.7\linewidth]{../plots/g_erdosrenyi_hist_degree_n100_p3_s33}
+		\caption{ER degree distribution} \label{fig:subim12}
+	\end{subfigure}
+	
+		\begin{subfigure}{0.45\textwidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{../plots/g_barabasialbert_n100_m3_s33} 
+		\caption{BA graph}  \label{fig:subim21}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.45\textwidth}
+		\centering
+		\includegraphics[width=0.7\linewidth]{../plots/g_barabasialbert_hist_degree_n100_m3_s33}
+		\caption{BA degree distribution} \label{fig:subim22}
+	\end{subfigure}
+	
+		\begin{subfigure}{0.45\textwidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{../plots/g_wattsstrogatz_n100_k3_p01_s33} 
+		\caption{WS graph}  \label{fig:subim31}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.45\textwidth}
+		\centering
+		\includegraphics[width=0.7\linewidth]{../plots/g_wattsstrogatz_hist_degree_n100_k3_p01_s33}
+		\caption{WS degree distribution} \label{fig:subim32}
+	\end{subfigure}
+	
+	\caption{Example structure for the three types of social graphs explored in simulations.}
+	\label{fig:graphtypes}
+\end{figure}
+
+Figure \ref{fig:graphtypes} illustrates this range by depicting a randomly generated graph of each type, along with its degree distribution.
 
 
 
