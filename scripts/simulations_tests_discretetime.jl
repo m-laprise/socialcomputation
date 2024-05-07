@@ -25,6 +25,28 @@ function runsim_oneparam(numagents, maxsteps, inputmatrix, noisematrix, gating=f
     return results, graph
 end
 
+function runsim_oneparam_g(numagents, maxsteps, inputmatrix, noisematrix, seed=25; kwargs...)
+    nog_data, graph = model_run([:opinion_new, :scp_state]; 
+                    numagents = numagents, 
+                    maxsteps = maxsteps, 
+                    inputmatrix = inputmatrix, 
+                    noisematrix = noisematrix,
+                    gating = false, 
+                    seed = seed, 
+                    kwargs...)
+    nog_results = DataFrame(nog_data)
+    wg_data, graph = model_run([:opinion_new, :scp_state, :gating_state]; 
+                    numagents = numagents, 
+                    maxsteps = maxsteps, 
+                    inputmatrix = inputmatrix, 
+                    noisematrix = noisematrix,
+                    gating = true, 
+                    seed = seed, 
+                    kwargs...)
+    wg_results = DataFrame(wg_data)
+    return nog_results, wg_results, graph
+end
+
 function plot_sim(results; gating=false)
     CairoMakie.activate!() # hide
     if gating
@@ -73,31 +95,32 @@ maxsteps = Int(50 / euler_h)
 
 myinputmatrix = create_extsignal(numagents, maxsteps,
                                 prestimulus_delay = Int(5 / euler_h),
-                                group1 = 0.25, signal1_nbbursts = 1, signal1_strength = "low", 
+                                group1 = 0.0, signal1_nbbursts = 1, signal1_strength = "high", 
                                 signal1_dir = 1.0, signal1_timeon = Int(2 / euler_h),
-                                group2 = 0.25, signal2_nbbursts = 1, signal2_strength = "low", 
+                                group2 = 0.0, signal2_nbbursts = 1, signal2_strength = "high", 
                                 signal2_dir = -1.0, signal2_timeon = Int(2 / euler_h))
 mynoisematrix = create_extnoise(numagents, maxsteps,
                                 noise_mean = 0.0, noise_var = 0.04)
 
-res, g = runsim_oneparam(numagents, maxsteps,
+nog_res, wg_res, g = runsim_oneparam_g(numagents, maxsteps,
                     myinputmatrix, mynoisematrix, 
                     #jz_network = ("wattsstrogatz", 3),
                     jz_network = ("erdosrenyi", 4),
                     #jz_network = ("barabasialbert", 3),
                     jx_network = "buddies",
-                    gating=true, 
                     gain_scp=0.5,
                     seed=2239, 
-                    dampingparam=(0.75, 0.25), 
+                    dampingparam=(0.75, 0.0), 
                     scalingparam=(1, 0.25),
                     tau_gate=5.0,
                     alpha_gate=2.0, #beta_gate=0.0,
                     euler_h=euler_h)
-fig = plot_sim(res, gating=true)
-fig
 
-save("plots/wg_hetd_lowsig_scptanhav.png", fig)
+#nog_fig = plot_sim(nog_res, gating=false)
+#save("plots/nog_hetd_lowsig_g05_nvar004_ER4.png", nog_fig)
+
+wg_fig = plot_sim(wg_res, gating=true)
+save("plots/wg_homd_nosig_g05_nvar004_ER4_a2_taux5.png", wg_fig)
 
 ###
 using GraphMakie
