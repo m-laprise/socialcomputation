@@ -2369,8 +2369,9 @@
     <bcf:citekey order="5" intorder="1">bernardoBoundedConfidenceOpinion2024</bcf:citekey>
     <bcf:citekey order="6" intorder="1">abelsonMathematicalModelsDistribution1964</bcf:citekey>
     <bcf:citekey order="7" intorder="1">krishnamurthyTheoryGatingRecurrent2022</bcf:citekey>
-    <bcf:citekey order="8" intorder="1">crutchfieldCalculiEmergenceComputation1994</bcf:citekey>
-    <bcf:citekey order="9" intorder="1">malachAutoRegressiveNextTokenPredictors2023</bcf:citekey>
+    <bcf:citekey order="8" intorder="1">krishnamurthyTheoryGatingRecurrent2022</bcf:citekey>
+    <bcf:citekey order="9" intorder="1">crutchfieldCalculiEmergenceComputation1994</bcf:citekey>
+    <bcf:citekey order="10" intorder="1">malachAutoRegressiveNextTokenPredictors2023</bcf:citekey>
   </bcf:section>
   <!-- SORTING TEMPLATES -->
   <bcf:sortingtemplate name="ynt">
