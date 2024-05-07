@@ -75,7 +75,7 @@ function init_bfl_model(; numagents::Int = 100,
                         tau_scp::Float64 = 1.0,
                         scp_v2::Bool = false,
                         saturation::String = "tanh",
-                        jz_network::Tuple = ("barabasialbert", 3),
+                        jz_network::Tuple = ("ba", 3),
                         ju_network::String = "buddies",
                         # Unit-specific parameters
                         dampingtype::String = "random", 
@@ -267,16 +267,16 @@ Generate a communication network and an susceptibility network.
 function network_generation(jz_network::Tuple, ju_network::String, jx_network::String,
                             numagents::Int, seed::Int)
     budtype, budparam = jz_network
-    if budtype == "barabasialbert"
+    if budtype == "ba"
         g_bud = barabasi_albert(numagents, budparam, seed = seed)
-    elseif budtype == "erdosrenyi"
+    elseif budtype == "er"
         g_bud = erdos_renyi(numagents, numagents*budparam, seed = seed)
-    elseif budtype == "wattsstrogatz"
+    elseif budtype == "ws"
         g_bud = watts_strogatz(numagents, budparam*2, 0.1, seed = seed)
     elseif budtype == "complete"
         g_bud = complete_graph(numagents)
     else
-        error("Unimplemented communication network type. Use 'barabasialbert', 'erdosrenyi', 'wattsstrogatz', or 'complete'.")
+        error("Unimplemented communication network type. Use 'ba', 'er', 'ws', or 'complete'.")
     end
     adj_jz = adjacency_matrix(g_bud) + 1I(numagents)
     if ju_network == "identity"
