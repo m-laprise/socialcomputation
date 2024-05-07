@@ -129,15 +129,20 @@ Each agent is represented by coupled ODEs. Agents communicate through a connecti
 
 In my simulations, I examined how gating impacts indecision-breaking bifurcations after the reception of contradictory signals of similar strengths. In all cases, one fourth of the agents receive a burst of positive signal, and another fourth concurrently receive a burst of negative signal. I compared the initial and gated models while varying the \textbf{strength of inputs} (low, medium, or high signal) and the \textbf{type of connectivity matrix} (random, scale-free, or small-world; see below).
 
-For now, I simulated the system's evolution using the Julia Agent.jl package and Euler's approximation with a step size $h = 0.01$. I plan to replicate the results later using differential equations solvers and higher order approximations methods.
+To more clearly visualize what happens in each combination of parameters, I turn off the noise in the system, so that evolution is deterministic based on the parameters and initial conditions.
 
-All results are preliminary, as I have only had time to reproduce them with a couple of different seeds, and robustness across a variety of random seeds should be verified.
+For now, I simulated the system's evolution using the Julia \texttt{Agent.jl} package and Euler's approximation with a step size $h = 0.01$. I plan to replicate the results later using differential equations solvers and higher order approximations methods.
+
+All results are preliminary, as I have only had time to reproduce them with a couple of different seeds, and robustness across a variety of random seeds should be verified. Selected simulation results are included in a separate appendix. The code used to generate them is available at href{github.com/m-laprise/socialcomputation}{github.com/m-laprise/socialcomputation}.
 
 \textbf{Parameters for the simulations.} Some parameters must be held constant to focus on the effect of gating, signal strength, and connectivity. I set $N = 100$, which should be sufficient to generate graphs that are structurally distinct while remaining computationally tractable. After some exploration of the model's behavior in various regimes, I set the parameters as follows for all simulations in this report. $\tau^u = 1$, $g^u = 0.5$, $u_0=0$, $\tau^x = 5$, $\alpha = 2$, and $\beta = 0$. The damping coefficient is set constant at $d_i = d = 0.75$ and the scaling factor is sampled from a Gaussian, $k_i \sim \mathcal{N}(1,0.25)$, to create heterogeneity across agents. Any of these assumptions may be relaxed or modified in future work. 
 
-\textbf{Connectivity matrices $J^a$, $J^u$ and $J^x$.} For now, I set $J^a = J^u = J^x$, with the assumption that agents are both communicating with and paying attention to the same other agents (e.g. their friends). I also assume that $J^a$ is symmetric, which corresponds to the social graph being undirected.
 
-It might be particularly interesting to vary both assumptions in future work. The first, for instance, to allow agents to have through the gating matrix some perception of the state of the broader social system in which they are embedded, and adjust their integration time accordingly. The second, to allow for unidirectional flow of information between agents.
+\textbf{Initial conditions.} Agents at a random, almost neutral opinion state $z_i \sim \mathcal{N}(0, 0.01)$. Gating and susceptibility states are initialized at zero (if the basal susceptibility was above zero, we would initialize susceptibility at the basal level).
+
+\textbf{Connectivity matrices $J^a$, $J^u$ and $J^x$.} For now, I set $J^a = J^u = J^x$, with the assumption that agents are both communicating with and paying attention to the same other agents (e.g. their friends). I also assume that $J^a$ is symmetric, which corresponds to the social graph being undirected, and its entries are zeros and ones (unweighted graph).
+
+It might be particularly interesting to vary all these assumptions in future work. The first, for instance, to allow agents to have through the gating matrix some perception of the state of the broader social system in which they are embedded, and adjust their integration time accordingly. The second, to allow for unidirectional flow of information between agents, and the third, for heterogeneous flow.
 
 I examine the dynamics associated with three different types of social graphs: Erdős-Rényi $G(n, M)$ (ER), Barabási-Albert (BA), and Watts-Strogatz (WS). I set the parameters of each of the three generators such that the average degree is comparable.\footnote{$N = 100$ agents. For ER, $M = N*3$ and $N*4$. For BA, $k = 3$ and $4$. For WS, $k = 6$ and $8$, $\beta = 0.1$.} ER is a classic random graph model without hubs or local clusters. BA is a scale-free network based on preferential attachment and has a power law degree distribution (and hence hubs). WS has a small-world structure and hence local clusters. While none is a perfectly realistic depiction of social networks, together they cover an interesting range of network structures.
 
@@ -150,7 +155,7 @@ I examine the dynamics associated with three different types of social graphs: E
 	\hfill
 	\begin{subfigure}{0.45\textwidth}
 		\centering
-		\includegraphics[width=0.7\linewidth]{../plots/g_erdosrenyi_hist_degree_n100_p3_s33}
+		\includegraphics[width=0.6\linewidth]{../plots/g_erdosrenyi_hist_degree_n100_p3_s33}
 		\caption{ER degree distribution} \label{fig:subim12}
 	\end{subfigure}
 	
@@ -162,7 +167,7 @@ I examine the dynamics associated with three different types of social graphs: E
 	\hfill
 	\begin{subfigure}{0.45\textwidth}
 		\centering
-		\includegraphics[width=0.7\linewidth]{../plots/g_barabasialbert_hist_degree_n100_m3_s33}
+		\includegraphics[width=0.6\linewidth]{../plots/g_barabasialbert_hist_degree_n100_m3_s33}
 		\caption{BA degree distribution} \label{fig:subim22}
 	\end{subfigure}
 	
@@ -174,7 +179,7 @@ I examine the dynamics associated with three different types of social graphs: E
 	\hfill
 	\begin{subfigure}{0.45\textwidth}
 		\centering
-		\includegraphics[width=0.7\linewidth]{../plots/g_wattsstrogatz_hist_degree_n100_k3_p01_s33}
+		\includegraphics[width=0.6\linewidth]{../plots/g_wattsstrogatz_hist_degree_n100_k3_p01_s33}
 		\caption{WS degree distribution} \label{fig:subim32}
 	\end{subfigure}
 	
@@ -183,15 +188,6 @@ I examine the dynamics associated with three different types of social graphs: E
 \end{figure}
 
 Figure \ref{fig:graphtypes} illustrates this range by depicting a randomly generated graph of each type, along with its degree distribution.
-
-
-
-\subsubsection{Initial conditions}
-Agents are initialized at the basal susceptibility, $u_i = 0.01$, and at a random, almost neutral opinion state $z_i \sim \mathcal{N}(0, 0.01)$.
-
-Gating states are initialized at zero.
-
-
 
 \section{Results and discussion}
 
@@ -204,8 +200,9 @@ Gating states are initialized at zero.
 
 \section{Future directions}
 
-\textbf{Further modifications to the model.}
+\textbf{Further modifications to the model.} As mentioned above, some changes to the form of the susceptibility update may be tested, to replace the squared opinion by a different function and add saturation so that the susceptibility state does not grow so large. In addition, it could be interesting to add some form of memory to the agents, or a more complicated input-output function.
 
+\textbf{Further exploring the impact of various connectivity matrices.} In addition to more rigorously theorizing the link between the structure of the adjacency matrix and the dynamics of the system, future work should explore the impact of using weighted and directed connectivity matrices, to represent directed and heterogeneous flows of information, and the consequences of having different connectivity matrices associated with each of the state variables.
 
 \textbf{Building predictive models of the environment from partial information.} Building predictive models of their environment is a crucial component collective intelligence. Here, I take model building to mean the discovery of structure and regularity in a dynamic environment so that a system can predict its next inputs better than at random; such models can be implicit and behavioral (\cite{crutchfieldCalculiEmergenceComputation1994}). In real social networks, the information acquired by agents in order to do so is not only noisy, it is also partial and heterogeneous across agents. Settings of partial and heterogeneous information have rarely been explicitly studied in the network dynamics literature.
 
@@ -216,13 +213,5 @@ The BFL model only examines subjective beliefs, not the ability to converge to c
 Interacting adaptive agents face some collective challenges that resemble those of neurons in the brain or nodes in an artificial network: (i) implementing distributed computation robustly and flexibly, over a range of time scales, and (ii) building predictive models of their environment. Together, I call tackling those goals collective intelligence. If there exists common principles underlying collective intelligence across settings, then models of neural computation may help us understand social computation. Conversely, models of social computation between complex agents might in turn suggest new models for how groups of neurons or regions of the brain interact to create a richer dynamical repertoire.
 
 \printbibliography[heading=bibintoc, title={References}]
-
-\newpage
-
-\appendix
-
-\section{Simulation results}
-
-
 
 \end{document}
