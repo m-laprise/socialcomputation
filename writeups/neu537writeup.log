@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.12.6)  5 MAY 2024 17:58
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.12.6)  7 MAY 2024 15:13
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -746,232 +746,90 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 al/texlive/2023/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc}] [2] [3]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 134.
+(hyperref)                removing `math shift' on input line 126.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 134.
+(hyperref)                removing `superscript' on input line 126.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 134.
+(hyperref)                removing `math shift' on input line 126.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 134.
+(hyperref)                removing `math shift' on input line 126.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 134.
+(hyperref)                removing `superscript' on input line 126.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 134.
+(hyperref)                removing `math shift' on input line 126.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 134.
+(hyperref)                removing `math shift' on input line 126.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 134.
+(hyperref)                removing `superscript' on input line 126.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 134.
+(hyperref)                removing `math shift' on input line 126.
 
 [4] [5]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 168.
+(hyperref)                removing `math shift' on input line 160.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `subscript' on input line 168.
+(hyperref)                removing `subscript' on input line 160.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 168.
+(hyperref)                removing `math shift' on input line 160.
 
-<../plots/leonardfig2panA.png, id=148, 810.02625pt x 272.01625pt>
+<../plots/leonardfig2panA.png, id=146, 810.02625pt x 272.01625pt>
 File: ../plots/leonardfig2panA.png Graphic file (type png)
 <use ../plots/leonardfig2panA.png>
-Package pdftex.def Info: ../plots/leonardfig2panA.png  used on input line 176.
+Package pdftex.def Info: ../plots/leonardfig2panA.png  used on input line 168.
 (pdftex.def)             Requested size: 375.80544pt x 126.19984pt.
-<../plots/nog_constd_lowsig.png, id=150, 2007.5pt x 1003.75pt>
-File: ../plots/nog_constd_lowsig.png Graphic file (type png)
-<use ../plots/nog_constd_lowsig.png>
-Package pdftex.def Info: ../plots/nog_constd_lowsig.png  used on input line 182
-.
+<../plots/old/nog_constd_lowsig.png, id=148, 2007.5pt x 1003.75pt>
+File: ../plots/old/nog_constd_lowsig.png Graphic file (type png)
+<use ../plots/old/nog_constd_lowsig.png>
+Package pdftex.def Info: ../plots/old/nog_constd_lowsig.png  used on input line
+ 174.
 (pdftex.def)             Requested size: 281.85587pt x 140.92226pt.
-<../plots/nog_constd_medsig.png, id=151, 2007.5pt x 1003.75pt>
-File: ../plots/nog_constd_medsig.png Graphic file (type png)
-<use ../plots/nog_constd_medsig.png>
-Package pdftex.def Info: ../plots/nog_constd_medsig.png  used on input line 188
-.
+<../plots/old/nog_constd_medsig.png, id=149, 2007.5pt x 1003.75pt>
+File: ../plots/old/nog_constd_medsig.png Graphic file (type png)
+<use ../plots/old/nog_constd_medsig.png>
+Package pdftex.def Info: ../plots/old/nog_constd_medsig.png  used on input line
+ 180.
 (pdftex.def)             Requested size: 281.85587pt x 140.92226pt.
-<../plots/nog_hetd_lowsig.png, id=158, 2007.5pt x 803.0pt>
-File: ../plots/nog_hetd_lowsig.png Graphic file (type png)
-<use ../plots/nog_hetd_lowsig.png>
-Package pdftex.def Info: ../plots/nog_hetd_lowsig.png  used on input line 200.
-(pdftex.def)             Requested size: 281.85587pt x 112.73781pt.
-<../plots/nog_hetd_medsig.png, id=159, 2007.5pt x 803.0pt>
-File: ../plots/nog_hetd_medsig.png Graphic file (type png)
-<use ../plots/nog_hetd_medsig.png>
-Package pdftex.def Info: ../plots/nog_hetd_medsig.png  used on input line 206.
-(pdftex.def)             Requested size: 281.85587pt x 112.73781pt.
-<../plots/nog_hetd_hisig.png, id=160, 2007.5pt x 803.0pt>
-File: ../plots/nog_hetd_hisig.png Graphic file (type png)
-<use ../plots/nog_hetd_hisig.png>
-Package pdftex.def Info: ../plots/nog_hetd_hisig.png  used on input line 212.
-(pdftex.def)             Requested size: 281.85587pt x 112.73781pt.
-<../plots/wg_hetd_lowsig.png, id=164, 2208.25pt x 702.625pt>
-File: ../plots/wg_hetd_lowsig.png Graphic file (type png)
-<use ../plots/wg_hetd_lowsig.png>
-Package pdftex.def Info: ../plots/wg_hetd_lowsig.png  used on input line 227.
-(pdftex.def)             Requested size: 352.31625pt x 112.10065pt.
-<../plots/wg_hetd_medsig.png, id=165, 2208.25pt x 702.625pt>
-File: ../plots/wg_hetd_medsig.png Graphic file (type png)
-<use ../plots/wg_hetd_medsig.png>
-Package pdftex.def Info: ../plots/wg_hetd_medsig.png  used on input line 233.
-(pdftex.def)             Requested size: 352.31625pt x 112.10065pt.
-<../plots/wg_hetd_hisig.png, id=166, 2208.25pt x 702.625pt>
-File: ../plots/wg_hetd_hisig.png Graphic file (type png)
-<use ../plots/wg_hetd_hisig.png>
-Package pdftex.def Info: ../plots/wg_hetd_hisig.png  used on input line 239.
-(pdftex.def)             Requested size: 352.31625pt x 112.10065pt.
-[6] [7 <../plots/leonardfig2panA.png> <../plots/nog_constd_lowsig.png> <../plot
-s/nog_constd_medsig.png>] [8 <../plots/nog_hetd_lowsig.png> <../plots/nog_hetd_
-medsig.png> <../plots/nog_hetd_hisig.png>] [9 <../plots/wg_hetd_lowsig.png> <..
-/plots/wg_hetd_medsig.png> <../plots/wg_hetd_hisig.png>] [10]
-<../plots/wg_hetd_medsig_moredamping.png, id=221, 2208.25pt x 702.625pt>
-File: ../plots/wg_hetd_medsig_moredamping.png Graphic file (type png)
-<use ../plots/wg_hetd_medsig_moredamping.png>
-Package pdftex.def Info: ../plots/wg_hetd_medsig_moredamping.png  used on input
- line 275.
-(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
-
-
-Package caption Warning: The option `hypcap=true' will be ignored for this
-(caption)                particular \caption on input line 276.
-See the caption package documentation for explanation.
-
-<../plots/wg_hetd_medsig_alpha0beta0.png, id=222, 2208.25pt x 702.625pt>
-File: ../plots/wg_hetd_medsig_alpha0beta0.png Graphic file (type png)
-<use ../plots/wg_hetd_medsig_alpha0beta0.png>
-Package pdftex.def Info: ../plots/wg_hetd_medsig_alpha0beta0.png  used on input
- line 279.
-(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
-
-Package caption Warning: The option `hypcap=true' will be ignored for this
-(caption)                particular \caption on input line 280.
-See the caption package documentation for explanation.
-
-<../plots/wg_hetd_medsig_alpha0beta2.png, id=223, 2208.25pt x 702.625pt>
-File: ../plots/wg_hetd_medsig_alpha0beta2.png Graphic file (type png)
-<use ../plots/wg_hetd_medsig_alpha0beta2.png>
-Package pdftex.def Info: ../plots/wg_hetd_medsig_alpha0beta2.png  used on input
- line 283.
-(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
-
-Package caption Warning: The option `hypcap=true' will be ignored for this
-(caption)                particular \caption on input line 284.
-See the caption package documentation for explanation.
-
-<../plots/wg_hetd_medsig_alpha0beta3.png, id=224, 2208.25pt x 702.625pt>
-File: ../plots/wg_hetd_medsig_alpha0beta3.png Graphic file (type png)
-<use ../plots/wg_hetd_medsig_alpha0beta3.png>
-Package pdftex.def Info: ../plots/wg_hetd_medsig_alpha0beta3.png  used on input
- line 287.
-(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
-
-Package caption Warning: The option `hypcap=true' will be ignored for this
-(caption)                particular \caption on input line 288.
-See the caption package documentation for explanation.
-
-<../plots/wg_hetd_medsig_alpha0beta4.png, id=225, 2208.25pt x 702.625pt>
-File: ../plots/wg_hetd_medsig_alpha0beta4.png Graphic file (type png)
-<use ../plots/wg_hetd_medsig_alpha0beta4.png>
-Package pdftex.def Info: ../plots/wg_hetd_medsig_alpha0beta4.png  used on input
- line 294.
-(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
-
-Package caption Warning: The option `hypcap=true' will be ignored for this
-(caption)                particular \caption on input line 295.
-See the caption package documentation for explanation.
-
-<../plots/wg_hetd_medsig_alpha0beta5.png, id=226, 2208.25pt x 702.625pt>
-File: ../plots/wg_hetd_medsig_alpha0beta5.png Graphic file (type png)
-<use ../plots/wg_hetd_medsig_alpha0beta5.png>
-Package pdftex.def Info: ../plots/wg_hetd_medsig_alpha0beta5.png  used on input
- line 298.
-(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
-
-Package caption Warning: The option `hypcap=true' will be ignored for this
-(caption)                particular \caption on input line 299.
-See the caption package documentation for explanation.
-
-<../plots/wg_hetd_medsig_alphan1beta0.png, id=227, 2208.25pt x 702.625pt>
-File: ../plots/wg_hetd_medsig_alphan1beta0.png Graphic file (type png)
-<use ../plots/wg_hetd_medsig_alphan1beta0.png>
-Package pdftex.def Info: ../plots/wg_hetd_medsig_alphan1beta0.png  used on inpu
-t line 302.
-(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
-
-Package caption Warning: The option `hypcap=true' will be ignored for this
-(caption)                particular \caption on input line 303.
-See the caption package documentation for explanation.
-
-<../plots/wg_hetd_medsig_alpha2beta0.png, id=228, 2208.25pt x 702.625pt>
-File: ../plots/wg_hetd_medsig_alpha2beta0.png Graphic file (type png)
-<use ../plots/wg_hetd_medsig_alpha2beta0.png>
-Package pdftex.def Info: ../plots/wg_hetd_medsig_alpha2beta0.png  used on input
- line 306.
-(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
-
-Package caption Warning: The option `hypcap=true' will be ignored for this
-(caption)                particular \caption on input line 307.
-See the caption package documentation for explanation.
-
-<../plots/wg_hetd_medsig_alpha10beta0.png, id=229, 2208.25pt x 702.625pt>
-File: ../plots/wg_hetd_medsig_alpha10beta0.png Graphic file (type png)
-<use ../plots/wg_hetd_medsig_alpha10beta0.png>
-Package pdftex.def Info: ../plots/wg_hetd_medsig_alpha10beta0.png  used on inpu
-t line 310.
-(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
-
-Package caption Warning: The option `hypcap=true' will be ignored for this
-(caption)                particular \caption on input line 311.
-See the caption package documentation for explanation.
-
-[11 <../plots/wg_hetd_medsig_moredamping.png> <../plots/wg_hetd_medsig_alpha0be
-ta0.png> <../plots/wg_hetd_medsig_alpha0beta2.png> <../plots/wg_hetd_medsig_alp
-ha0beta3.png>]
-Overfull \vbox (17.70995pt too high) has occurred while \output is active []
-
-
-[12 <../plots/wg_hetd_medsig_alpha0beta4.png> <../plots/wg_hetd_medsig_alpha0be
-ta5.png> <../plots/wg_hetd_medsig_alphan1beta0.png> <../plots/wg_hetd_medsig_al
-pha2beta0.png> <../plots/wg_hetd_medsig_alpha10beta0.png>] (./neu537writeup.aux
-)
+[6] [7 <../plots/leonardfig2panA.png> <../plots/old/nog_constd_lowsig.png> <../
+plots/old/nog_constd_medsig.png>] [8] [9] (./neu537writeup.aux)
  ***********
 LaTeX2e <2023-11-01>
 L3 programming layer <2023-11-09>
  ***********
 Package rerunfilecheck Info: File `neu537writeup.out' has not changed.
-(rerunfilecheck)             Checksum: 0E9597ED92507868894DB88A3896592C;3005.
+(rerunfilecheck)             Checksum: 35038327585725F30F7EA2134AE09753;2626.
 Package logreq Info: Writing requests to 'neu537writeup.run.xml'.
 \openout1 = `neu537writeup.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 21143 strings out of 474273
- 371297 string characters out of 5747714
+ 20962 strings out of 474273
+ 364770 string characters out of 5747714
  1940555 words of memory out of 5000000
- 43064 multiletter control sequences out of 15000+600000
+ 42898 multiletter control sequences out of 15000+600000
  569613 words of font info for 80 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,11n,81p,2029b,1347s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 75i,11n,81p,2029b,1348s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
 pdfTeX warning (dest): name{Hfootnote.2} has been referenced but does not exist
 , replaced by a fixed one
@@ -1006,10 +864,10 @@ nts/type1/public/amsfonts/symbols/msbm10.pfb></usr/local/texlive/2023/texmf-dis
 t/fonts/type1/public/cm-super/sfrm0600.pfb></usr/local/texlive/2023/texmf-dist/
 fonts/type1/public/cm-super/sfrm0800.pfb></usr/local/texlive/2023/texmf-dist/fo
 nts/type1/public/cm-super/sfrm1000.pfb>
-Output written on neu537writeup.pdf (12 pages, 8483762 bytes).
+Output written on neu537writeup.pdf (9 pages, 939265 bytes).
 PDF statistics:
- 373 PDF objects out of 1000 (max. 8388607)
- 281 compressed objects within 3 object streams
- 68 named destinations out of 1000 (max. 500000)
- 227 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 326 PDF objects out of 1000 (max. 8388607)
+ 253 compressed objects within 3 object streams
+ 53 named destinations out of 1000 (max. 500000)
+ 152 words of extra memory for PDF output out of 10000 (max. 10000000)
 
