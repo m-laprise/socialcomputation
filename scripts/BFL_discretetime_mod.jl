@@ -66,12 +66,14 @@ the model with the specified parameters, which can be used for parameter scannin
 
 # Returns
 - `model::ABM`: The created ABM model.
+- `buddies::SimpleGraph`: The communication graph of the agents.
 """
 function init_bfl_model(; numagents::Int = 100,
                         maxsteps::Int = 500,
-                        basal_scp::Float64 = 0.01, 
+                        basal_scp::Float64 = 0.0, 
                         gain_scp::Float64 = 1.0,
                         tau_scp::Float64 = 1.0,
+                        scp_v2::Bool = false,
                         saturation::String = "tanh",
                         jz_network::Tuple = ("barabasialbert", 3),
                         ju_network::String = "buddies",
@@ -106,6 +108,13 @@ function init_bfl_model(; numagents::Int = 100,
     end
     # Create an ABM model with the OpinionatedGuy agent type
     buddies, adj_jz, adj_ju, adj_jx = network_generation(jz_network, ju_network, jx_network, numagents, seed)
+    if is_connected(buddies) == false
+        seed += 10
+        buddies, adj_jz, adj_ju, adj_jx = network_generation(jz_network, ju_network, jx_network, numagents, seed)
+        if is_connected(buddies) == false
+            error("Communication graph is not connected. Increase parameter number.")
+        end
+    end
     # Print some basic statistics about the resulting social graph buddies
     println("Social graph initialized with $(jz_network[1]) network.")
     println("Number of edges: $(ne(buddies))")
@@ -125,6 +134,7 @@ function init_bfl_model(; numagents::Int = 100,
             :basal_scp => basal_scp,
             :gain_scp => gain_scp,
             :tau_scp => tau_scp,
+            :scp_v2 => scp_v2,
             :saturation => saturation,
             #:biastype => biastype,
             #:biasproc => biasproc,
@@ -162,7 +172,7 @@ function init_bfl_model(; numagents::Int = 100,
         d, k = init_unitparam(model, i, dampingtype, dampingparam, scalingtype, scalingparam)
         add_agent!(model, o, o, o, basal_scp, x, d, k, personalbias)
     end
-    return model
+    return model, buddies
 end
 
 # Opinion initialization function
@@ -455,7 +465,7 @@ function agent_step!(agent, model)
     end
     # Check and warn for numerical stability of Euler approximation
     step = abmtime(model)
-    if step % 100 == 0
+    if step % 200 == 0
         newstate = [agent.opinion_new, agent.scp_state, agent.gating_state]
         altstate = [opinion_alt, scp_alt, gate_alt]
         # maximum norm of the difference vector
@@ -495,9 +505,19 @@ function ddt_scpstate(agent, model)
     neighborscp = 0.0
     for (widx, scpidx) in enumerate(scpidxs)
         buddiness = scpweights[widx]
+        #if model.scp_v2
+            #scp = saturation(model[scpidx].opinion_temp, 
+            #                 type = "tanh") .* buddiness
+            #scp = (saturation(model[scpidx].opinion_temp, 
+            #                  type = "tanh")^2) .* buddiness
+        #else
         scp = (model[scpidx].opinion_temp^2) .* buddiness
+        #end
         neighborscp += scp
     end
+    #if model.scp_v2
+    #    neighborscp = saturation(neighborscp / length(scpidxs), type = "tanh")
+    #end
     scp_update = 1/model.tau_scp * (-agent.scp_state + model.basal_scp + (model.gain_scp * neighborscp))
     return scp_update
 end
@@ -584,11 +604,12 @@ Run the BFL model for a specified number of steps.
 
 # Returns
 - `agent_data`: The agent data after running the model.
+- `graph`: The communication graph of the agents.
 """
 function model_run(torecord = [:opinion_new]; kwargs...)
-    model = init_bfl_model(; kwargs...)
+    model, graph = init_bfl_model(; kwargs...)
     agent_data, _ = run!(model, terminate; adata = torecord)
-    return agent_data
+    return agent_data, graph
 end
 
 #using GLMakie
