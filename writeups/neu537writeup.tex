@@ -36,17 +36,17 @@ sorting=ynt]{biblatex}
 
 Social networks are not only emergent complex systems, like colonies of ants or neurons in the brain. They are also formed of complex, heterogeneous agents. This makes their dynamics particularly challenging to model, even in comparison to formidably complicated systems like the brain: this is not only one brain, but a large number of them, interacting with each other over time. 
 
-Like other complex systems (including the humans that compose them), social networks map noisy inputs to useful outputs in a decentralized, emergent manner.  Through repeated interactions, social networks can collect and transmit information over a range of time scales, perform distributed computation,\footnote{ I loosely follow Crutchfield (\cite{crutchfieldCalculiEmergenceComputation1994}) by defining \textbf{computation} as a useful mapping from an input to an output; and \textbf{distributed} to mean that computation emerges from the time-varying state of a system of many interacting elements.} record social memories, and reproduce social institutions. A prominent example of this is exchange and price discovery in financial markets. In so doing, they can take a variety of forms across different contexts, depending on the clustering of tightly connected agents, on the presence of popular agents with exponentially more ties than others, and many other possible structural features.
+Like other complex systems (including the humans that compose them), social networks map noisy inputs to useful outputs in a decentralized, emergent manner.  Through repeated interactions, social networks can collect and transmit information over a range of time scales, perform distributed computation,\footnote{ I loosely follow Crutchfield (\cite{crutchfieldCalculiEmergenceComputation1994}) by defining \textbf{computation} as a useful mapping from an input to an output; and \textbf{distributed} to mean that computation emerges from the time-varying state of a system of many interacting elements.} record social memories, and reproduce social institutions. A prominent example of this is exchange and price discovery in financial markets. In so doing, social networks can take a variety of forms, depending on the clustering of tightly connected agents, the presence of popular agents with exponentially more ties than others, and many other structural features.
 
-The dynamics associated with structured networks of complex, heterogeneous agents, however, remain a blind spot for both social science and theories of collective computation. In studies of opinion formation in control systems or social science, traditional models relied on linear dynamics that have limited expressivity and cannot replicate some frequently observed phenomena like the presence of threshold effects or the tendency of information to saturate. Meanwhile, in neuroscience or biophysics, rich and expressive nonlinear models of distributed computation have been developed and studied extensively. But they generally feature simple and homogeneous units; an adequate choice for modeling neurons or bacteria, but not social agents. 
+The dynamics associated with structured networks of complex, heterogeneous agents, however, remain a blind spot for both social science and theories of collective computation. In studies of opinion formation, traditional models relied on linear dynamics that have limited expressivity and cannot replicate some frequently observed phenomena like the presence of threshold effects or the tendency of information to saturate. Meanwhile, in neuroscience or biophysics, rich and expressive nonlinear models of distributed computation have been developed and studied extensively. But they generally feature simple and homogeneous units; an adequate choice for modeling neurons or bacteria, but not social agents. 
 
-\textbf{General questions.} Can we extend nonlinear models of neural computation to explore how heterogeneous social agents collect and exchange noisy information to collectively form opinions and make decisions? How much heterogeneity and complexity can we add while keeping a tractable model that can be informative about social dynamics?
+\textbf{Research questions.} Can we extend nonlinear models of neural computation to explore how heterogeneous social agents collect and exchange noisy information to collectively form opinions and make decisions? How much heterogeneity and complexity can we add while keeping a tractable model that can be informative about social dynamics?
 
-\textbf{Specific question.} As a first step, in this project, I examine how adaptive time constants change how networks of interacting agents break indecision in response to contradictory signals, in order to form stable opinion patterns. I do so for three different types of network structure: random, scale-free, and small-world networks.
+As a first step, in this project, I examine \textbf{how adaptive time constants change how networks of interacting agents break indecision in response to contradictory signals}, in order to form stable opinion patterns. I do so for three different types of network structure: random, scale-free, and small-world networks.
 
 \textbf{RNN model of opinion formation.} In recent work, Naomi Leonard and colleagues developed a model of multi-agent opinion formation that takes a form similar to a recurrent neural network (RNN) (\cite{bizyaevaNonlinearOpinionDynamics2022}, \cite{leonardFastFlexibleMultiAgent2024}) (the “BFL” model; see Section 2.1). They introduced nonlinearity to model information saturation, in contrast to linear averaging models that dominated the field of opinion dynamics. The BFL model is able to break indecision in the face of contradictory inputs. It rapidly converges to a steady state of consensus (all agents agree) or disagreement (agreement within subgroups but not between them) in a way that, its authors argue, parallels the observed behavior of bees choosing a nesting site or voters choosing a candidate.
 
-\textbf{Contribution.} The BFL model features simple, homogeneous agents, without memory or intelligence. I take a first step towards richer agent-level behavior by adding an adaptive time constant (or gate) to the opinion update. I then examine the dynamics of the gated model for different signal strengths and different types of connectivity matrices, compared to the initial model, using simulations in Julia.
+The BFL model features simple, homogeneous agents, without memory or intelligence. But in real social networks, agents dynamically adjust their reaction times, as they receive information from and about the social system of which they form part. Here, I take a first step towards richer agent-level behavior by adding an adaptive time constant (or gate) to the opinion update. I then examine the dynamics of the gated model for different signal strengths and different types of connectivity matrices, compared to the initial model, using simulations in Julia.
 
 \section{Methods}
 \subsection{The BFL model}
@@ -74,7 +74,7 @@ Each agent is represented by coupled ODEs. Agents communicate through a connecti
 
 \textbf{Dynamical features.} \textit{Breaking indecision.} The system described by the BFL model is able to collectively break indecision when faced with contradictory inputs of equal strength. Indecision-breaking takes the form of an opinion cascade. This happens through \textbf{indecision-breaking bifurcations}, in which the system transitions to a multi-stable regime. The dynamic susceptibility state acts a bifurcation parameter for the transition. This is because the susceptibility state vector determines the relative importance, for each agent, of self-inhibition versus recurrent excitation from the network (including self-excitation).
 
-\textit{From neutral to opinionated.} With neutral initial opinions and in the absence of inputs, the state vector representing the opinions of all agents remains at the zero fixed point, the only stable state. When some agents receive brief external inputs, the system may go back to the zero fixed point, or undergo a an indecision-breaking bifurcation toward a regime of multi-stability, in which case the agents will converge to some stable opinionated state that will outlast the external inputs. Figure \ref{fig:replication} shows this opinion cascade appearing as inputs grow large, both in the original paper and as a replicated for this project.
+\textit{From neutral to opinionated.} With neutral initial opinions and in the absence of inputs, the state vector representing the opinions of all agents remains at the zero fixed point, the only stable state. When some agents receive brief external inputs, the system may go back to the zero fixed point, or undergo an indecision-breaking bifurcation toward a regime of multi-stability, in which case the agents will converge to some stable opinionated state that will outlast the external inputs. Figure \ref{fig:replication} shows this opinion cascade appearing as inputs grow large, both in the original paper and as replicated for this project.
 
 \begin{figure}
 	\centering
@@ -99,7 +99,7 @@ Each agent is represented by coupled ODEs. Agents communicate through a connecti
 	\caption{Opinion cascades under homogeneous damping and Gaussian noise, as external inputs grow larger. (\subref{fig:damping1}) is the top panel of Figure 2 of the BFL 2024 paper. In a small network of 13 agents, two agents receive a short signal of strength $b$ in favor of option 1 and concurrently, two agents receive a short signal of strength $-b$ in disfavor of option 1. Susceptibility state is not included. (\subref{fig:damping2}) and (\subref{fig:damping3}) are my simulations reproducing the same phenomena, with a network of 100 agents, with $d_i=d=0.75$. Opinion state in blue, susceptibility state in red. 25 agents receive a short signal in favor of option 1; 25 others receive a similar signal in disfavor. }\label{fig:replication}
 \end{figure}
 
-\textit{Sensitivity and robustness.} The authors also showed that at the bifurcation, indecision-breaking occurs rapidly, in a switch-like manner. As the system nears bifurcation, it becomes increasingly sensitive to certain inputs (in a selective manner). That is, it responds strongly to input vectors that align with the right eigenspace of the Jacobian at the bifurcation, but ignore input vectors that do not. Away from the bifurcation, opinion states remain stable even in the presence of small perturbations.
+\textit{Sensitivity and robustness.} The authors also showed that at the bifurcation, indecision-breaking occurs rapidly, in a switch-like manner. As the system nears bifurcation, it becomes increasingly sensitive to certain inputs (in a selective manner). That is, it responds strongly to input vectors that align with the right eigenspace of the Jacobian at the bifurcation, but ignores input vectors that do not. Away from the bifurcation, opinion states remain stable even in the presence of small perturbations.
 
 \textit{Stable disagreement.} The BFL model offered an elegant solution to a long-standing problem in the field of opinion formation: how to craft a system that may break indecision and generate stable disagreement as a function of inputs and initial conditions, rather than one that inevitably converges to consensus or avoids consensus only at the cost of a fixed, carefully hand-picked connectivity matrix (\cite{ravazziDynamicalSocialNetworks2021}, \cite{bernardoBoundedConfidenceOpinion2024}). This problem is sometimes called Abelson's diversity puzzle (\cite{abelsonMathematicalModelsDistribution1964}). 
 
@@ -107,7 +107,7 @@ Each agent is represented by coupled ODEs. Agents communicate through a connecti
 \begin{enumerate}
 	\item \textbf{Homogeneity.} Agents are homogeneous between each other (only their state distinguishes them) and across time (they do not learn or remember, only their state changes). For instance, agents all share a susceptibility time constant of $\tau^u$ and an opinion time constant of $1$. Agents all share an identical, non-parameterized input-output function. Agents all share a constant basal susceptibility and susceptibility gain. 
 	\item \textbf{Balance of self-inhibition and recurrent excitation.} The self-inhibition implies that the opinion activation of each agent tends to revert to zero. This is balanced out by the self-excitation represented by the diagonal term of the $J^z$ matrix and the recurrent excitation represented by its non-diagonal terms, but modulated by the susceptibility state. At a low susceptibility, self-inhibition dominates and opinions tend to revert to zero. This is very close to the modeling of integrate-and-fire neurons.
-	\item \textbf{Damping sets the opinion saturation levels.} While the damping coefficient $d_i$ is indexed as unit-specific, in most reported experiments, the original authors set a homogeneous value of $d_i=d$ for all agents. In the solution to the dynamical equations, $\pm d^{-1}$ becomes the scalar value of the stable opinionated states that the system may reach. That is, $d_i$ determines the value at which the opinion state of each agent $i$ will saturate. Diversity in $d_i$ would mean that instead of converging to identical scalar opinion states, agents would converge to opinion states of different magnitudes (agents are more or less convinced or extreme in their views). While this may seem realistic for social decision-making, this would be an artificial and hand-crafted way to achieve this result. Setting a homogeneous $d$ allows us to explore more interesting ways to achieve diversity.
+	\item \textbf{Damping sets the opinion saturation levels.} While the damping coefficient $d_i$ is indexed as unit-specific, in most reported experiments, the original authors set a homogeneous value of $d_i=d$ for all agents. In the solution to the dynamical equations, $\pm d^{-1}$ becomes the scalar value of the stable opinionated states that the system may reach. That is, $d_i$ determines the value at which the opinion state of each agent $i$ will saturate. Diversity in $d_i$ would mean that instead of converging to identical scalar opinion states, agents would converge to opinion states of different magnitudes (agents are more or less convinced or extreme in their views). While this may seem realistic for social decision-making, this would be an artificial and hand-crafted way to achieve this result. Setting a homogeneous $d$ allows us to explore more interesting ways to achieve diversity. (As we will see in the results, gating may be one such way.)
 	\item \textbf{Functional form and unboundedness of the susceptibility update.} It is not clear why the authors chose to square the opinion states in the susceptibility update. First, this assumes symmetry in the impact of negative and positive opinions, which is not obvious. I may not be equally affected by my friends being strongly in favor or in disfavor of something, although the difference between the two may be small enough that this does not impact results. In addition, because opinion states can grow larger than one (as determined by $d$ or the distribution of $d_i$) and the susceptibility update contains a sum of squared opinions, the susceptibility state can grow arbitrarily large.
 \end{enumerate}
 
@@ -123,15 +123,9 @@ Each agent is represented by coupled ODEs. Agents communicate through a connecti
 	\tau^x \dot{x}_i(t) &= -x_i(t) +  \sum ^{N}_{j=1} J^x_{ij} S(z_j(t)) + k_i I_i(t)
 \end{align}
 
-\textbf{Definitions.} $J^x$ is a coupling matrix for the gate, $\phi (x) = (1 + e^{- \alpha x + \beta })^{-1}$ is a sigmoidal saturation paramaterized by $\alpha$ and $\beta$, and $k_i I_i$ is a scaled version of $I_i$.
+\textbf{Definitions.} $J^x$ is a coupling matrix for the gate, $\phi (x) = (1 + e^{- \alpha x + \beta })^{-1}$ is a sigmoidal saturation parameterized by $\alpha$ and $\beta$, and $k_i I_i$ is a scaled version of $I_i$.
 
 \subsection{Simulations}
-
-In my simulations, I examined how gating impacts indecision-breaking bifurcations after the reception of contradictory signals of similar strengths. In all cases, one fourth of the agents receive a burst of positive signal, and another fourth concurrently receive a burst of negative signal. I compared the initial and gated models while varying the \textbf{strength of inputs} (low, medium, or high signal) and the \textbf{type of connectivity matrix} (random, scale-free, or small-world; see below). To more clearly visualize what happens in each combination of parameters, I turn off the noise in the system, so that evolution is deterministic based on the parameters and initial conditions.
-
-For now, I simulated the system's evolution using the Julia \texttt{Agent.jl} package and Euler's approximation with a step size $h = 0.01$. I plan to replicate the results later using differential equations solvers and higher order approximations methods. All results are preliminary, as I have only had time to reproduce them with a couple of different seeds, and robustness across a variety of random seeds should be verified. Selected simulation results are included in a separate appendix. The code used to generate them is available at \href{http://github.com/m-laprise/socialcomputation}{github.com/m-laprise/socialcomputation}.
-
-\textbf{Parameters for the simulations.} Some parameters must be held constant to focus on the effect of gating, signal strength, and connectivity. I set $N = 100$, which should be sufficient to generate graphs that are structurally distinct while remaining computationally tractable. After some exploration of the model's behavior in various regimes, I set the parameters as follows for all simulations in this report. $\tau^u = 1$, $g^u = 0.5$, $u_0=0$, $\tau^x = 5$, $\alpha = 2$, and $\beta = 0$. The damping coefficient is set constant at $d_i = d = 0.75$ and the scaling factor is sampled from a Gaussian, $k_i \sim \mathcal{N}(1,0.25)$, to create heterogeneity across agents. Any of these assumptions may be relaxed or modified in future work. 
 
 \begin{figure}
 	\begin{subfigure}{0.45\textwidth}
@@ -174,7 +168,13 @@ For now, I simulated the system's evolution using the Julia \texttt{Agent.jl} pa
 	\label{fig:graphtypes}
 \end{figure}
 
-\textbf{Initial conditions.} Agents at a random, almost neutral opinion state $z_i \sim \mathcal{N}(0, 0.01)$. Gating and susceptibility states are initialized at zero (if the basal susceptibility was above zero, we would initialize susceptibility at the basal level).
+In my simulations, I examined how gating impacts indecision-breaking bifurcations after the reception of contradictory signals of similar strengths. In all cases, one fourth of the agents receive a burst of positive signal, and another fourth concurrently receive a burst of negative signal. I compared the initial and gated models while varying the \textbf{strength of inputs} (low, medium, or high signal) and the \textbf{type of connectivity matrix} (random, scale-free, or small-world; see below). To more clearly visualize what happens in each combination of parameters, I turn off the noise in the system, so that evolution is deterministic based on the parameters and initial conditions.
+
+For now, I simulated the system's evolution using the Julia \texttt{Agent.jl} package and Euler's approximation with a step size $h = 0.01$. I plan to replicate the results later using differential equations solvers and higher order approximations methods. All results are preliminary, as I have only had time to reproduce them with a couple of different seeds, and robustness across a variety of random seeds should be verified. Selected simulation results are included in a separate appendix. The code used to generate them is available at \href{http://github.com/m-laprise/socialcomputation}{github.com/m-laprise/socialcomputation}.
+
+\textbf{Parameters for the simulations.} Some parameters must be held constant to focus on the effect of gating, signal strength, and connectivity. I set $N = 100$, which should be sufficient to generate graphs that are structurally distinct while remaining computationally tractable. After some exploration of the model's behavior in various regimes, I set the parameters as follows for all simulations in this report. $\tau^u = 1$, $g^u = 0.5$, $u_0=0$, $\tau^x = 5$, $\alpha = 2$, and $\beta = 0$. The damping coefficient is set constant at $d_i = d = 0.75$ and the scaling factor is sampled from a Gaussian, $k_i \sim \mathcal{N}(1,0.25)$, to create heterogeneity across agents. Any of these assumptions may be relaxed or modified in future work. 
+
+\textbf{Initial conditions.} Agents are initialized at a random, almost neutral opinion state $z_i \sim \mathcal{N}(0, 0.01)$. Gating and susceptibility states are initialized at zero (if the basal susceptibility was above zero, we would initialize susceptibility at the basal level).
 
 \textbf{Connectivity matrices $J^a$, $J^u$ and $J^x$.} For now, I set $J^a = J^u = J^x$, with the assumption that agents are both communicating with and paying attention to the same other agents (e.g. their friends). I also assume that $J^a$ is symmetric, which corresponds to the social graph being undirected, and its entries are zeros and ones (unweighted graph).
 
@@ -188,26 +188,26 @@ Figure \ref{fig:graphtypes} illustrates this range by depicting a randomly gener
 
 The dynamics of the model, with or without gating, are largely shaped by the structure of the connectivity matrix, with vastly different responses to external inputs depending if the social graph takes the form of an ER random network, a scale-free network, or a small-world network. 
 
-The difference is illustrated in Figure \ref{fig:ng}, which shows indecision-breaking in response to contradictory inputs ($b = \pm 0.4$), in the absence of gating, on a randomly generated graph of each type. The behavior illustrated is consistent across a variety of random seeds: when presented with sufficiently strong contradictory inputs, ER random networks converge to a unique negative opinion value, scale-free networks to a unique positive opinion value, and small-world graph split into two groups in stable disagreement with each other. 
+The difference is illustrated in Figure \ref{fig:ng}, which shows indecision-breaking in response to contradictory inputs ($b = \pm 0.4$), in the absence of gating, on a randomly generated graph of each type. The behavior illustrated is consistent across a variety of random seeds: when presented with sufficiently strong contradictory inputs, ER random networks converge to a unique negative opinion value, scale-free networks to a unique positive opinion value, and small-world networks split into two groups of agents in stable disagreement with each other.\footnote{Different connectivity structures thus appear to exhibit bias in favor of positive or negative solutions, and this phenomena is robust to randomly generated networks and randomly distributed inputs with different random seeds.}
 
 In all cases (without gating), the stable distribution of susceptibility states corresponds to the degree distribution of the underlying graph, as expected given the governing equations.
 
 \begin{figure}
 	\begin{subfigure}{\linewidth}
 		\centering
-		\includegraphics[width=0.5\textwidth]{../plots/nvar0_nog_homd_hisig_g05_ER4_s92391} 
+		\includegraphics[width=0.75\textwidth]{../plots/nvar0_nog_homd_hisig_g05_ER4_s92391} 
 		\caption{Erdos-Renyi random network}  \label{fig:ng1}
 	\end{subfigure}
 	
 	\begin{subfigure}{\linewidth}
 		\centering
-		\includegraphics[width=0.5\textwidth]{../plots/nvar0_nog_homd_hisig_g05_BA3_s92391}
+		\includegraphics[width=0.75\textwidth]{../plots/nvar0_nog_homd_hisig_g05_BA3_s92391}
 		\caption{Barabasi-Albert scale-free network} \label{fig:ng2}
 	\end{subfigure}
 	
 	\begin{subfigure}{\linewidth}
 		\centering
-		\includegraphics[width=0.5\textwidth]{../plots/nvar0_nog_homd_hisig_g05_WS4_s92391} 
+		\includegraphics[width=0.75\textwidth]{../plots/nvar0_nog_homd_hisig_g05_WS4_s92391} 
 		\caption{Small-world network}  \label{fig:ng3}
 	\end{subfigure}
 	
@@ -219,16 +219,12 @@ For scale-free networks, interestingly, as illustrated by Figure \ref{fig:ba}, g
 
 \begin{figure}
 	\centering
-	\includegraphics[width=0.7\linewidth]{../plots/nvar0_wg_homd_hisig_g05_BA3_a2_taux5_s92391}
+	\includegraphics[width=0.75\linewidth]{../plots/nvar0_wg_homd_hisig_g05_BA3_a2_taux5_s92391}
 	\caption{Same scale free network as \ref{fig:ng2}, with gating}
 	\label{fig:ba}
 \end{figure}
 
-\newpage
-
-\textbf{Erdős-Rényi random network}
-
-With an ER network as a connectivity graph, gating makes the dynamics of indecision-breaking more complicated and less homogeneous. 
+\textbf{Erdős-Rényi random network.} With an ER network as a connectivity graph, gating makes the dynamics of indecision-breaking more complicated and less homogeneous. 
 
 Different behaviors are possible, depending on the exact structure of the graph, which varies with the random seed chosen. In social graphs for which agents converged to a unique negative opinion in the model without gating (Figure \ref{fig:er11}), with gating, they instead converge to a unique positive opinion, but they do so much slower, with agents switching over almost one by one, until consensus is achieved (Figure \ref{fig:er12}).
 
@@ -239,72 +235,68 @@ Generally, across a variety of seeds, with gating, ER graphs often exhibit this 
 \begin{figure}
 	\begin{subfigure}{\linewidth}
 		\centering
-		\includegraphics[width=0.5\textwidth]{../plots/nvar0_nog_homd_mediumsig_g05_er4_s92391_10000} 
+		\includegraphics[width=0.55\textwidth]{../plots/nvar0_nog_homd_mediumsig_g05_er4_s92391_10000} 
 		\caption{Medium signal ($b = 0.25$), without gating, variation 1}  \label{fig:er11}
 	\end{subfigure}
 
 	\begin{subfigure}{\linewidth}
 		\centering
-		\includegraphics[width=0.7\textwidth]{../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s92391_10000}
+		\includegraphics[width=0.75\textwidth]{../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s92391_10000}
 		\caption{Medium signal ($b = 0.25$), with gating, variation 1} \label{fig:er12}
 	\end{subfigure}
 	
 	\begin{subfigure}{\linewidth}
 		\centering
-		\includegraphics[width=0.5\textwidth]{../plots/nvar0_nog_homd_medsig_g05_er4_s2854} 
+		\includegraphics[width=0.55\textwidth]{../plots/nvar0_nog_homd_medsig_g05_er4_s2854} 
 		\caption{Medium signal ($b = 0.25$), without gating, variation 2}  \label{fig:er21}
 	\end{subfigure}
 
 	\begin{subfigure}{\linewidth}
 		\centering
-		\includegraphics[width=0.7\textwidth]{../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s2854_10000}
+		\includegraphics[width=0.75\textwidth]{../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s2854_10000}
 		\caption{Medium signal ($b = 0.25$), with gating, variation 2} \label{fig:er22}
 	\end{subfigure}
-	\caption{Simulation results for random networks with different seeds. (a) and (b) are simulations on the same network, but without and with gating, respectively. The same goes with (c) and (d), on a different network.}
+	\caption{Simulation results for ER random networks with different seeds. (a) and (b) are simulations on the same network, but without and with gating, respectively. The same goes with (c) and (d), on a different network.}
 	\label{fig:ergraph}
 \end{figure}
 
-\newpage
-
-\textbf{Small-world networks.}
-
-Gating also completely transforms the dynamics of small-world networks. Without gating, the strength of the signal matters a lot to the dynamics, with the system undergoing a bifurcation from attraction to stable agreement (Figure \ref{fig:ws11}) to attraction to stable disagreement (Figure \ref{fig:ws21}) as the strength of the signal increases.
+\textbf{Small-world networks.} Gating also completely transforms the dynamics of small-world networks. Without gating, the strength of the signal matters a lot to the dynamics, with the system undergoing a bifurcation from stable agreement (Figure \ref{fig:ws11}) to stable disagreement (Figure \ref{fig:ws21}) as the strength of the signal increases.
 
 With gating, however, this bifurcation disappears, and the behavior becomes consistent for all signals strong enough to break indecision (Figure \ref{fig:ws21} and \ref{fig:ws22}). It seems that gating allows agents interacting in highly clustered networks to reach a state of agreement that they could not otherwise reach.
 
-As was the case for some ER graphs, with gating, the system slowly converges to a positive scalar opinion. Here, About half the agents converge rapidly, and then, the others switch over one by one, hence the longer time to convergence.
+As was the case for some ER graphs, with gating, the system slowly converges to a positive scalar opinion. Here, about half the agents converge rapidly, and then, the others switch over one by one, hence the longer time to convergence.
 
 \begin{figure}
 	\begin{subfigure}{\linewidth}
 		\centering
-		\includegraphics[width=0.5\textwidth]{../plots/nvar0_nog_homd_medsig_g05_ws4_s92391} 
+		\includegraphics[width=0.55\textwidth]{../plots/nvar0_nog_homd_medsig_g05_ws4_s92391} 
 		\caption{Medium signal ($b = 0.25$), without gating}  \label{fig:ws11}
 	\end{subfigure}
 	
 	\begin{subfigure}{\linewidth}
 		\centering
-		\includegraphics[width=0.7\textwidth]{../plots/nvar0_wg_homd_medsig_g05_ws4_a2_taux5_s92391}
+		\includegraphics[width=0.75\textwidth]{../plots/nvar0_wg_homd_medsig_g05_ws4_a2_taux5_s92391}
 		\caption{Medium signal ($b = 0.25$), with gating} \label{fig:ws12}
 	\end{subfigure}
 	
 	\begin{subfigure}{\linewidth}
 		\centering
-		\includegraphics[width=0.5\textwidth]{../plots/nvar0_nog_homd_hisig_g05_ws4_s92391} 
+		\includegraphics[width=0.55\textwidth]{../plots/nvar0_nog_homd_hisig_g05_ws4_s92391} 
 		\caption{High signal ($b = 0.25$), without gating}  \label{fig:ws21}
 	\end{subfigure}
 	
 	\begin{subfigure}{\linewidth}
 		\centering
-		\includegraphics[width=0.7\textwidth]{../plots/nvar0_wg_homd_hisig_g05_ws4_a2_taux5_s92391}
+		\includegraphics[width=0.75\textwidth]{../plots/nvar0_wg_homd_hisig_g05_ws4_a2_taux5_s92391}
 		\caption{High signal ($b = 0.25$), with gating} \label{fig:ws22}
 	\end{subfigure}
 	\caption{Simulation results for small-world networks. Without gating, stable disagreement occurs for sufficiently large input; otherwise, the agents converge.}
 	\label{fig:wsgraph}
 \end{figure}
 
-In summary, for networks that are not scale free, gating makes the dynamics of indecision-breaking more complicated, less homogeneous, and potentially more realistic. In some cases, it slows down the dynamics, letting agents deliberate longer before settling in a steady opinion state. In other cases, it allows agents to settle into stable opinions that exhibit more variety, sometimes even with agents holding contrarian views. In more cases still, it allows indecision breaking to occur in cases where that would not have been otherwise possible.
+\textbf{In summary}, for networks that are not scale free, gating makes the dynamics of indecision-breaking more complicated, less homogeneous, and potentially more realistic. In some cases, it slows down the dynamics, letting agents deliberate longer before settling in a steady opinion state. In other cases, it allows agents to settle into stable opinions that exhibit more variety, sometimes even with agents holding contrarian views. In more cases still, it allows indecision breaking in cases where that would not otherwise have occurred.
 
-More work will be required to determine how gating effects those changes, and theorize why different graph structure interact with gating in such distinct ways, including why it has very little effect on scale-free networks. 
+More work will be required to determine how gating effects those changes, how it interplays with noise, and why different graph structures interact with gating in such distinct ways, including why it has very little effect on scale-free networks. 
 
 \newpage
 
@@ -314,11 +306,9 @@ More work will be required to determine how gating effects those changes, and th
 
 \textbf{Further exploring the impact of various connectivity matrices.} In addition to more rigorously theorizing the link between the structure and density of the adjacency matrix and the dynamics of the system, future work should explore the impact of using weighted and directed connectivity matrices (to represent directed and heterogeneous flows of information), and the consequences of having different connectivity matrices associated with each of the state variables.
 
-\textbf{Building predictive models of the environment from partial information.} Building predictive models of their environment is a crucial component collective intelligence. Here, I take model building to mean the discovery of structure and regularity in a dynamic environment so that a system can predict its next inputs better than at random; such models can be implicit and behavioral (\cite{crutchfieldCalculiEmergenceComputation1994}). In real social networks, the information acquired by agents in order to do so is not only noisy, it is also partial and heterogeneous across agents. Settings of partial and heterogeneous information have rarely been explicitly studied in the network dynamics literature. Ongoing research efforts (\cite{malachAutoRegressiveNextTokenPredictors2023}) suggest that in some settings, next-token prediction of structured sequences may enable a model to learn complex data-generating processes (DGP) accurately. However, if and how a DGP can be recovered by a network when different nodes each receive noisy and imperfect measurements of the sequences remains unknown.
+\textbf{Building predictive models of the environment from partial information.} Building predictive models of their environment is a crucial component collective intelligence. Here, I take model building to mean the discovery of structure and regularity in a dynamic environment so that a system can predict its next inputs better than at random (\cite{crutchfieldCalculiEmergenceComputation1994}). In social networks, the information acquired to do so is not only noisy, it is also partial and heterogeneous across agents. Ongoing research efforts (\cite{malachAutoRegressiveNextTokenPredictors2023}) suggest that in the machine learning setting, next-token prediction of structured sequences may enable a model to learn complex data-generating processes (DGP) accurately. However, if and how a DGP can be recovered by a network when different nodes each receive noisy and imperfect measurements of the sequences remains unknown. The BFL model only examines subjective beliefs, not the ability to converge to correct or useful answers. In the future, I plan to change the task from belief propagation to the collective recovery of a model of the environment from partial and heterogeneous information. This can be formalized as a hidden Markov problem. I will examine under what conditions the network is successful at recovering a ground truth from noisy, partial and asymmetric inputs. 
 
-The BFL model only examines subjective beliefs, not the ability to converge to correct or useful answers. In the future, I plan to change the task from belief propagation to the collective recovery of a model of the environment from partial and heterogeneous information. A ground truth will exist, and I will examine under what conditions the network is successful at recovering it from noisy, partial and asymmetric inputs, including varying the distribution of information, noise, and other system parameters. This can be formalized as a dynamic hidden Markov problem.
-
-Interacting adaptive agents face some collective challenges that resemble those of neurons in the brain or nodes in an artificial network: (i) implementing distributed computation robustly and flexibly, over a range of time scales, and (ii) building predictive models of their environment. Together, I call tackling those goals collective intelligence. If there exists common principles underlying collective intelligence across settings, then models of neural computation may help us understand social computation. Conversely, models of social computation between complex agents might in turn suggest new models for how groups of neurons or regions of the brain interact to create a richer dynamical repertoire.
+Interacting adaptive agents face some collective challenges that resemble those of neurons in the brain or nodes in an artificial network: (i) implementing distributed computation robustly and flexibly, over a range of time scales, and (ii) building predictive models of their environment. If there exists common principles underlying collective intelligence across settings, then models of neural computation may help us understand social computation. Conversely, models of social computation between complex agents might in turn suggest new models for how groups of neurons or regions of the brain interact to create a richer dynamical repertoire.
 
 \printbibliography[heading=bibintoc, title={References}]
 
