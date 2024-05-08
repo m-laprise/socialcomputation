@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.12.6)  7 MAY 2024 18:10
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.12.6)  7 MAY 2024 23:09
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -744,18 +744,18 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 
 {/usr/local/texlive/2023/texmf-var/fonts/map/pdftex/updmap/pdftex.map}{/usr/loc
 al/texlive/2023/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc}] [2]
-<../plots/leonardfig2panA.png, id=78, 810.02625pt x 272.01625pt>
+<../plots/leonardfig2panA.png, id=76, 810.02625pt x 272.01625pt>
 File: ../plots/leonardfig2panA.png Graphic file (type png)
 <use ../plots/leonardfig2panA.png>
 Package pdftex.def Info: ../plots/leonardfig2panA.png  used on input line 83.
 (pdftex.def)             Requested size: 375.80544pt x 126.19984pt.
-<../plots/old/nog_constd_lowsig.png, id=80, 2007.5pt x 1003.75pt>
+<../plots/old/nog_constd_lowsig.png, id=78, 2007.5pt x 1003.75pt>
 File: ../plots/old/nog_constd_lowsig.png Graphic file (type png)
 <use ../plots/old/nog_constd_lowsig.png>
 Package pdftex.def Info: ../plots/old/nog_constd_lowsig.png  used on input line
  89.
 (pdftex.def)             Requested size: 281.85587pt x 140.92226pt.
-<../plots/old/nog_constd_medsig.png, id=81, 2007.5pt x 1003.75pt>
+<../plots/old/nog_constd_medsig.png, id=79, 2007.5pt x 1003.75pt>
 File: ../plots/old/nog_constd_medsig.png Graphic file (type png)
 <use ../plots/old/nog_constd_medsig.png>
 Package pdftex.def Info: ../plots/old/nog_constd_medsig.png  used on input line
@@ -763,68 +763,165 @@ Package pdftex.def Info: ../plots/old/nog_constd_medsig.png  used on input line
 (pdftex.def)             Requested size: 281.85587pt x 140.92226pt.
  [3] [4 <../plots/leonardfig2panA.png> <../plots/old/nog_constd_lowsig.png> <..
 /plots/old/nog_constd_medsig.png>] [5]
-<../plots/g_erdosrenyi_n100_p3_s33.png, id=124, 1204.5pt x 903.375pt>
+<../plots/g_erdosrenyi_n100_p3_s33.png, id=123, 1204.5pt x 903.375pt>
 File: ../plots/g_erdosrenyi_n100_p3_s33.png Graphic file (type png)
 <use ../plots/g_erdosrenyi_n100_p3_s33.png>
 Package pdftex.def Info: ../plots/g_erdosrenyi_n100_p3_s33.png  used on input l
-ine 147.
+ine 139.
 (pdftex.def)             Requested size: 169.1113pt x 126.83003pt.
-<../plots/g_erdosrenyi_hist_degree_n100_p3_s33.png, id=125, 602.25pt x 602.25pt
+<../plots/g_erdosrenyi_hist_degree_n100_p3_s33.png, id=124, 602.25pt x 602.25pt
 >
 File: ../plots/g_erdosrenyi_hist_degree_n100_p3_s33.png Graphic file (type png)
 
 <use ../plots/g_erdosrenyi_hist_degree_n100_p3_s33.png>
 Package pdftex.def Info: ../plots/g_erdosrenyi_hist_degree_n100_p3_s33.png  use
-d on input line 153.
+d on input line 145.
 (pdftex.def)             Requested size: 105.69415pt x 105.68939pt.
-<../plots/g_barabasialbert_n100_m3_s33.png, id=126, 1204.5pt x 903.375pt>
+<../plots/g_barabasialbert_n100_m3_s33.png, id=125, 1204.5pt x 903.375pt>
 File: ../plots/g_barabasialbert_n100_m3_s33.png Graphic file (type png)
 <use ../plots/g_barabasialbert_n100_m3_s33.png>
 Package pdftex.def Info: ../plots/g_barabasialbert_n100_m3_s33.png  used on inp
-ut line 159.
+ut line 151.
 (pdftex.def)             Requested size: 169.1113pt x 126.83003pt.
-<../plots/g_barabasialbert_hist_degree_n100_m3_s33.png, id=127, 602.25pt x 602.
+<../plots/g_barabasialbert_hist_degree_n100_m3_s33.png, id=126, 602.25pt x 602.
 25pt>
 File: ../plots/g_barabasialbert_hist_degree_n100_m3_s33.png Graphic file (type 
 png)
 <use ../plots/g_barabasialbert_hist_degree_n100_m3_s33.png>
 Package pdftex.def Info: ../plots/g_barabasialbert_hist_degree_n100_m3_s33.png 
- used on input line 165.
+ used on input line 157.
 (pdftex.def)             Requested size: 105.69415pt x 105.68939pt.
-<../plots/g_wattsstrogatz_n100_k3_p01_s33.png, id=128, 1204.5pt x 903.375pt>
+<../plots/g_wattsstrogatz_n100_k3_p01_s33.png, id=127, 1204.5pt x 903.375pt>
 File: ../plots/g_wattsstrogatz_n100_k3_p01_s33.png Graphic file (type png)
 <use ../plots/g_wattsstrogatz_n100_k3_p01_s33.png>
 Package pdftex.def Info: ../plots/g_wattsstrogatz_n100_k3_p01_s33.png  used on 
-input line 171.
+input line 163.
 (pdftex.def)             Requested size: 169.1113pt x 126.83003pt.
-<../plots/g_wattsstrogatz_hist_degree_n100_k3_p01_s33.png, id=129, 602.25pt x 6
+<../plots/g_wattsstrogatz_hist_degree_n100_k3_p01_s33.png, id=128, 602.25pt x 6
 02.25pt>
 File: ../plots/g_wattsstrogatz_hist_degree_n100_k3_p01_s33.png Graphic file (ty
 pe png)
 <use ../plots/g_wattsstrogatz_hist_degree_n100_k3_p01_s33.png>
 Package pdftex.def Info: ../plots/g_wattsstrogatz_hist_degree_n100_k3_p01_s33.p
-ng  used on input line 177.
+ng  used on input line 169.
 (pdftex.def)             Requested size: 105.69415pt x 105.68939pt.
+<../plots/nvar0_nog_homd_hisig_g05_ER4_s92391.png, id=132, 2007.5pt x 803.0pt>
+File: ../plots/nvar0_nog_homd_hisig_g05_ER4_s92391.png Graphic file (type png)
+<use ../plots/nvar0_nog_homd_hisig_g05_ER4_s92391.png>
+Package pdftex.def Info: ../plots/nvar0_nog_homd_hisig_g05_ER4_s92391.png  used
+ on input line 198.
+(pdftex.def)             Requested size: 234.8775pt x 93.94205pt.
+<../plots/nvar0_nog_homd_hisig_g05_BA3_s92391.png, id=133, 2007.5pt x 803.0pt>
+File: ../plots/nvar0_nog_homd_hisig_g05_BA3_s92391.png Graphic file (type png)
+<use ../plots/nvar0_nog_homd_hisig_g05_BA3_s92391.png>
+Package pdftex.def Info: ../plots/nvar0_nog_homd_hisig_g05_BA3_s92391.png  used
+ on input line 204.
+(pdftex.def)             Requested size: 234.8775pt x 93.94205pt.
+<../plots/nvar0_nog_homd_hisig_g05_WS4_s92391.png, id=134, 2007.5pt x 803.0pt>
+File: ../plots/nvar0_nog_homd_hisig_g05_WS4_s92391.png Graphic file (type png)
+<use ../plots/nvar0_nog_homd_hisig_g05_WS4_s92391.png>
+Package pdftex.def Info: ../plots/nvar0_nog_homd_hisig_g05_WS4_s92391.png  used
+ on input line 210.
+(pdftex.def)             Requested size: 234.8775pt x 93.94205pt.
+<../plots/nvar0_wg_homd_hisig_g05_BA3_a2_taux5_s92391.png, id=136, 2208.25pt x 
+702.625pt>
+File: ../plots/nvar0_wg_homd_hisig_g05_BA3_a2_taux5_s92391.png Graphic file (ty
+pe png)
+<use ../plots/nvar0_wg_homd_hisig_g05_BA3_a2_taux5_s92391.png>
+Package pdftex.def Info: ../plots/nvar0_wg_homd_hisig_g05_BA3_a2_taux5_s92391.p
+ng  used on input line 222.
+(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
  [6] [7 <../plots/g_erdosrenyi_n100_p3_s33.png> <../plots/g_erdosrenyi_hist_deg
 ree_n100_p3_s33.png> <../plots/g_barabasialbert_n100_m3_s33.png> <../plots/g_ba
 rabasialbert_hist_degree_n100_m3_s33.png> <../plots/g_wattsstrogatz_n100_k3_p01
-_s33.png> <../plots/g_wattsstrogatz_hist_degree_n100_k3_p01_s33.png>] [8] [9] (
-./neu537writeup.aux)
+_s33.png> <../plots/g_wattsstrogatz_hist_degree_n100_k3_p01_s33.png>] [8 <../pl
+ots/nvar0_nog_homd_hisig_g05_ER4_s92391.png> <../plots/nvar0_nog_homd_hisig_g05
+_BA3_s92391.png> <../plots/nvar0_nog_homd_hisig_g05_WS4_s92391.png>] [9 <../plo
+ts/nvar0_wg_homd_hisig_g05_BA3_a2_taux5_s92391.png>]
+<../plots/nvar0_nog_homd_mediumsig_g05_er4_s92391_10000.png, id=165, 2007.5pt x
+ 803.0pt>
+File: ../plots/nvar0_nog_homd_mediumsig_g05_er4_s92391_10000.png Graphic file (
+type png)
+<use ../plots/nvar0_nog_homd_mediumsig_g05_er4_s92391_10000.png>
+Package pdftex.def Info: ../plots/nvar0_nog_homd_mediumsig_g05_er4_s92391_10000
+.png  used on input line 242.
+(pdftex.def)             Requested size: 234.8775pt x 93.94205pt.
+<../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s92391_10000.png, id=166, 22
+08.25pt x 702.625pt>
+File: ../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s92391_10000.png Graphi
+c file (type png)
+<use ../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s92391_10000.png>
+Package pdftex.def Info: ../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s923
+91_10000.png  used on input line 248.
+(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
+<../plots/nvar0_nog_homd_medsig_g05_er4_s2854.png, id=167, 2007.5pt x 803.0pt>
+File: ../plots/nvar0_nog_homd_medsig_g05_er4_s2854.png Graphic file (type png)
+<use ../plots/nvar0_nog_homd_medsig_g05_er4_s2854.png>
+Package pdftex.def Info: ../plots/nvar0_nog_homd_medsig_g05_er4_s2854.png  used
+ on input line 254.
+(pdftex.def)             Requested size: 234.8775pt x 93.94205pt.
+<../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s2854_10000.png, id=168, 220
+8.25pt x 702.625pt>
+File: ../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s2854_10000.png Graphic
+ file (type png)
+<use ../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s2854_10000.png>
+Package pdftex.def Info: ../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s285
+4_10000.png  used on input line 260.
+(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
+
+[10] [11 <../plots/nvar0_nog_homd_mediumsig_g05_er4_s92391_10000.png> <../plots
+/nvar0_wg_homd_mediumsig_g05_er4_a2_taux5_s92391_10000.png> <../plots/nvar0_nog
+_homd_medsig_g05_er4_s2854.png> <../plots/nvar0_wg_homd_mediumsig_g05_er4_a2_ta
+ux5_s2854_10000.png>]
+<../plots/nvar0_nog_homd_medsig_g05_ws4_s92391.png, id=182, 2007.5pt x 803.0pt>
+
+File: ../plots/nvar0_nog_homd_medsig_g05_ws4_s92391.png Graphic file (type png)
+
+<use ../plots/nvar0_nog_homd_medsig_g05_ws4_s92391.png>
+Package pdftex.def Info: ../plots/nvar0_nog_homd_medsig_g05_ws4_s92391.png  use
+d on input line 280.
+(pdftex.def)             Requested size: 234.8775pt x 93.94205pt.
+<../plots/nvar0_wg_homd_medsig_g05_ws4_a2_taux5_s92391.png, id=183, 2208.25pt x
+ 702.625pt>
+File: ../plots/nvar0_wg_homd_medsig_g05_ws4_a2_taux5_s92391.png Graphic file (t
+ype png)
+<use ../plots/nvar0_wg_homd_medsig_g05_ws4_a2_taux5_s92391.png>
+Package pdftex.def Info: ../plots/nvar0_wg_homd_medsig_g05_ws4_a2_taux5_s92391.
+png  used on input line 286.
+(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
+<../plots/nvar0_nog_homd_hisig_g05_ws4_s92391.png, id=184, 2007.5pt x 803.0pt>
+File: ../plots/nvar0_nog_homd_hisig_g05_ws4_s92391.png Graphic file (type png)
+<use ../plots/nvar0_nog_homd_hisig_g05_ws4_s92391.png>
+Package pdftex.def Info: ../plots/nvar0_nog_homd_hisig_g05_ws4_s92391.png  used
+ on input line 292.
+(pdftex.def)             Requested size: 234.8775pt x 93.94205pt.
+<../plots/nvar0_wg_homd_hisig_g05_ws4_a2_taux5_s92391.png, id=185, 2208.25pt x 
+702.625pt>
+File: ../plots/nvar0_wg_homd_hisig_g05_ws4_a2_taux5_s92391.png Graphic file (ty
+pe png)
+<use ../plots/nvar0_wg_homd_hisig_g05_ws4_a2_taux5_s92391.png>
+Package pdftex.def Info: ../plots/nvar0_wg_homd_hisig_g05_ws4_a2_taux5_s92391.p
+ng  used on input line 298.
+(pdftex.def)             Requested size: 328.82707pt x 104.62799pt.
+ [12] [13 <../plots/nvar0_nog_homd_medsig_g05_ws4_s92391.png> <../plots/nvar0_w
+g_homd_medsig_g05_ws4_a2_taux5_s92391.png> <../plots/nvar0_nog_homd_hisig_g05_w
+s4_s92391.png> <../plots/nvar0_wg_homd_hisig_g05_ws4_a2_taux5_s92391.png>] [14]
+ [15] (./neu537writeup.aux)
  ***********
 LaTeX2e <2023-11-01>
 L3 programming layer <2023-11-09>
  ***********
 Package rerunfilecheck Info: File `neu537writeup.out' has not changed.
-(rerunfilecheck)             Checksum: 52F270E65C2C81EB88E458147CCB6286;935.
+(rerunfilecheck)             Checksum: A302BC35BA83AACD2107AE95F50A2F61;935.
 Package logreq Info: Writing requests to 'neu537writeup.run.xml'.
 \openout1 = `neu537writeup.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 21020 strings out of 474273
- 368140 string characters out of 5747714
- 1940555 words of memory out of 5000000
- 42969 multiletter control sequences out of 15000+600000
+ 21188 strings out of 474273
+ 376431 string characters out of 5747714
+ 1941555 words of memory out of 5000000
+ 43127 multiletter control sequences out of 15000+600000
  569613 words of font info for 80 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  75i,11n,81p,2029b,1550s stack positions out of 10000i,1000n,20000p,200000b,200000s
@@ -866,10 +963,10 @@ ts/type1/public/amsfonts/symbols/msbm10.pfb></usr/local/texlive/2023/texmf-dist
 /fonts/type1/public/cm-super/sfrm0600.pfb></usr/local/texlive/2023/texmf-dist/f
 onts/type1/public/cm-super/sfrm0800.pfb></usr/local/texlive/2023/texmf-dist/fon
 ts/type1/public/cm-super/sfrm1000.pfb>
-Output written on neu537writeup.pdf (9 pages, 1524742 bytes).
+Output written on neu537writeup.pdf (15 pages, 5050382 bytes).
 PDF statistics:
- 295 PDF objects out of 1000 (max. 8388607)
- 216 compressed objects within 3 object streams
- 40 named destinations out of 1000 (max. 500000)
- 110 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 350 PDF objects out of 1000 (max. 8388607)
+ 252 compressed objects within 3 object streams
+ 50 named destinations out of 1000 (max. 500000)
+ 170 words of extra memory for PDF output out of 10000 (max. 10000000)
 
