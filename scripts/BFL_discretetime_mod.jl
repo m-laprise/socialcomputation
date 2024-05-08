@@ -25,6 +25,7 @@ The `OpinionatedGuy` struct represents an agent with opinionated behavior. It is
 - `opinion_new::Float64`: The new opinion of the agent, calculated at the end of the step. 
 - `opinion_prev::Float64`: The previous opinion of the agent, required to check convergence for termination.
 - `scp_state::Float64`: The susceptibility state of the agent.
+- `gating_state::Float64`: The gating state of the agent.
 - `damping::Float64`: The damping factor of the agent for the opinion update. By default, it will be sampled from a Gaussian.
 - `scaling::Float64`: The scaling factor for the agent. By default, it will be sampled from a Gaussian.
 - `personalbias::Float64`: The bias term for the agent. By default, it will be inherited from the model and set to 0.
@@ -50,17 +51,26 @@ the model with the specified parameters, which can be used for parameter scannin
 
 # Arguments
 - `numagents::Int`: The number of agents in the model.
-- `damping::Float64`: The damping factor for the opinion update. 
+- `maxsteps::Int`: The maximum number of steps to run the model. Default is 500. 0 means run until convergence.
 - `basal_scp::Float64`: The basal susceptibility state of the agents. 
+- `gain_scp::Float64`: The gain for the susceptibility state update.
 - `tau_scp::Float64`: The time constant for the susceptibility state update. 
+- `scp_v2::Bool`: Whether to use the alternate form for the susceptibility update. Default is false.
 - `saturation::String`: The saturation function for the susceptibility state. Default is "tanh" (hyperbolic tangent for opinions between -1 and 1).
-- `biastype::String`: The bias function. Default is "randomsmall" (small random bias for each agent at each step).
-- `biasproc::Vector{Float64}`: The evolution vector for the bias calculation if biastype = "manual". Default is a vector of random numbers.
-- `numsensing::Int`: The number of agents that are sensitive to external information. Default is 0.
 - `jz_network::Tuple`: The parameters for the communication network. Default is ("barabasialbert", 2) (Barabasi-Albert network with m=2).
 - `ju_network::String`: The susceptibility network type. 
+- `dampingtype::String`: The damping parameter initialization method.
+- `dampingparam::Tuple`: The parameters for the damping initialization.
+- `scalingtype::String`: The scaling parameter initialization method.
+- `scalingparam::Tuple`: The parameters for the scaling initialization.
+- `inputmatrix::AbstractMatrix{Float64}`: The external input matrix for the agents. Default is zeros(numagents, maxsteps).
+- `noisematrix::AbstractMatrix{Float64}`: The external noise matrix for the agents. Default is zeros(numagents, maxsteps).
+- `gating::Bool`: Whether to use gating. Default is false.
+- `jx_network::String`: The gating network type. Default is "2degree".
+- `tau_gate::Float64`: The time constant for the gating state update.
+- `alpha_gate::Float64`: The alpha parameter for the gating state update.
+- `beta_gate::Float64`: The beta parameter for the gating state update.
 - `opinioninit::String`: The opinion initialization method. 
-- `maxsteps::Int`: The maximum number of steps to run the model. Default is 500. 0 means run until convergence.
 - `euler_h::Float64`: The Euler integration step size for the opinion and susceptibility state updates. Default is 0.1.
 - `seed::Int`: The seed for the random number generator. Default is 23.
 
@@ -92,8 +102,8 @@ function init_bfl_model(; numagents::Int = 100,
                         # Gate parameters
                         gating::Bool = false,
                         jx_network::String = "2degree",
-                        tau_gate::Float64 = 1.0,
-                        alpha_gate::Float64 = 1.0,
+                        tau_gate::Float64 = 5.0,
+                        alpha_gate::Float64 = 2.0,
                         beta_gate::Float64 = 0.0,
                         # Initialization and simulation
                         opinioninit::String = "random",

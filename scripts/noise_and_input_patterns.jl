@@ -1,3 +1,5 @@
+# Functions to generate external noise and input patterns for the BFL model simulations
+
 using LinearAlgebra
 using Random
 using Distributions

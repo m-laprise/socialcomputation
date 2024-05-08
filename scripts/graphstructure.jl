@@ -3,8 +3,6 @@ using Random
 using GraphMakie
 using NetworkLayout
 
-
-
 budparam = 3
 seed = 33
 g1 = erdos_renyi(numagents, numagents*budparam, seed = seed)
