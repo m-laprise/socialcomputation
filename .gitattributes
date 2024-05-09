@@ -1,2 +1,3 @@
 *.tex linguist-detectable=false
 *.jl linguist-detectable=true
+writeups/** linguist-vendored
