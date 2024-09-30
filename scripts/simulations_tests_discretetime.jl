@@ -33,7 +33,8 @@ function runsim_oneparam_g(numagents, maxsteps, inputmatrix, noisematrix, seed=2
                     seed = seed, 
                     kwargs...)
     nog_results = DataFrame(nog_data)
-    wg_data, graph = model_run([:opinion_new, :scp_state, :gating_state]; 
+
+    wg_data, _ = model_run([:opinion_new, :scp_state, :gating_state]; 
                     numagents = numagents, 
                     maxsteps = maxsteps, 
                     inputmatrix = inputmatrix, 
@@ -42,7 +43,19 @@ function runsim_oneparam_g(numagents, maxsteps, inputmatrix, noisematrix, seed=2
                     seed = seed, 
                     kwargs...)
     wg_results = DataFrame(wg_data)
-    return nog_results, wg_results, graph
+
+    wg2_data, _ = model_run([:opinion_new, :scp_state, :gating_state]; 
+                    numagents = numagents, 
+                    maxsteps = maxsteps, 
+                    inputmatrix = inputmatrix, 
+                    noisematrix = noisematrix,
+                    gating = true, 
+                    gatingv2 = true,
+                    seed = seed, 
+                    kwargs...)
+    wg2_results = DataFrame(wg2_data)
+
+    return nog_results, wg_results, wg2_results, graph
 end
 function plot_sim(results; gating=false)
     CairoMakie.activate!() # hide
@@ -85,12 +98,12 @@ function plot_sim(results; gating=false)
     end
     return fig
 end
-numagents = 100
+numagents = 200
 euler_h = 0.01
 maxsteps = Int(100 / euler_h)
-seed = 2854
+seed = 28
 signal = "medium"
-grapht = "er"
+grapht = "ws"
 gparam = 5
 myinputmatrix = create_extsignal(numagents, maxsteps,
                                 prestimulus_delay = Int(5 / euler_h),
@@ -101,7 +114,7 @@ myinputmatrix = create_extsignal(numagents, maxsteps,
 mynoisematrix = create_extnoise(numagents, maxsteps,
                                 noise_mean = 0.0, noise_var = 0.0)
 
-nog_res, wg_res, g = runsim_oneparam_g(numagents, maxsteps,
+nog_res, wg_res, wg2_res, g = runsim_oneparam_g(numagents, maxsteps,
                     myinputmatrix, mynoisematrix, 
                     jz_network = (grapht, gparam),
                     jx_network = "buddies",
@@ -113,9 +126,12 @@ nog_res, wg_res, g = runsim_oneparam_g(numagents, maxsteps,
                     alpha_gate=2.0, #beta_gate=0.0,
                     euler_h=euler_h)
 nog_fig = plot_sim(nog_res, gating=false)
-#save("plots/nvar0_nog_homd_$(signal)sig_g05_$(grapht)$(gparam)_s$(seed)_$(maxsteps).png", nog_fig)
+save("plots/nvar0_nog_homd_$(signal)sig_g05_$(grapht)$(gparam)_s$(seed)_$(maxsteps)_n$(numagents).png", nog_fig)
 wg_fig = plot_sim(wg_res, gating=true)
-#save("plots/nvar0_wg_homd_$(signal)sig_g05_$(grapht)$(gparam)_a2_taux5_s$(seed)_$(maxsteps).png", wg_fig)
+save("plots/nvar0_wg_homd_$(signal)sig_g05_$(grapht)$(gparam)_a2_taux5_s$(seed)_$(maxsteps)_n$(numagents).png", wg_fig)
+wg2_fig = plot_sim(wg2_res, gating=true)
+save("plots/nvar0_wg2_homd_$(signal)sig_g05_$(grapht)$(gparam)_a2_taux5_s$(seed)_$(maxsteps)_n$(numagents).png", wg2_fig)
+
 
 include("plot_3d_trajectories.jl")
 include("plot_steadystategraph.jl")
@@ -124,6 +140,7 @@ using WGLMakie
 WGLMakie.activate!()
 
 fig3d = plot_3dtrajectory(wg_res, 50)
+fig3d2 = plot_3dtrajectory(wg2_res, 50)
 
 fg, _, _ = viz_socgraph(g, wg_res, 3)
 fg

@@ -105,6 +105,7 @@ function init_bfl_model(; numagents::Int = 100,
                         tau_gate::Float64 = 5.0,
                         alpha_gate::Float64 = 2.0,
                         beta_gate::Float64 = 0.0,
+                        gatingv2::Bool = false,
                         # Initialization and simulation
                         opinioninit::String = "random",
                         euler_h::Float64 = 0.1,
@@ -160,6 +161,7 @@ function init_bfl_model(; numagents::Int = 100,
             :tau_gate => tau_gate,
             :alpha_gate => alpha_gate,
             :beta_gate => beta_gate,
+            :gatingv2 => gatingv2,
             # Simulation
             :maxsteps => maxsteps,
             :euler_h => euler_h,
@@ -539,6 +541,10 @@ function ddt_gatingstate(agent, model, det_input, stoch_input)
         buddiness = gateweights[widx]
         x = saturation(model[gateidx].opinion_temp, 
                        type = model.saturation) .* buddiness
+        if model.gatingv2
+            z, _ = ddt_opinionstate(agent, model, det_input, stoch_input)
+            x = z .* buddiness
+        end
         addx += x
     end
     scaledsignal = agent.scaling * det_input
