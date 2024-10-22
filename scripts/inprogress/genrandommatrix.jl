@@ -4,10 +4,19 @@ using Distributions
 using SparseArrays
 #using Statistics
 #using DataFrames
-#using CairoMakie
 
 # Generate a random m x n matrix with rank r
-function gen_matrix(m, n, r; noisy=false, sparse=false, noisevar=1e-2, sparsity=1/3, seed=1234)
+function gen_matrix(m, n, r; 
+                    seed::Int = 0, 
+                    noisy::Bool = false, 
+                    sparse::Bool = false, 
+                    noisevar::Float64 = 1e-2, 
+                    sparsity::Float64 = 1/3, 
+                    spatial::Bool = false)
+    # initialize seed from system time
+    if seed == 0
+        seed = Int(round(time()))
+    end
     rng = MersenneTwister(seed)
     if sparse
         B = sprandn(rng, m, r, sparsity)
@@ -15,6 +24,11 @@ function gen_matrix(m, n, r; noisy=false, sparse=false, noisevar=1e-2, sparsity=
     else
         B = randn(rng, m, r)
         C = randn(rng, r, n)
+    end
+    if spatial
+        # Take cumsum 
+        B = cumsum(B, dims=1)
+        C = cumsum(C, dims=2)
     end
     A = B * C
     if noisy
@@ -168,6 +182,42 @@ end
 
 test_zscore()
 
+function submatrix(A, minval=0, maxval=0; seed=1234, type="partition")
+    m, n = size(A)
+    if m < n
+        A = A'
+        m, n = n, m
+    end
+    if minval == 0
+        minval = 2 * rank(A)
+    end
+    if maxval == 0
+        maxval = m/2
+    end
+    blocks = []
+    if type == "partition"
+        # Deterministically partition the matrix in blocks of min x min
+        # and return all blocks
+        for i in 1:minval:m
+            for j in 1:minval:n
+                push!(blocks, A[i:min(i+minval-1, m), j:min(j+minval-1, n)])
+            end
+        end
+    elseif type == "random"
+        k = m * n / (minval * minval)
+        # Randomly sample a block of size min x min, k times
+        rng = MersenneTwister(seed)
+        for _ in 1:k
+            i = rand(rng, 1:m-minval+1)
+            j = rand(rng, 1:n-minval+1)
+            push!(blocks, A[i:min(i+minval-1, m), j:min(j+minval-1, n)])
+        end
+    else 
+        error("Invalid type")
+    end
+    return blocks
+end
+
 # Generate collection of all possible sensing masks (sensing one entry only) for a given matrix size
 # Randomly permute them and return the first k masks, stored sparsely as a list of (i, j) tuples
 function sensingmasks(A; k=0, seed=1234)
@@ -193,9 +243,90 @@ function apply_mask!(B, A, maskij; addoutcome=true, outcomecol=1)
     return B
 end
 
+function svd_recon(A, k)
+    U, S, Vt = svd(A)
+    Ahat = U[:, 1:k] * diagm(0 => S[1:k]) * Vt[:, 1:k]'
+    return Ahat
+end
+
+function trace_product(X::AbstractMatrix, O::AbstractMatrix)
+    return sum(diag(X * O))
+end
+
+function trace_product(X::AbstractMatrix, O::Array)
+    nb_measurements = size(O, 3)
+    result = Vector{Float64}(undef, nb_measurements)
+    temp_matrix = similar(X, size(X, 1), size(O, 2))
+    diag_temp = Vector{Float64}(undef, min(size(X, 1), size(O, 2)))
+    
+    @inbounds for i in 1:nb_measurements
+        @views mul!(temp_matrix, X, O[:, :, i])
+        @inbounds for j in 1:length(diag_temp)
+            diag_temp[j] = temp_matrix[j, j]
+        end
+        result[i] = sum(diag_temp)
+    end
+    return result
+end
+
+function get_data_densematrix(dataset_size::Int, m::Int, n::Int; 
+        seed::Int, 
+        measurement_type::String = "mask",
+        mask_prob::Float64 = 0.33, 
+        traces_nb::Int = 50,
+        traces_projsize::Int = 25,
+        include_X::Bool = false, 
+        rank_threshold::Float64 = 0.1)
+
+    cutoff = Int(round(min(m, n) * rank_threshold))
+    maxrank = Int(round(min(m, n) / 2))
+
+    rng = MersenneTwister(seed)
+    # Generate matrix ranks
+    indexablecollection = vcat(1:min(10,cutoff-2), max(maxrank-10, cutoff+2):maxrank)
+    r = rand(rng, indexablecollection, dataset_size)
+    n_seen = round(Int, (1 - mask_prob) * m * n)
+    r = min.(r, fill(n_seen ÷ 2, dataset_size))
+
+    # Preallocate the array for low-rank matrices
+    X = Array{Float64, 3}(undef, dataset_size, m, n)
+    # Generate (dataset_size) low-rank matrices from the rank vector
+    for i in 1:dataset_size
+        X[i, :, :] .= gen_matrix(m, n, r[i], seed=seed+i)
+    end
+
+    # Generate labels with shape (dataset_size, 1)
+    Y = reshape(r .< cutoff, dataset_size, 1)
+
+    if measurement_type == "mask"
+        # Generate measurements of each X by masking some of the entries; dataset_size x m x n
+        masks = rand(rng, Bool, dataset_size, m, n) .< (1 - mask_prob)
+        Xhat = X .* masks
+    elseif measurement_type == "trace"
+        # Preallocate the array for trace measurements
+        Xhat = Array{Float64, 2}(undef, dataset_size, traces_nb)
+        # Generate measurements of each X by taking Trace(X * O_i) for (nb_traces) random matrices O_i
+        O = randn(rng, dataset_size, n, traces_projsize, traces_nb)
+        @inbounds for i in 1:dataset_size
+            #Xhat[i, :] .= trace_product(X[i, :, :], O[i, :, :, :])
+            X_i = view(X, i, :, :)
+            for j in 1:traces_nb
+                O_ij = view(O, i, :, :, j)
+                Xhat[i, j] = trace_product(X_i, O_ij)
+            end
+        end
+    else
+        error("Measurement type not recognized. Choose from 'mask' or 'trace'.")
+    end
+    if include_X
+        return X, Xhat, Y, r
+    else
+        return Xhat, Y, r
+    end
+end
+
 # Find each agent's best guess for the target entry, before communication,
 # by applying matrix reconstruction heuristics to their observations
-using LinearAlgebra
 
 #function single_agent_guess(agentobs, targetidx)
 #     m, n = size(agentobs)
@@ -209,39 +340,3 @@ using LinearAlgebra
 #     u, s, vt = svd(masked)
 #     return u[:,1] * s[1] * vt[1,:]
 # end
-
-using GLM
-using DataFrames
-
-# For each pair of X, y: sample a training set and a test set. 
-# Fit a linear model on the training set and evaluate on the test set. 
-# Report model R-squared and average test error.
-# Compare with the null model that predicts the mean of y.
-function fit_linear_model(X, y)
-    n = size(X, 1)
-    ntrain = Int(round(n * 0.8))
-    ntest = n - ntrain
-    permuted = randperm(n)
-    trainidx = permuted[1:ntrain]
-    testidx = permuted[ntrain+1:end]
-    Xtrain = X[trainidx, :]
-    ytrain = y[trainidx]
-    Xtest = X[testidx, :]
-    ytest = y[testidx]
-    k = size(X, 2)
-    # Create data 
-    train_data = DataFrame(y=ytrain)
-    for i in 1:k
-        train_data[!, Symbol("X$i")] = Xtrain[:, i]
-    end
-    test_data = DataFrame(y=ytest)
-    for i in 1:k
-        test_data[!, Symbol("X$i")] = Xtest[:, i]
-    end
-    formula = Term(:y) ~ sum(Term(Symbol("X$i")) for i in 1:k)
-    model = lm(formula, train_data)
-    rsquared = r2(model)
-    ypred = predict(model, test_data)
-    testerror = sum((ytest - ypred).^2) / ntest
-    return rsquared, testerror, model
-end
