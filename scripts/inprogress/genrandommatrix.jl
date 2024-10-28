@@ -7,13 +7,13 @@ using SparseArrays
 
 # Generate a random m x n matrix with rank r
 function gen_matrix(m, n, r; 
-                    seed::Int = 0, 
+                    seed::Int = 0,
                     noisy::Bool = false, 
                     sparse::Bool = false, 
                     noisevar::Float64 = 1e-2, 
                     sparsity::Float64 = 1/3, 
-                    spatial::Bool = false)
-    # initialize seed from system time
+                    spatial::Bool = false,
+                    symmetric::Bool = false)
     if seed == 0
         seed = Int(round(time()))
     end
@@ -26,31 +26,21 @@ function gen_matrix(m, n, r;
         C = randn(rng, r, n)
     end
     if spatial
-        # Take cumsum 
         B = cumsum(B, dims=1)
         C = cumsum(C, dims=2)
     end
-    A = B * C
+    if symmetric
+        A = B * B'
+    else
+        A = B * C
+    end
     if noisy
         A += noisevar * randn(rng, m, n)
     end
     return A
 end
 
-# Generate a random n x n symmetric positive semidefinite matrix of rank r
-function gen_symm_matrix(n, r; noisy=false, sparse=false, noisevar=1e-2, sparsity=1/3, seed=1234)
-    rng = MersenneTwister(seed)
-    if sparse
-        B = sprandn(rng, n, r, sparsity)
-    else
-        B = randn(rng, n, r)
-    end
-    A = B * B'
-    if noisy
-        A += noisevar * randn(rng, m, n)
-    end
-    return A
-end
+@benchmark gen_matrix(100, 100, 10; seed=1234, sparse=false, sparsity=1/3)
 
 #A = (A .* 0.1) + diagm(0 => diag(A))
 
@@ -325,18 +315,28 @@ function get_data_densematrix(dataset_size::Int, m::Int, n::Int;
     end
 end
 
-# Find each agent's best guess for the target entry, before communication,
-# by applying matrix reconstruction heuristics to their observations
 
-#function single_agent_guess(agentobs, targetidx)
-#     m, n = size(agentobs)
-#     # Create a mask with a 1 at the target index
-#     mask = zeros(m, n)
-#     i,j = targetidx
-#     mask[i,j] = 1
-#     # Apply the mask to the agent's observations
-#     masked = agentobs .* mask
-#     # Find the best rank-1 approximation to the masked observations
-#     u, s, vt = svd(masked)
-#     return u[:,1] * s[1] * vt[1,:]
-# end
+function generate_matrix_set(dataset_size::Int,
+                             m::Int,
+                             n::Int,
+                             rankset::Vector{Int},
+                             sparsity=1.0,
+                             seed=0)
+    if seed == 0
+        seed = Int(round(time()))
+    end
+    if sparsity == 1.0
+        sparse = false
+    else
+        sparse = true
+    end
+    rng = MersenneTwister(seed)
+    X = Array{Float64, 3}(undef, m, n, dataset_size)
+    ranks = rand(rng, rankset, dataset_size)
+    for i in 1:dataset_size
+        X[:, :, i] .= gen_matrix(m, n, ranks[i], seed=seed+i, sparse=sparse, sparsity=sparsity)
+    end
+end
+
+using BenchmarkTools
+@benchmark generate_matrix_set(500, 100, 100, [2,4,6,8], 1.0, 1234)

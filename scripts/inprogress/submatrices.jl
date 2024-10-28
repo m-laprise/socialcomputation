@@ -24,9 +24,6 @@ ax = Axis(
 heatmap!(ax, Ghat, colormap = :viridis)
 fig
 
-
-
-
 blocks_partition = submatrix(A, 50*2, 0, seed=1234, type="partition")
 blocks_random = submatrix(A, 50*2, 0, seed=1234, type="random")
 
@@ -54,7 +51,6 @@ for i in 1:length(Ss[1])
     push!(stds, rankstd)
 end
 
-
 fig = Figure(size = (600, 600))
 ax = Axis(fig[1, 1], title = "Spectrum of random submatrices", xlabel = "Singular value index", ylabel = "Singular value (log scale)")
 for S in Ss
@@ -67,4 +63,3 @@ lines!(ax, Float64.(avgSs), color = :red, show_axis = false, show_grid = false)
  #   line = lines!(ax, [i, i], [avgSs[i] - stds[i], avgSs[i] + stds[i]], color = :blue)
 #end
 fig
-

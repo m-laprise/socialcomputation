@@ -145,7 +145,6 @@ end
 
 #----------------#
 
-
 #A_true = reshape(Ytrain[:,1], 8, 8)
 #nonzeroindices = findall(x -> x != 0, A)
 #A_mask = zeros(Float64, 8, 8)
