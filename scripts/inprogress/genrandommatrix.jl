@@ -3,46 +3,70 @@ using Random
 using Distributions
 using SparseArrays
 #using Statistics
-#using DataFrames
 
-# Generate a random m x n matrix with rank r
+
 function gen_matrix(m, n, r; 
                     seed::Int = 0,
                     noisy::Bool = false, 
-                    sparse::Bool = false, 
                     noisevar::Float64 = 1e-2, 
+                    sparse::Bool = false, 
                     sparsity::Float64 = 1/3, 
                     spatial::Bool = false,
-                    symmetric::Bool = false)
-    if seed == 0
-        seed = Int(round(time()))
-    end
+                    symmetric::Bool = false,
+                    dtype = Float64)
+    seed = seed == 0 ? Int(round(time())) : seed
     rng = MersenneTwister(seed)
+
     if sparse
-        B = sprandn(rng, m, r, sparsity)
-        C = sprandn(rng, r, n, sparsity)
+        B = randn(rng, dtype, m, r) .* (rand(rng, dtype, m, r) .< sparsity)
+        C = randn(rng, dtype, r, n) .* (rand(rng, dtype, r, n) .< sparsity)
     else
-        B = randn(rng, m, r)
-        C = randn(rng, r, n)
+        B = randn(rng, dtype, m, r)
+        C = randn(rng, dtype, r, n)
     end
     if spatial
         B = cumsum(B, dims=1)
         C = cumsum(C, dims=2)
     end
+    # Normalize factors 
+    # (Otherwise variance of the entries of A will be proportional to r)
+    B = B ./ sqrt(sqrt(r))
+    C = C ./ sqrt(sqrt(r))
     if symmetric
         A = B * B'
     else
         A = B * C
     end
     if noisy
-        A += noisevar * randn(rng, m, n)
+        A .+= (noisevar * randn(rng, dtype, m, n))
     end
     return A
 end
 
-@benchmark gen_matrix(100, 100, 10; seed=1234, sparse=false, sparsity=1/3)
-
-#A = (A .* 0.1) + diagm(0 => diag(A))
+#= TEST OF NORMALIZATION FACTOR
+ms = [20, 200, 800]
+for m in ms
+    rs = [1, Int(round(m/10)), Int(round(m/5)), Int(round(m/2)), m]
+    for r in rs
+        maxs1 = Float32[]
+        maxs4 = Float32[]
+        vars1 = Float32[]
+        vars4 = Float32[] 
+        for _ in 1:500
+            push!(maxs1, maximum(abs.(randn(Float32, m,r) * randn(Float32, r,m))))
+            push!(maxs4, maximum(abs.((randn(Float32, m,r) ./ sqrt(sqrt(r))) * (randn(Float32, r,m) ./ sqrt(sqrt(r))) ) ))
+        end
+        for _ in 1:500
+            push!(vars1, var(randn(Float32, m,r) * randn(Float32, r,m)))
+            push!(vars4, var((randn(Float32, m,r) ./ sqrt(sqrt(r))) * (randn(Float32, r,m) ./ sqrt(sqrt(r)))  ))
+        end
+        println("Maxima and variances for m=$m, r=$r")
+        println(mean(maxs1), " ", mean(maxs4))
+        println(mean(vars1), " ", mean(vars4))
+        println("---------------------------------")
+    end
+    println("=====================================")
+end =#
 
 # Generate a random m x n matrix with rank r and given singular values
 function gen_matrix_singvals(m, n, r, singvals)
@@ -64,7 +88,7 @@ function test_matrix_gen()
     r = 3
     singvals = [1.0, 2.0, 3.0]
     A = gen_matrix(m, n, r)
-    B = gen_symm_matrix(n, r)
+    B = gen_matrix(n, n, r; symmetric=true)
     C = gen_matrix_singvals(m, n, r, singvals)
     println("A = ", A)
     println("B = ", B)
@@ -122,14 +146,14 @@ function test_gen_data_from_vcov()
     d = 1000
 
     # Low rank case
-    Σ = gen_symm_matrix(n, r)
+    Σ = gen_matrix(n, n, r; symmetric=true)
     Y = gen_data_from_vcov(Σ, d)
     @assert size(Y) == (d, n)
     Σhat = cov(Y)
     @assert isapprox(Σ, Σhat, atol=10)
 
     # Full rank case
-    Σ = gen_symm_matrix(n, n)
+    Σ = gen_matrix(n, n, n; symmetric=true)
     Y = gen_data_from_vcov(Σ, d)
     @assert size(Y) == (d, n)
     Σhat = cov(Y)
@@ -233,110 +257,38 @@ function apply_mask!(B, A, maskij; addoutcome=true, outcomecol=1)
     return B
 end
 
-function svd_recon(A, k)
-    U, S, Vt = svd(A)
-    Ahat = U[:, 1:k] * diagm(0 => S[1:k]) * Vt[:, 1:k]'
-    return Ahat
+function generate_matrix_set(m::Int,
+                             n::Int,
+                             dataset_size::Int,
+                             rankset::Vector{Int};
+                             sparsity=1.0,
+                             dtype=Float32,
+                             seed=0)
+    seed = seed == 0 ? Int(round(time())) : seed
+    sparse = sparsity != 1.0
+    rng = MersenneTwister(seed)
+    ranks = Int32.(rand(rng, rankset, dataset_size))
+    X = Array{dtype, 3}(undef, m, n, dataset_size)
+    for i in 1:dataset_size
+        X[:, :, i] = gen_matrix(m, n, ranks[i], seed=seed+i, sparse=sparse, sparsity=sparsity, dtype=dtype)
+    end
+    return X, ranks
+end
+
+function trace_measurements(X::AbstractArray{Float32, 3}, O::AbstractArray{Float32, 4})
+    m, n, dataset_size = size(X)
+    traces_nb = size(O, 3)
+    Xhat = Array{Float32, 2}(undef, traces_nb, dataset_size)
+    for i in 1:dataset_size
+        X_i = view(X, :, :, i)
+        for j in 1:traces_nb
+            O_ij = view(O, :, :, j, i)
+            Xhat[j, i] = trace_product(X_i, O_ij)
+        end
+    end
+    return Xhat
 end
 
 function trace_product(X::AbstractMatrix, O::AbstractMatrix)
     return sum(diag(X * O))
 end
-
-function trace_product(X::AbstractMatrix, O::Array)
-    nb_measurements = size(O, 3)
-    result = Vector{Float64}(undef, nb_measurements)
-    temp_matrix = similar(X, size(X, 1), size(O, 2))
-    diag_temp = Vector{Float64}(undef, min(size(X, 1), size(O, 2)))
-    
-    @inbounds for i in 1:nb_measurements
-        @views mul!(temp_matrix, X, O[:, :, i])
-        @inbounds for j in 1:length(diag_temp)
-            diag_temp[j] = temp_matrix[j, j]
-        end
-        result[i] = sum(diag_temp)
-    end
-    return result
-end
-
-function get_data_densematrix(dataset_size::Int, m::Int, n::Int; 
-        seed::Int, 
-        measurement_type::String = "mask",
-        mask_prob::Float64 = 0.33, 
-        traces_nb::Int = 50,
-        traces_projsize::Int = 25,
-        include_X::Bool = false, 
-        rank_threshold::Float64 = 0.1)
-
-    cutoff = Int(round(min(m, n) * rank_threshold))
-    maxrank = Int(round(min(m, n) / 2))
-
-    rng = MersenneTwister(seed)
-    # Generate matrix ranks
-    indexablecollection = vcat(1:min(10,cutoff-2), max(maxrank-10, cutoff+2):maxrank)
-    r = rand(rng, indexablecollection, dataset_size)
-    n_seen = round(Int, (1 - mask_prob) * m * n)
-    r = min.(r, fill(n_seen ÷ 2, dataset_size))
-
-    # Preallocate the array for low-rank matrices
-    X = Array{Float64, 3}(undef, dataset_size, m, n)
-    # Generate (dataset_size) low-rank matrices from the rank vector
-    for i in 1:dataset_size
-        X[i, :, :] .= gen_matrix(m, n, r[i], seed=seed+i)
-    end
-
-    # Generate labels with shape (dataset_size, 1)
-    Y = reshape(r .< cutoff, dataset_size, 1)
-
-    if measurement_type == "mask"
-        # Generate measurements of each X by masking some of the entries; dataset_size x m x n
-        masks = rand(rng, Bool, dataset_size, m, n) .< (1 - mask_prob)
-        Xhat = X .* masks
-    elseif measurement_type == "trace"
-        # Preallocate the array for trace measurements
-        Xhat = Array{Float64, 2}(undef, dataset_size, traces_nb)
-        # Generate measurements of each X by taking Trace(X * O_i) for (nb_traces) random matrices O_i
-        O = randn(rng, dataset_size, n, traces_projsize, traces_nb)
-        @inbounds for i in 1:dataset_size
-            #Xhat[i, :] .= trace_product(X[i, :, :], O[i, :, :, :])
-            X_i = view(X, i, :, :)
-            for j in 1:traces_nb
-                O_ij = view(O, i, :, :, j)
-                Xhat[i, j] = trace_product(X_i, O_ij)
-            end
-        end
-    else
-        error("Measurement type not recognized. Choose from 'mask' or 'trace'.")
-    end
-    if include_X
-        return X, Xhat, Y, r
-    else
-        return Xhat, Y, r
-    end
-end
-
-
-function generate_matrix_set(dataset_size::Int,
-                             m::Int,
-                             n::Int,
-                             rankset::Vector{Int},
-                             sparsity=1.0,
-                             seed=0)
-    if seed == 0
-        seed = Int(round(time()))
-    end
-    if sparsity == 1.0
-        sparse = false
-    else
-        sparse = true
-    end
-    rng = MersenneTwister(seed)
-    X = Array{Float64, 3}(undef, m, n, dataset_size)
-    ranks = rand(rng, rankset, dataset_size)
-    for i in 1:dataset_size
-        X[:, :, i] .= gen_matrix(m, n, ranks[i], seed=seed+i, sparse=sparse, sparsity=sparsity)
-    end
-end
-
-using BenchmarkTools
-@benchmark generate_matrix_set(500, 100, 100, [2,4,6,8], 1.0, 1234)
