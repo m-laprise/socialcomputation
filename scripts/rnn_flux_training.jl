@@ -21,6 +21,7 @@ INFERENCE_EXPERIMENT = false
 if TASK == "small_reconstruction"
     samerank = false
 end
+
 ##########
 
 input_size = 0
@@ -84,89 +85,39 @@ end
 
 ###########
 
-dataset_size = 10000
-train_size = 0.8
-val_size = 0.1
-test_size = 0.1
+train_prop = 0.8
+val_prop = 0.1
+test_prop = 0.1
 
-# Load training data
-#X = load("data/rnn_flux_data.jld2","X")
-Xmask = load("data/rnn_flux_data.jld2","Xmask")
-Xtrace = load("data/rnn_flux_data.jld2","Xtrace")
-Y = load("data/rnn_flux_data.jld2","Y")
-mean(Y)
-ranks = load("data/rnn_flux_data.jld2","ranks")
-
-# Reshape row-observations to column-observations
-#X = Float32.(permutedims(X, [2,3,1]))
-Xmask = permutedims(Xmask, [2,3,1])
-Xtrace = permutedims(Xtrace, [2,1])
-Y = permutedims(Y, [2,1])
+datasetnames = ["lr_c1", "lr_c2", "lr_r_32", "lr_r_64", "lr_r_128", "lr_r_256"]
+load("data/rnn_firstexpdata.jld2", "lr_r_32")
+m, _, dataset_size = size(lr_r_32["X"])
 
 
-if TASK == "small_classification"
-    X_data1 = zeros(Float32, (100, 10000))
-    for i in 1:10000
-        if Y[i] == 1 # Low rank
-            X_data1[:,i] = pad_input(Float32.(vec(gen_matrix(8,8,1, seed=10+i))),100)
-        else # Full rank
-            X_data1[:,i] = pad_input(Float32.(vec(gen_matrix(8,8,8, seed=10+i))),100)
-        end
+function train_val_test_split(X, Y, ranks, train_prop, val_prop, test_prop)
+    @assert train_prop + val_prop + test_prop == 1.0
+    dimsX = length(size(X))
+    dataset_size = size(X, dimsX)
+    train_nb = Int(train_size * dataset_size)
+    val_nb = Int(val_size * dataset_size)
+    train_idxs = 1:train_nb
+    val_idxs = train_nb+1:train_nb+val_nb
+    test_idxs = train_nb+val_nb+1:dataset_size
+    if dimsX == 2
+        Xtrain, Xval, Xtest = X[:,train_idxs], X[:,val_idxs], X[:,test_idxs]
+    elseif dimsX == 3
+        Xtrain, Xval, Xtest = X[:,:,train_idxs], X[:,:,val_idxs], X[:,:,test_idxs]
+    else
+        error("Invalid number of dimensions for X: $dimsX")
     end
-    X = X_data1
+    
+    Ytrain, Yval, Ytest = Y[:,train_idxs], Y[:,val_idxs], Y[:,test_idxs]
+    ranks_train, ranks_val, ranks_test = ranks[train_idxs], ranks[val_idxs], ranks[test_idxs]
+    @assert size(Xtrain, dimsX) == train_nb
+    @assert size(Xval, dimsX) == val_nb
+    @assert size(Xtest, dimsX) == dataset_size - train_nb - val_nb
+    return Xtrain, Xval, Xtest, Ytrain, Yval, Ytest, ranks_train, ranks_val, ranks_test
 end
-
-if TASK == "random traces"
-    X = Xtrace
-end
-
-if TASK == "small_reconstruction"
-    if samerank == true  # RANK 1 ONLY
-        X_data2 = zeros(Float32, (64, 10000))
-        for i in 1:10000
-            X_data2[:,i] = Float32.(vec(gen_matrix(8,8,1, seed=10+i)))
-        end
-        ranks = [1 for i in Y]
-        Y = copy(X_data2)
-        # Randomly replace half of each column with zeros
-        for i in 1:10000
-            idxs = randperm(64)[1:32]
-            X_data2[idxs,i] .= 0.0
-        end
-        X = X_data2
-    else # RANK 1 or 2
-        X_data2 = zeros(Float32, (64, 10000))
-        for i in 1:10000
-            if Y[i] == 1    # rank 1
-                X_data2[:,i] = Float32.(vec(gen_matrix(8,8,1, seed=10+i)))
-            else            # rank 2
-                X_data2[:,i] = Float32.(vec(gen_matrix(8,8,2, seed=10+i)))
-            end
-        end
-        ranks = [i == 1 ? 1 : 2 for i in Y]
-        Y = copy(X_data2)
-        # Randomly replace half of each column with zeros
-        for i in 1:10000
-            idxs = randperm(64)[1:32]
-            X_data2[idxs,i] .= 0.0
-        end
-        X = X_data2
-    end
-end 
-
-# train-val-test split
-train_nb = Int(train_size * dataset_size)
-val_nb = Int(val_size * dataset_size)
-test_nb = Int(test_size * dataset_size)
-train_idxs = 1:train_nb
-val_idxs = train_nb+1:train_nb+val_nb
-test_idxs = train_nb+val_nb+1:dataset_size
-
-#Xmask_train, Xmask_val, Xmask_test = Xmask[:,:,train_idxs], Xmask[:,:,val_idxs], Xmask[:,:,test_idxs]
-#Xtrace_train, Xtrace_val, Xtrace_test = Xtrace[:,train_idxs], Xtrace[:,val_idxs], Xtrace[:,test_idxs]
-Xtrain, Xval, Xtest = X[:,train_idxs], X[:,val_idxs], X[:,test_idxs]
-Ytrain, Yval, Ytest = Y[:,train_idxs], Y[:,val_idxs], Y[:,test_idxs]
-ranks_train, ranks_val, ranks_test = ranks[train_idxs], ranks[val_idxs], ranks[test_idxs]
 
 include("rnn_flux_lossfunctions.jl")
 

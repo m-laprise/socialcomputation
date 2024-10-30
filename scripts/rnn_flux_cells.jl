@@ -1,3 +1,16 @@
+#= 
+This script defines various types of recurrent neural network (RNN) cells using the Flux library in Julia.
+
+The main cell types defined are:
+- `rnn_cell_xb`: A mutable struct representing an RNN cell with input weights.
+- `rnn_cell_b`: A mutable struct representing an RNN cell without input weights.
+- `bfl_cell`: A mutable struct representing an RNN cell with attention gating and additional parameters for 
+basal activity and gain.
+
+The script also includes functions to initialize these cells, reset their states, and perform forward passes 
+through the cells, as well as helper functions for inspecting and diagnosing gradients during training.
+=# 
+
 using Random
 using Flux
 using Zygote
