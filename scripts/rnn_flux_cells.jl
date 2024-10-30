@@ -32,7 +32,7 @@ mutable struct rnn_cell_b{A,V}
 end
 
 function rnn_cell(input_size::Int, net_width::Int;
-                  h_init::String, Whh_init::AbstractArray)
+                  h_init::String, Whh_init=nothing)
     @assert input_size >= 0
     @assert net_width > 0
     # Initialize hidden state
@@ -44,7 +44,7 @@ function rnn_cell(input_size::Int, net_width::Int;
         error("Invalid h_init value. Choose from 'zero' or 'randn'.")
     end
     # Initialize recurrent weight matrix
-    if isempty(Whh_init)
+    if isnothing(Whh_init)
         Whh = randn(Float32, net_width, net_width) / sqrt(Float32(net_width))
     else
         Whh = Float32.(Whh_init)

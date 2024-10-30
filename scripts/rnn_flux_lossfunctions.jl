@@ -50,6 +50,10 @@ function recon_mse(m,
     if length(size(xs)) == 1
         xs = reshape(xs, length(xs), 2)
     end
+    if length(size(ys)) == 3
+        l, n, nb_examples = size(ys)
+        ys = reshape(ys, l * n, nb_examples)
+    end
     zs = eachcol(xs)
     # For each example, read in the input, recur for `turns` steps, 
     # and predict the label, then reset the state
@@ -66,7 +70,7 @@ function recon_mse(m,
     errors = Zygote.Buffer(ys[1,:])
     nb_examples = size(ys, 2)
     for i in 1:nb_examples
-        errors[i] = sum((ys[:,i] .- ys_hat[:,i]) .^ 2)
+        errors[i] = sum((ys[:,i] .- ys_hat[:,i]) .^ 2) / length(ys[:,i]) 
     end
     return mean(copy(errors))
 end
@@ -115,18 +119,44 @@ function spectral_distance(m,
             m(example)
         end
         pred = m(example)
-        preds[:,i] = pred
+        # If any predicted entry is NaN or infinity, replace with 0
+        if any(isnan.(pred)) || any(isinf.(pred))
+            pred[findall(isinf.(pred))] .= 0.0
+            pred[findall(isnan.(pred))] .= 0.0
+        end
+        if length(size(ys)) == 2
+            preds[:,i] = pred
+        elseif length(size(ys)) == 3
+            l, n, _ = size(ys)
+            preds[:,:,i] = reshape(pred, l, n)
+        else
+            error("Invalid size of ys.")
+        end
     end
     ys_hat = copy(preds)
+    nb_examples = size(ys)[end]
     # Difference between the spectrums
-    errors = Zygote.Buffer(ys[1,:])
-    nb_examples = size(ys, 2)
+    errors = Zygote.Buffer(ys[1,1,:])
     for i in 1:nb_examples
-        ys_hat_m = reshape(ys_hat[:,i], 8, 8)
-        ys_m = reshape(ys[:,i], 8, 8)
+        if length(size(ys)) == 2
+            l2, _ = size(ys)
+            l = Int(sqrt(l2))
+            ys_m = reshape(ys[:,i], l, l)
+            ys_hat_m = reshape(ys_hat[:,i], l, l)
+        elseif length(size(ys)) == 3
+            ys_m = ys[:,:,i]
+            ys_hat_m = ys_hat[:,:,i]
+        else
+            error("Invalid size of ys.")
+        end
         svdvals_hat = svdvals(ys_hat_m)
         svdvals_true = svdvals(ys_m)
-        errors[i] = norm(svdvals_true .- svdvals_hat)
+        # Verify that singular values are not NaN or infinity, else return 10.0
+        if any(isnan.(svdvals_hat)) || any(isinf.(svdvals_hat)) || any(isnan.(svdvals_true)) || any(isinf.(svdvals_true))
+            errors[i] = 10.0
+        else
+            errors[i] = norm(svdvals_true .- svdvals_hat)
+        end
     end
     spectral_distances = copy(errors)
     return mean(spectral_distances)

@@ -118,11 +118,14 @@ function ScaledASD(
         conv_rate = (itres[iter] / itres[max(1, iter - 15)])^(1 / min(15, iter - 1))
 
         Factors[iter] = (X, Y) # Store the factor matrices at the current iteration
-        
+        if verbosity
+            println("Iteration $iter: residual = $(round(res, digits=2)), "*
+                    "conv_rate = $(round(conv_rate, digits=2))")
+        end
     end
-    if iter <= 2
+    if iter < 2
         # If no iteration is performed, throw an error
-        error("No iterations performed; initial residual = $res")
+        error("No iterations performed; initial residual = $(round(res, digits=2))")
     end
     if iter == maxiter
         println("Warning: maximum number of iterations reached. Algorithm may not have converged.")

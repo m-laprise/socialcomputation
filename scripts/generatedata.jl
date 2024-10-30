@@ -10,6 +10,9 @@ which includes data for the following tasks:
     - rank 2, sparsity 1/3, matrix size 200
     
 The data is saved in a JLD2 file with Bzip2 compression.
+
+The script also generates traces of random projections for the above datasets, which are saved 
+in a separate JLD2 file. 
 =#
 
 using Random

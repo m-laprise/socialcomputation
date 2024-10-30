@@ -119,7 +119,6 @@ for m in ms
     println("=====================================")
 end =#
 
-# Generate a random m x n matrix with rank r and given singular values
 """
     gen_matrix_singvals(m, n, r, singvals)
 
@@ -331,44 +330,22 @@ function submatrix(A::AbstractArray, blocksize::Int = 0;
 end
 
 """
-    sensingmasks(A::AbstractArray; k::Int = 0, seed::Int = Int(round(time())))
+    sensingmasks(m::Int, n::Int; k::Int = 0, seed::Int = Int(round(time())))
 
 Generate the collection of all possible sensing masks for the matrix A, shuffle them randomly, and
 return the first k masks. The masks are stored sparsely as a list of (i, j) tuples where i and j
 are the row and column indices of the sensed entry.
 """
-function sensingmasks(A::AbstractArray; k::Int = 0, seed::Int = Int(round(time())))
-    m, n = size(A)
+function sensingmasks(m::Int, n::Int; k::Int = 0, seed::Int = Int(round(time())))
     if k == 0
         k = m * n
     end
     maskij = [(i, j) for i in 1:m for j in 1:n]
-
     rng = MersenneTwister(seed)
     shuffle!(rng, maskij)
     return maskij[1:k]
 end
 
-"""
-    apply_mask!(B::AbstractArray, A::AbstractArray, maskij::Tuple{Int, Int})
-
-Apply a sensing mask by adding sensed entries of a matrix A (environment being observed) 
-to a matrix B (knowledge of agent observing). The mask is a tuple (i, j) with the row and
-column indices of the sensed entry. The function updates B in place and returns it.
-"""
-function apply_mask!(B::AbstractArray, A::AbstractArray, maskij::Tuple{Int, Int} #; addoutcome::Bool = true, outcomecol = 1
-                    )
-    # Unpack the indices of the sensed entry
-    i,j = maskij
-    # Apply the mask to the matrix
-    B[i,j] += A[i,j]
-    #= if addoutcome
-        if i != 1
-            B[i, outcomecol] = A[i, outcomecol]
-        end
-    end =#
-    return B
-end
 
 """
     generate_matrix_set(m::Int, n::Int, dataset_size::Int, rankset::Vector{Int};
@@ -444,3 +421,36 @@ function trace_measurements(X::AbstractArray{Float32, 3}, O::AbstractArray{Float
 end
 
 trace_product(X::AbstractMatrix, O::AbstractMatrix) = sum(diag(X * O))
+
+"""
+    train_val_test_split(X::AbstractArray,
+                         train_prop::Float64, val_prop::Float64, test_prop::Float64)
+
+Split any array into training, validation, and test sets. The function takes the input data
+and the proportions to allocate to the training, validation, and test sets. The function returns 
+the split data as separate matrices or vectors.
+"""
+function train_val_test_split(X::AbstractArray, 
+                              train_prop::Float64, val_prop::Float64, test_prop::Float64)
+    @assert train_prop + val_prop + test_prop == 1.0
+    dimsX = length(size(X))
+    dataset_size = size(X, dimsX)
+    train_nb = Int(train_prop * dataset_size)
+    val_nb = Int(val_prop * dataset_size)
+    train_idxs = 1:train_nb
+    val_idxs = train_nb+1:train_nb+val_nb
+    test_idxs = train_nb+val_nb+1:dataset_size
+    if X isa Vector
+        Xtrain, Xval, Xtest = X[train_idxs], X[val_idxs], X[test_idxs]
+    elseif dimsX == 2
+        Xtrain, Xval, Xtest = X[:,train_idxs], X[:,val_idxs], X[:,test_idxs]
+    elseif dimsX == 3
+        Xtrain, Xval, Xtest = X[:,:,train_idxs], X[:,:,val_idxs], X[:,:,test_idxs]
+    else
+        error("Invalid number of dimensions for X: $dimsX")
+    end
+    @assert size(Xtrain, dimsX) == train_nb
+    @assert size(Xval, dimsX) == val_nb
+    @assert size(Xtest, dimsX) == dataset_size - train_nb - val_nb
+    return Xtrain, Xval, Xtest
+end

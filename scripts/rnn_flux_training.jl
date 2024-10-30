@@ -2,32 +2,107 @@ using Random
 using Distributions
 using Flux
 using Zygote
-using JLD2
+using JLD2, CodecBzip2
 using CairoMakie
 using LinearAlgebra
 #using IterTools
 
 include("genrandommatrix.jl")
 include("rnn_flux_cells.jl")
+include("rnn_flux_lossfunctions.jl")
 
-device = Flux.get_device(; verbose=true)
+#device = Flux.get_device(; verbose=true)
 
 ##########
-TASK = "small_reconstruction"
-TURNS = 30
-VANILLA = false
+
+taskcats = ["classification", "reconstruction"]
+measurecats = ["masks", "traces", "blocks"]
+tasks = ["classif1a", "classif1b", "classif2a", "classif2b", 
+         "recon32", "recon64", "recon128", "recon256",
+         "sparse200a", "sparse200b"]
+datasetnames = ["lr_c1", "lr_c2", 
+                "lr_r_32", "lr_r_64", "lr_r_128", "lr_r_256", 
+                "sparse_200"]
+
+DATASETNAME = datasetnames[3]
+TASKCAT = taskcats[2]
+MEASCAT = measurecats[1]
+TASK = tasks[5]
+TURNS = 10
+VANILLA = true
 INFERENCE_EXPERIMENT = false
 
-if TASK == "small_reconstruction"
+if TASKCAT == "reconstruction"
     samerank = false
 end
 
+net_width = 100
+
+##########
+
+train_prop = 0.8
+val_prop = 0.1
+test_prop = 0.1
+
+data = load("data/rnn_firstexpdata.jld2", DATASETNAME)
+m, n, dataset_size = size(data["X"])
+
+# Create label data
+if TASKCAT == "reconstruction"
+    Y = data["X"]
+elseif TASKCAT == "classification"
+    if TASK == "classif1a" || TASK == "classif1b"
+        Y = data["ranks"] .> 100
+    elseif TASK == "classif2a" || TASK == "classif2b"
+        ranks = data["ranks"]
+        # Convert vector of possible ranks to multi-class one-hot encoded matrix
+        nb_classes = length(unique(ranks))
+        ordered_classes = sort(unique(ranks))
+        Y = zeros(Int, nb_classes, dataset_size)
+        for i in 1:dataset_size
+            Y[findall(x -> x == ranks[i], ordered_classes)[1], i] = 1
+        end
+    end
+end
+
+# Create input data
+if MEASCAT == "masks"
+    masks = sensingmasks(m, n; k=net_width, seed=9632)
+    X = zeros(Float32, net_width, dataset_size)
+    for k in 1:dataset_size
+        for l in 1:net_width
+            i, j = masks[l]
+            X[l, k] = Y[i, j, k]
+        end
+    end
+    #= X = zeros(Float32, net_width, 3, dataset_size)
+    for k in 1:dataset_size
+        for l in 1:net_width
+            i, j = masks[l]
+            X[l, 1, k] = Y[i, j, k]
+            X[l, 2, k] = i
+            X[l, 3, k] = j
+        end
+    end =#
+elseif MEASCAT == "traces" || MEASCAT == "blocks"
+    error("Not implemented yet.")
+end
+
+Xtrain, Xval, Xtest = train_val_test_split(X, train_prop, val_prop, test_prop)
+Ytrain, Yval, Ytest = train_val_test_split(Y, train_prop, val_prop, test_prop)
+if TASKCAT == "reconstruction"
+    ranks = unique(data["ranks"])
+    size(ranks)
+else
+    ranks_train, ranks_val, ranks_test = train_val_test_split(data["ranks"], train_prop, val_prop, test_prop)
+    size(ranks_train)
+end
+size(masks), size(Xtrain), size(Ytrain)
 ##########
 
 input_size = 0
-net_width = 100
 
-if TASK == "small_classification" || TASK == "random traces"
+if TASKCAT == "classification"
     output_size = 1
     m_binpred = Chain(
         rnn(input_size, net_width, h_init="randn"),
@@ -41,15 +116,12 @@ if TASK == "small_classification" || TASK == "random traces"
             gain = 0.5f0),
         Dense(net_width => output_size, sigmoid)
     )
-end
-
-if TASK == "small_reconstruction"
-    output_size = 64
+elseif TASKCAT == "reconstruction"
+    output_size = m * n
     m_binpred = Chain(
         rnn(input_size, net_width, h_init="randn"),
         Dense(net_width => output_size)
     )
-
     m_bfl = Chain(
         bfl(net_width, h_init="randn",
             basal_u = 0.001f0,
@@ -58,7 +130,6 @@ if TASK == "small_reconstruction"
         Dense(net_width => output_size)
     )
 end
-
 
 # Flux.params(m_binpred)[1]
 # Flux.params(m_binpred)[2]
@@ -85,81 +156,53 @@ end
 
 ###########
 
-train_prop = 0.8
-val_prop = 0.1
-test_prop = 0.1
-
-datasetnames = ["lr_c1", "lr_c2", "lr_r_32", "lr_r_64", "lr_r_128", "lr_r_256"]
-load("data/rnn_firstexpdata.jld2", "lr_r_32")
-m, _, dataset_size = size(lr_r_32["X"])
-
-
-function train_val_test_split(X, Y, ranks, train_prop, val_prop, test_prop)
-    @assert train_prop + val_prop + test_prop == 1.0
-    dimsX = length(size(X))
-    dataset_size = size(X, dimsX)
-    train_nb = Int(train_size * dataset_size)
-    val_nb = Int(val_size * dataset_size)
-    train_idxs = 1:train_nb
-    val_idxs = train_nb+1:train_nb+val_nb
-    test_idxs = train_nb+val_nb+1:dataset_size
-    if dimsX == 2
-        Xtrain, Xval, Xtest = X[:,train_idxs], X[:,val_idxs], X[:,test_idxs]
-    elseif dimsX == 3
-        Xtrain, Xval, Xtest = X[:,:,train_idxs], X[:,:,val_idxs], X[:,:,test_idxs]
-    else
-        error("Invalid number of dimensions for X: $dimsX")
-    end
-    
-    Ytrain, Yval, Ytest = Y[:,train_idxs], Y[:,val_idxs], Y[:,test_idxs]
-    ranks_train, ranks_val, ranks_test = ranks[train_idxs], ranks[val_idxs], ranks[test_idxs]
-    @assert size(Xtrain, dimsX) == train_nb
-    @assert size(Xval, dimsX) == val_nb
-    @assert size(Xtest, dimsX) == dataset_size - train_nb - val_nb
-    return Xtrain, Xval, Xtest, Ytrain, Yval, Ytest, ranks_train, ranks_val, ranks_test
-end
-
-include("rnn_flux_lossfunctions.jl")
-
-if TASK == "small_classification" || TASK == "random traces"
+if TASKCAT == "classification" 
     myloss = logitbinarycrossent
     accuracy = classification_accuracy
-elseif TASK == "small_reconstruction"
+elseif TASKCAT == "reconstruction"
     myloss = recon_mse
     accuracy = spectral_distance
 end
 
-if TASK == "small_reconstruction"
+#if TASKCAT == "reconstruction"
     # For reference, compute the loss of a SOTA algorithm on this data.
     include("sota_matrix_completion.jl")
-    function scaled_asd_performance(X_dataset, Y_dataset, maxiter)
-        dataset_size = size(X_dataset, 2)
+    function scaled_asd_performance(X_dataset, Y_dataset, I_idx, J_idx, maxiter)
+        dataset_size = size(Y_dataset, 3)
         mse_losses = zeros(Float32, dataset_size)
         spectral_dists = zeros(Float32, dataset_size)
-        m, n = Int(sqrt(length(X_dataset[:, 1]))), Int(sqrt(length(X_dataset[:, 1])))
+        m, n = size(Y_dataset, 1), size(Y_dataset, 2)
         opts = Dict(
                 :rel_res_tol => 1e-5, 
                 :maxit => maxiter,    
                 :verbosity => false, 
-                :rel_res_change_tol => 1e-4 
+                :rel_res_change_tol => 1e-4
         )
+        r = 8
         for i in 1:dataset_size
-            X = reshape(X_dataset[:,i], m, n)
-            Y = reshape(Y_dataset[:,i], m, n)
-            r = rank(Y)
-            I_idx, J_idx, knownentries = sparse2idx(Float64.(X))
-            Y = Float64.(Y)
+            #X = reshape(X_dataset[:,i], m, n)
+            #Y = reshape(Y_dataset[:,i], m, n)
+            #r = rank(Y)
+            #I_idx, J_idx, knownentries = sparse2idx(Float64.(X))
+            knownentries = Float64.(X_dataset[:,i])
             soln, _ = ScaledASD(m, n, r, I_idx, J_idx, knownentries, opts; 
                                 soln_only = true)
-            mse_losses[i] = sum((Y .- soln) .^ 2)
-            spectral_dists[i] = norm(svdvals(Y) .- svdvals(soln))
+            Y = Float64.(Y_dataset[:,:,i])
+            mse_losses[i] = sum((Y .- soln) .^ 2) / (m * n)
+            spectral_dists[i] = norm(svdvals(Y) .- svdvals(soln)) / length(svdvals(Y))
         end
         return mean(mse_losses), mean(spectral_dists)
     end
     #sota_train_mse, sota_train_spectraldist = scaled_asd_performance(Xtrain, Ytrain, 1500)
     #sota_val_mse, sota_val_spectraldist = scaled_asd_performance(Xval, Yval, 2000)
-    sota_test_mse, sota_test_spectraldist = scaled_asd_performance(Xtest, Ytest, 3000)
-end
+    I_idx = zeros(Int, net_width)
+    J_idx = zeros(Int, net_width)
+    for i in 1:net_width
+        I_idx[i], J_idx[i] = masks[i]
+    end
+    sota_test_mse, sota_test_spectraldist = scaled_asd_performance(Xtest, Ytest, I_idx, J_idx, 1000)
+#end
+
 
 #m_binpred((Xtrain[:,1]))
 #m_binpred((Xtrain[:,1]))[1]
@@ -205,10 +248,11 @@ val_accuracy = Float32[]
 # Train using training data, plot training and validation accuracy and loss over training
 # Using the Zygote package to compute gradients
 reset!(activemodel.layers[1])
+
 push!(train_loss, myloss(activemodel, Xtrain, Ytrain, turns = TURNS))
-push!(train_accuracy, accuracy(activemodel, Xtrain, Ytrain, turns = TURNS))
+push!(train_accuracy, accuracy(activemodel, Xtrain, Ytrain, turns = TURNS) )
 push!(val_loss, myloss(activemodel, Xval, Yval, turns = TURNS))
-push!(val_accuracy, accuracy(activemodel, Xval, Yval, turns = TURNS))
+push!(val_accuracy, accuracy(activemodel, Xval, Yval, turns = TURNS) )
 
 starttime = time()
 for epoch in 1:epochs
@@ -227,38 +271,38 @@ for epoch in 1:epochs
     #Flux.@withprogress Flux.train!(loss, activemodel, data, opt_state)
     # Compute training loss and accuracy
     push!(train_loss, myloss(activemodel, Xtrain, Ytrain, turns = TURNS))
-    push!(train_accuracy, accuracy(activemodel, Xtrain, Ytrain, turns = TURNS))
+    push!(train_accuracy, accuracy(activemodel, Xtrain, Ytrain, turns = TURNS) )
     # Compute validation loss and accuracy
     push!(val_loss, myloss(activemodel, Xval, Yval, turns = TURNS))
-    push!(val_accuracy, accuracy(activemodel, Xval, Yval, turns = TURNS))
+    push!(val_accuracy, accuracy(activemodel, Xval, Yval, turns = TURNS) )
     println("Epoch $epoch: Train loss: $(train_loss[end]), Train accuracy: $(train_accuracy[end])")
 end
 endtime = time()
 # training time in minutes
 println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 # Compute test accuracy
-test_accuracy = accuracy(activemodel, Xtest, Ytest, turns = TURNS)
+test_accuracy = accuracy(activemodel, Xtest, Ytest, turns = TURNS) 
 println("Test accuracy: $test_accuracy")
 test_loss = myloss(activemodel, Xtest, Ytest, turns = TURNS)
 println("Test loss: $test_loss")
 
 
-if TASK == "small_reconstruction"
+if TASKCAT == "reconstruction"
     lossname = "Mean squared reconstruction error"
     accuracyname = "Mean norm of spectral distance (singular values)"
 else
     lossname = "Binary cross-entropy loss"
     accuracyname = "Classification accuracy"
 end
-if TASK == "small_reconstruction"
-    tasklab = "Reconstructing 8x8 rank 1 or 2 matrices from half of their entries"
+if TASK == "recon32"
+    tasklab = "Reconstructing 32x32 rank 8 matrices from 100 of their entries"
     taskfilename = "8by8recon"
-elseif TASK == "small_classification"
+#= elseif TASK == "small_classification"
     tasklab = "Classifying 8x8 matrices as full rank or rank 1"
     taskfilename = "8by8class"
 elseif TASK == "random traces"
     tasklab = "Classifying 250x250 matrices as low/high rank from 50 traces of random projections"
-    taskfilename = "250by250tracesclass"
+    taskfilename = "250by250tracesclass" =#
 end
 
 fig = Figure(size = (820, 450))
