@@ -193,6 +193,7 @@ Flux.@functor Recur cell, init
 Base.show(io::IO, m::Recur) = print(io, "Recur(", m.cell, ")")
 rnn(args...;kwargs...) = Recur(rnn_cell(args...;kwargs...))
 bfl(args...;kwargs...) = Recur(bfl_cell(args...;kwargs...))
+
 """
     reset!(rnn)
 Reset the hidden state of a recurrent layer back to its original value. 
@@ -201,20 +202,42 @@ reset!(m::Recur) = (m.state = m.init)
 
 
 #### TRAINING UTILITIES
+"""
+    getjacobian(activemodel; x=nothing, wrt="state")
 
-function getjacobian(activemodel, x; wrt="state")
+Compute the Jacobian of a model with respect to its input or state.
+
+# Arguments
+- `activemodel`: The model to compute the Jacobian for.
+- `x`: The input to the model. Required if `wrt="input"`.
+- `wrt`: The type of Jacobian to compute. Can be either "input" or "state".
+
+# Returns
+- The Jacobian matrix. Its size is `(output_size, input_size)` if `wrt="input"`, or
+  `(state_size, state_size)` if `wrt="state"`.
+"""
+function getjacobian(activemodel; x=nothing, wrt="state")
     if wrt == "input"
+        @assert !isnothing(x)
         J = Zygote.jacobian(activemodel, x)[1]
     elseif wrt == "state"
+        h = state(activemodel.layers[1])
+        x = zeros(Float32, length(h))
         J = Zygote.jacobian(x) do y
             activemodel(y); state(activemodel.layers[1])
         end
-    else 
+    else
         error("Invalid wrt argument. Choose from 'input' or 'state'.")
     end
     return J[1]
 end
 
+"""
+    inspect_gradients(grads)
+
+Inspect the gradients for NaN, vanishing, or exploding values during the training loop
+and return the number of parameters with these issues.
+"""
 function inspect_gradients(grads)
     g, _ = Flux.destructure(grads)
     
@@ -234,6 +257,12 @@ function inspect_gradients(grads)
     return sum(nan_params), sum(vanishing_params), sum(exploding_params)
 end
 
+"""
+    diagnose_gradients(n, v, e)
+
+Takes as input the output of `inspect_gradients` and prints a message based on the number of
+parameters with NaN, vanishing, or exploding gradients.
+"""
 function diagnose_gradients(n, v, e)
     if n > 0
         println(n, " NaN gradient detected")

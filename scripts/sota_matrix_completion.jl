@@ -1,7 +1,6 @@
 # Julia implementation of Scaled Alternating Steepest Descent (ScaledASD) for matrix completion.
 # For the algorithm itself, see Jared Tanner and Ke Wei. Low rank matrix completion by alternating 
 # steepest descent methods. Applied and Computational Harmonic Analysis, 40(2):417-429, 2016.
-
 using LinearAlgebra
 using SparseArrays
 

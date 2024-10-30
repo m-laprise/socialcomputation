@@ -5,7 +5,6 @@ using Zygote
 using JLD2, CodecBzip2
 using CairoMakie
 using LinearAlgebra
-#using IterTools
 
 include("genrandommatrix.jl")
 include("rnn_cells.jl")
@@ -29,7 +28,7 @@ DATASETNAME = datasetnames[3]
 TASKCAT = taskcats[2]
 MEASCAT = measurecats[1]
 TASK = tasks[5]
-TURNS = 2
+TURNS = 10
 VANILLA = true
 
 INFERENCE_EXPERIMENT = false
@@ -189,7 +188,7 @@ elseif TASKCAT == "reconstruction"
     accuracy = spectral_distance
 end
 
-#if TASKCAT == "reconstruction"
+if TASKCAT == "reconstruction"
     # For reference, compute the loss of a non-distributed algorithm on this data.
     include("sota_matrix_completion.jl")
     opts = Dict(
@@ -206,12 +205,11 @@ end
     #sota_train_mse, sota_train_spectraldist = scaled_asd_performance(Xtrain, Ytrain, I_idx, J_idx, opts)
     #sota_val_mse, sota_val_spectraldist = scaled_asd_performance(Xval, Yval, I_idx, J_idx, opts)
     sota_test_mse, sota_test_spectraldist = scaled_asd_performance(Xtest, Ytest, I_idx, J_idx, opts, 8)
-#end
+end
 
 #m_binpred((Xtrain[:,1]))
 #m_binpred((Xtrain[:,1]))[1]
 #m_binpred((Xtrain[:,2]))[1]
-#Y[1], Y[2]
 #a = myloss(m_binpred, (Xtrain[:,1]), Ytrain[:,1], turns = turns)
 #b = myloss(m_binpred, (Xtrain[:,2]), Ytrain[:,2], turns = turns)
 #c = myloss(m_binpred, (Xtrain[:,3]), Ytrain[:,3], turns = turns)
@@ -248,7 +246,7 @@ val_loss = Float32[]
 train_accuracy = Float32[]
 val_accuracy = Float32[]
 
-jacobian_spectra = Float32[]
+jacobian_spectra = []
 # Train using training data, plot training and validation accuracy and loss over training
 # Using the Zygote package to compute gradients
 reset!(activemodel.layers[1])
@@ -266,7 +264,7 @@ for epoch in 1:epochs
     for (x, y) in traindataloader
         grads = gradient(myloss, activemodel, x, y)[1]
         _n, _v, _e = inspect_gradients(grads)
-        J = getjacobian(activemodel, x)
+        J = getjacobian(activemodel; wrt = "state")
         push!(jacobian_spectra, eigvals(J))
         n += _n
         v += _v
@@ -383,7 +381,7 @@ print_socgraph_descr(g_end)
 plot_degree_distrib(g_end)
 
 
-#if INFERENCE_EXPERIMENT
+if INFERENCE_EXPERIMENT
     k = 50
     forwardpasses = [i for i in 1:k]
     mse_by_nbpasses = zeros(Float32, length(forwardpasses))
@@ -427,4 +425,4 @@ plot_degree_distrib(g_end)
     fig3
 
     save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_inferencetests_WSinit.png", fig3)
-#end
+end
