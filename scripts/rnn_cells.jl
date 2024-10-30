@@ -204,10 +204,14 @@ reset!(m::Recur) = (m.state = m.init)
 
 function getjacobian(activemodel, x)
     #Whh = Flux.params(activemodel)[1]
-    #h = state(activemodel.layers[1])
     reset!(activemodel.layers[1])
-    f = x -> activemodel(x)
-    J = Zygote.jacobian(f, x)
+    #f = x -> activemodel(x)
+    function f(m,x)
+        m(x)
+        return state(m.layers[1])
+    end
+    h = state(activemodel.layers[1])
+    J = Zygote.jacobian(h -> f(activemodel, x), h)
     return J[1]
 end
 J = getjacobian(activemodel, Xtrain[:,1])
