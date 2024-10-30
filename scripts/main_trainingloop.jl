@@ -104,7 +104,13 @@ size(masks), size(Xtrain), size(Ytrain)
 input_size = 0
 
 if TASKCAT == "classification"
-    output_size = 1
+    
+    if TASK == "classif1a" || TASK == "classif1b"
+        output_size = 1
+    elseif TASK == "classif2a" || TASK == "classif2b"
+        output_size = nb_classes
+    end
+
     m_binpred = Chain(
         rnn(input_size, net_width, h_init="randn"),
         Dense(net_width => output_size, sigmoid)
@@ -113,12 +119,14 @@ if TASKCAT == "classification"
     m_bfl = Chain(
         bfl(net_width, h_init="randn",
             basal_u = 0.001f0,
-            damping = 0.75f0,
             gain = 0.5f0),
         Dense(net_width => output_size, sigmoid)
     )
+
 elseif TASKCAT == "reconstruction"
+    
     output_size = m * n
+
     m_binpred = Chain(
         rnn(input_size, net_width, h_init="randn"),
         Dense(net_width => output_size)
@@ -126,10 +134,10 @@ elseif TASKCAT == "reconstruction"
     m_bfl = Chain(
         bfl(net_width, h_init="randn",
             basal_u = 0.001f0,
-            damping = 0.75f0,
             gain = 0.5f0),
         Dense(net_width => output_size)
     )
+
 end
 
 # Flux.params(m_binpred)[1]
@@ -147,10 +155,6 @@ end
 # Flux.params(m_bfl)[7]
 
 # I   = randn(Float32, net_width) * 0.1f0
-# y = m_binpred(I)[1]
-# m_binpred.layers[1].state
-# reset!(m_binpred.layers[1])
-
 # y = m_bfl(I)[1]
 # m_bfl.layers[1].state
 # reset!(m_bfl.layers[1])
@@ -166,42 +170,22 @@ elseif TASKCAT == "reconstruction"
 end
 
 #if TASKCAT == "reconstruction"
-    # For reference, compute the loss of a SOTA algorithm on this data.
+    # For reference, compute the loss of a non-distributed algorithm on this data.
     include("sota_matrix_completion.jl")
-    function scaled_asd_performance(X_dataset, Y_dataset, I_idx, J_idx, maxiter)
-        dataset_size = size(Y_dataset, 3)
-        mse_losses = zeros(Float32, dataset_size)
-        spectral_dists = zeros(Float32, dataset_size)
-        m, n = size(Y_dataset, 1), size(Y_dataset, 2)
-        opts = Dict(
-                :rel_res_tol => 1e-5, 
-                :maxit => maxiter,    
-                :verbosity => false, 
-                :rel_res_change_tol => 1e-4
-        )
-        r = 8
-        for i in 1:dataset_size
-            #X = reshape(X_dataset[:,i], m, n)
-            #Y = reshape(Y_dataset[:,i], m, n)
-            #r = rank(Y)
-            #I_idx, J_idx, knownentries = sparse2idx(Float64.(X))
-            knownentries = Float64.(X_dataset[:,i])
-            soln, _ = ScaledASD(m, n, r, I_idx, J_idx, knownentries, opts; 
-                                soln_only = true)
-            Y = Float64.(Y_dataset[:,:,i])
-            mse_losses[i] = sum((Y .- soln) .^ 2) / (m * n)
-            spectral_dists[i] = norm(svdvals(Y) .- svdvals(soln)) / length(svdvals(Y))
-        end
-        return mean(mse_losses), mean(spectral_dists)
-    end
-    #sota_train_mse, sota_train_spectraldist = scaled_asd_performance(Xtrain, Ytrain, 1500)
-    #sota_val_mse, sota_val_spectraldist = scaled_asd_performance(Xval, Yval, 2000)
+    opts = Dict(
+        :rel_res_tol => 1e-5, 
+        :maxit => 1000,    
+        :verbosity => false, 
+        :rel_res_change_tol => 1e-4
+    )
     I_idx = zeros(Int, net_width)
     J_idx = zeros(Int, net_width)
     for i in 1:net_width
         I_idx[i], J_idx[i] = masks[i]
     end
-    sota_test_mse, sota_test_spectraldist = scaled_asd_performance(Xtest, Ytest, I_idx, J_idx, 1000)
+    #sota_train_mse, sota_train_spectraldist = scaled_asd_performance(Xtrain, Ytrain, I_idx, J_idx, opts)
+    #sota_val_mse, sota_val_spectraldist = scaled_asd_performance(Xval, Yval, I_idx, J_idx, opts)
+    sota_test_mse, sota_test_spectraldist = scaled_asd_performance(Xtest, Ytest, I_idx, J_idx, opts, 8)
 #end
 
 

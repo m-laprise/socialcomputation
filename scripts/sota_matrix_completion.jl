@@ -146,6 +146,28 @@ function ScaledASD(
     end
 end
 
+function scaled_asd_performance(X_dataset, Y_dataset, I_idx, J_idx, opts, r)
+    dataset_size = size(Y_dataset, 3)
+    mse_losses = zeros(Float32, dataset_size)
+    spectral_dists = zeros(Float32, dataset_size)
+    m, n = size(Y_dataset, 1), size(Y_dataset, 2)
+    for i in 1:dataset_size
+        #X = reshape(X_dataset[:,i], m, n)
+        #Y = reshape(Y_dataset[:,i], m, n)
+        #r = rank(Y)
+        #I_idx, J_idx, knownentries = sparse2idx(Float64.(X))
+        knownentries = Float64.(X_dataset[:,i])
+        soln, _ = ScaledASD(m, n, r, I_idx, J_idx, knownentries, opts; 
+                            soln_only = true)
+        Y = Float64.(Y_dataset[:,:,i])
+        mse_losses[i] = sum((Y .- soln) .^ 2) / (m * n)
+        spectral_dists[i] = norm(svdvals(Y) .- svdvals(soln)) / length(svdvals(Y))
+    end
+    return mean(mse_losses), mean(spectral_dists)
+end
+
+
+
 #----------------#
 
 #A_true = reshape(Ytrain[:,1], 8, 8)
