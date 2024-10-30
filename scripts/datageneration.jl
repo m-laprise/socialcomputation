@@ -14,7 +14,6 @@ The data is saved in a JLD2 file with Bzip2 compression.
 The script also generates traces of random projections for the above datasets, which are saved 
 in a separate JLD2 file. 
 =#
-
 using Random
 using JLD2, CodecBzip2
 

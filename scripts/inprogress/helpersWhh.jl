@@ -11,27 +11,6 @@ CairoMakie.activate!()
 numagents = 100
 seed = 332
 
-function ploteigvals(A::AbstractMatrix)
-    eigs = eigvals(A)
-    fig = Figure()
-    ax = Axis(fig[1, 1], title = "Eigenvalues", xlabel = "Real", ylabel = "Imaginary")
-    θ = LinRange(0, 2π, 1000)
-    circle_x = cos.(θ)
-    circle_y = sin.(θ)
-    lines!(ax, circle_x, circle_y, color = :black)
-    scatter!(ax, real(eigs), imag(eigs), color = :blue)
-    return fig
-end
-
-function ploteigvals!(ax, A::AbstractMatrix)
-    eigs = eigvals(A)
-    θ = LinRange(0, 2π, 1000)
-    circle_x = cos.(θ)
-    circle_y = sin.(θ)
-    lines!(ax, circle_x, circle_y, color = :black)
-    scatter!(ax, real(eigs), imag(eigs), color = :blue)
-end
-
 function init_socgraph(type::String, numagents::Int, param::Int = 3, seed::Int = Int(round(time())))
     if type == "Erdos-Renyi"
         socgraph = erdos_renyi(numagents, numagents*param, seed = seed)

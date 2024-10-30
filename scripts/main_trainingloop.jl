@@ -357,23 +357,14 @@ else
     height = 400
 end
 
-eigvals_Whh = eigvals(Whh)
-
 fig2 = Figure(size = (700, height))
 ax1 = Axis(fig2[1, 1], title = "Eigenvalues of Recurrent Weights", xlabel = "Real", ylabel = "Imaginary")
-# Plot the unit circle
-θ = LinRange(0, 2π, 1000)
-circle_x = cos.(θ)
-circle_y = sin.(θ)
-lines!(ax1, circle_x, circle_y, color = :black)
-# Plot the eigenvalues
-scatter!(ax1, real(eigvals_Whh), imag(eigvals_Whh), color = :blue)
-# Plot on different axes lollipop graphs of bs, damprates, gains
+ploteigvals!(ax1, Whh)
 ax2 = Axis(fig2[1, 2], title = "Biases", xlabel = "Unit", ylabel = "Value")
 barplot!(ax2, 1:net_width, bs, color = :red)
 if GATED
-    ax3 = Axis(fig2[2, 1], title = "Damping Rates", xlabel = "Unit", ylabel = "Value")
-    barplot!(ax3, 1:net_width, damprates, color = :green)
+    #ax3 = Axis(fig2[2, 1], title = "Damping Rates", xlabel = "Unit", ylabel = "Value")
+    #barplot!(ax3, 1:net_width, damprates, color = :green)
     ax4 = Axis(fig2[2, 2], title = "Gains", xlabel = "Unit", ylabel = "Value")
     barplot!(ax4, 1:net_width, gains, color = :purple)
 end
