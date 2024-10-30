@@ -29,13 +29,11 @@ DATASETNAME = datasetnames[3]
 TASKCAT = taskcats[2]
 MEASCAT = measurecats[1]
 TASK = tasks[5]
-TURNS = 1
-VANILLA = false
-INFERENCE_EXPERIMENT = false
+TURNS = 2
+VANILLA = true
 
-if TASKCAT == "reconstruction"
-    samerank = false
-end
+INFERENCE_EXPERIMENT = false
+SOCGRAPHINIT = false
 
 net_width = 100
 
@@ -103,6 +101,20 @@ size(masks), size(Xtrain), size(Ytrain)
 
 input_size = 0
 
+#Whh_init = nothing
+#Whh_init = load("data/Whh_init.jld2", "Whh_init")
+if SOCGRAPHINIT
+    include("inprogress/helpersWhh.jl")
+    #g = init_socgraph("Barabasi-Albert", net_width, 3, 9632)
+    #g = init_socgraph("Erdos-Renyi", net_width, 3, 9632)
+    g = init_socgraph("Watts-Strogatz", net_width, 3, 9632)
+    print_socgraph_descr(g)
+    plot_socgraph(g)
+    plot_degree_distrib(g)
+    Whh_init = Float32.(graph_to_adj(g))
+    Whh_init .+= 0.5*(randn(Float32, net_width, net_width) / sqrt(Float32(net_width)))
+end
+
 if TASKCAT == "classification"
     
     if TASK == "classif1a" || TASK == "classif1b"
@@ -112,12 +124,16 @@ if TASKCAT == "classification"
     end
 
     m_binpred = Chain(
-        rnn(input_size, net_width, h_init="randn"),
+        rnn(input_size, net_width, 
+            Whh_init = Whh_init, 
+            h_init="randn"),
         Dense(net_width => output_size, sigmoid)
     )
 
     m_bfl = Chain(
-        bfl(net_width, h_init="randn",
+        bfl(net_width, 
+            Whh_init = Whh_init,
+            h_init="randn", 
             basal_u = 0.001f0,
             gain = 0.5f0),
         Dense(net_width => output_size, sigmoid)
@@ -128,11 +144,15 @@ elseif TASKCAT == "reconstruction"
     output_size = m * n
 
     m_binpred = Chain(
-        rnn(input_size, net_width, h_init="randn"),
+        rnn(input_size, net_width, 
+            Whh_init = Whh_init, 
+            h_init="randn"),
         Dense(net_width => output_size)
     )
     m_bfl = Chain(
-        bfl(net_width, h_init="randn",
+        bfl(net_width, 
+            Whh_init = Whh_init, 
+            h_init="randn",
             basal_u = 0.001f0,
             gain = 0.5f0),
         Dense(net_width => output_size)
@@ -188,7 +208,6 @@ end
     sota_test_mse, sota_test_spectraldist = scaled_asd_performance(Xtest, Ytest, I_idx, J_idx, opts, 8)
 #end
 
-
 #m_binpred((Xtrain[:,1]))
 #m_binpred((Xtrain[:,1]))[1]
 #m_binpred((Xtrain[:,2]))[1]
@@ -199,7 +218,6 @@ end
 #ab = myloss(m_binpred, (Xtrain[:,2:3]), Ytrain[:,2:3], turns = turns)
 #test1 = myloss(m_binpred, (Xtrain[:,1:20]), Ytrain[:,1:20], turns = turns)
 #g = gradient(myloss, m_binpred, (Xtrain[:,1:20]), Ytrain[:,1:20])[1]
-
 
 eta = 1e-3
 #beta = (0.89, 0.995)
@@ -356,6 +374,10 @@ fig2
 save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_Whh.jld2", "Whh", Whh)
 save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_learnedparams.png", fig2)
 
+include("inprogress/helpersWhh.jl")
+g_end = adj_to_graph(Whh)
+print_socgraph_descr(g_end)
+plot_degree_distrib(g_end)
 
 
 if INFERENCE_EXPERIMENT

@@ -161,7 +161,7 @@ function scaled_asd_performance(X_dataset, Y_dataset, I_idx, J_idx, opts, r)
                             soln_only = true)
         Y = Float64.(Y_dataset[:,:,i])
         mse_losses[i] = sum((Y .- soln) .^ 2) / (m * n)
-        spectral_dists[i] = norm(svdvals(Y) .- svdvals(soln)) / length(svdvals(Y))
+        spectral_dists[i] = norm(svdvals(Y) .- svdvals(soln)) 
     end
     return mean(mse_losses), mean(spectral_dists)
 end

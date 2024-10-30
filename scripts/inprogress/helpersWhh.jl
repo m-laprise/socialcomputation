@@ -34,7 +34,7 @@ function adj_to_graph(A::AbstractMatrix; threshold::Float64=1e-3)
     return g
 end
 
-graph_to_adj(g; alpha::Float64=1.0) = adjacency_matrix(g) + alpha*I(ne(g))
+graph_to_adj(g; alpha::Float64=1.0) = Matrix(adjacency_matrix(g)) .+ alpha*I(nv(g))
 
 function print_socgraph_descr(g)
     println("Number of edges: $(ne(g))")
