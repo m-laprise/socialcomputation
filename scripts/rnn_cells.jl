@@ -202,6 +202,16 @@ reset!(m::Recur) = (m.state = m.init)
 
 #### TRAINING UTILITIES
 
+function getjacobian(activemodel, x)
+    #Whh = Flux.params(activemodel)[1]
+    #h = state(activemodel.layers[1])
+    reset!(activemodel.layers[1])
+    f = x -> activemodel(x)
+    J = Zygote.jacobian(f, x)
+    return J[1]
+end
+J = getjacobian(activemodel, Xtrain[:,1])
+
 
 function inspect_gradients(grads)
     g, _ = Flux.destructure(grads)

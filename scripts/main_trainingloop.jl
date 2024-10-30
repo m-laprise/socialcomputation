@@ -101,18 +101,18 @@ size(masks), size(Xtrain), size(Ytrain)
 
 input_size = 0
 
-#Whh_init = nothing
+Whh_init = nothing
 #Whh_init = load("data/Whh_init.jld2", "Whh_init")
 if SOCGRAPHINIT
     include("inprogress/helpersWhh.jl")
     #g = init_socgraph("Barabasi-Albert", net_width, 3, 9632)
     #g = init_socgraph("Erdos-Renyi", net_width, 3, 9632)
     g = init_socgraph("Watts-Strogatz", net_width, 3, 9632)
-    print_socgraph_descr(g)
-    plot_socgraph(g)
-    plot_degree_distrib(g)
-    Whh_init = Float32.(graph_to_adj(g))
-    Whh_init .+= 0.5*(randn(Float32, net_width, net_width) / sqrt(Float32(net_width)))
+    adj = Float32.(graph_to_adj(g))
+    Whh_init = adj .+ 0.5*(randn(Float32, net_width, net_width) / sqrt(Float32(net_width)))
+    #print_socgraph_descr(g)
+    #plot_socgraph(g)
+    #plot_degree_distrib(g)
 end
 
 if TASKCAT == "classification"
@@ -248,6 +248,7 @@ val_loss = Float32[]
 train_accuracy = Float32[]
 val_accuracy = Float32[]
 
+jacobian_spectra = Float32[]
 # Train using training data, plot training and validation accuracy and loss over training
 # Using the Zygote package to compute gradients
 reset!(activemodel.layers[1])
@@ -265,6 +266,8 @@ for epoch in 1:epochs
     for (x, y) in traindataloader
         grads = gradient(myloss, activemodel, x, y)[1]
         _n, _v, _e = inspect_gradients(grads)
+        J = getjacobian(activemodel, x)
+        push!(jacobian_spectra, eigvals(J))
         n += _n
         v += _v
         e += _e
@@ -299,7 +302,7 @@ else
 end
 if TASK == "recon32"
     tasklab = "Reconstructing 32x32 rank 8 matrices from 100 of their entries"
-    taskfilename = "8by8recon"
+    taskfilename = "32recon"
 #= elseif TASK == "small_classification"
     tasklab = "Classifying 8x8 matrices as full rank or rank 1"
     taskfilename = "8by8class"
@@ -343,7 +346,7 @@ Label(
 )
 fig
 
-save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_rank1only.png", fig)
+save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns.png", fig)
 
 Whh = Flux.params(activemodel.layers[1].cell)[1]
 bs = Flux.params(activemodel.layers[1].cell)[2]
@@ -380,8 +383,8 @@ print_socgraph_descr(g_end)
 plot_degree_distrib(g_end)
 
 
-if INFERENCE_EXPERIMENT
-    k = 100
+#if INFERENCE_EXPERIMENT
+    k = 50
     forwardpasses = [i for i in 1:k]
     mse_by_nbpasses = zeros(Float32, length(forwardpasses))
     spectraldist_by_nbpasses = zeros(Float32, length(forwardpasses))
@@ -423,5 +426,5 @@ if INFERENCE_EXPERIMENT
         "the RNN has no rank information.", fontsize = 12)
     fig3
 
-    save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_inferencetests.png", fig3)
-end
+    save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_inferencetests_WSinit.png", fig3)
+#end
