@@ -1,19 +1,38 @@
-using Graphs
 using Random
-using GraphMakie
-using NetworkLayout
 using LinearAlgebra
 using Distributions
-
+using Graphs
+using SimpleWeightedGraphs
+using GraphMakie
+using NetworkLayout
 using CairoMakie
 CairoMakie.activate!()
 
 numagents = 100
 seed = 332
 
-A = adjacency_matrix(socgraph) + 1I(numagents)
+function ploteigvals(A::AbstractMatrix)
+    eigs = eigvals(A)
+    fig = Figure()
+    ax = Axis(fig[1, 1], title = "Eigenvalues", xlabel = "Real", ylabel = "Imaginary")
+    θ = LinRange(0, 2π, 1000)
+    circle_x = cos.(θ)
+    circle_y = sin.(θ)
+    lines!(ax, circle_x, circle_y, color = :black)
+    scatter!(ax, real(eigs), imag(eigs), color = :blue)
+    return fig
+end
 
-function initialize_socgraph(type::String, numagents::Int, param::Int = 3, seed::Int = Int(round(time())))
+function ploteigvals!(ax, A::AbstractMatrix)
+    eigs = eigvals(A)
+    θ = LinRange(0, 2π, 1000)
+    circle_x = cos.(θ)
+    circle_y = sin.(θ)
+    lines!(ax, circle_x, circle_y, color = :black)
+    scatter!(ax, real(eigs), imag(eigs), color = :blue)
+end
+
+function init_socgraph(type::String, numagents::Int, param::Int = 3, seed::Int = Int(round(time())))
     if type == "Erdos-Renyi"
         socgraph = erdos_renyi(numagents, numagents*param, seed = seed)
     elseif type == "Barabasi-Albert"
@@ -27,6 +46,9 @@ function initialize_socgraph(type::String, numagents::Int, param::Int = 3, seed:
     println("Social graph initialized with $(type) network.")
     return socgraph
 end
+
+adj_to_graph(A) = issymmetric(A) ? SimpleWeightedGraph(A) : SimpleWeightedDiGraph(A)
+graph_to_adj(g; alpha::Float64=1.0) = adjacency_matrix(g) + alpha*I(ne(g))
 
 function print_socgraph_descr(g)
     println("Number of edges: $(ne(g))")

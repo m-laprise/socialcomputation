@@ -151,12 +151,7 @@ function spectral_distance(m,
         end
         svdvals_hat = svdvals(ys_hat_m)
         svdvals_true = svdvals(ys_m)
-        # Verify that singular values are not NaN or infinity, else return 10.0
-        if any(isnan.(svdvals_hat)) || any(isinf.(svdvals_hat)) || any(isnan.(svdvals_true)) || any(isinf.(svdvals_true))
-            errors[i] = 10.0
-        else
-            errors[i] = norm(svdvals_true .- svdvals_hat)
-        end
+        errors[i] = norm(svdvals_true .- svdvals_hat)
     end
     spectral_distances = copy(errors)
     return mean(spectral_distances)

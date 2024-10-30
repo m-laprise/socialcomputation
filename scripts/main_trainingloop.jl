@@ -8,8 +8,9 @@ using LinearAlgebra
 #using IterTools
 
 include("genrandommatrix.jl")
-include("rnn_flux_cells.jl")
-include("rnn_flux_lossfunctions.jl")
+include("rnn_cells.jl")
+include("customlossfunctions.jl")
+include("plot_utils.jl")
 
 #device = Flux.get_device(; verbose=true)
 
@@ -28,8 +29,8 @@ DATASETNAME = datasetnames[3]
 TASKCAT = taskcats[2]
 MEASCAT = measurecats[1]
 TASK = tasks[5]
-TURNS = 10
-VANILLA = true
+TURNS = 1
+VANILLA = false
 INFERENCE_EXPERIMENT = false
 
 if TASKCAT == "reconstruction"
@@ -343,22 +344,21 @@ fig
 save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_rank1only.png", fig)
 
 
-
-# Save a copy of the final recurrent weights Whh
 Whh = Flux.params(activemodel.layers[1].cell)[1]
-
 bs = Flux.params(activemodel.layers[1].cell)[2]
+
 if GATED
     damprates = Flux.params(activemodel.layers[1].cell)[3]
     gains = Flux.params(activemodel.layers[1].cell)[4]
 end
-eigvals_Whh = eigvals(Whh)
-
 if GATED
     height = 500
 else
     height = 400
 end
+
+eigvals_Whh = eigvals(Whh)
+
 fig2 = Figure(size = (700, height))
 ax1 = Axis(fig2[1, 1], title = "Eigenvalues of Recurrent Weights", xlabel = "Real", ylabel = "Imaginary")
 # Plot the unit circle
