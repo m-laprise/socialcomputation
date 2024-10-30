@@ -1,3 +1,17 @@
+#= 
+This script generates the data for the first round of RNN experiments,
+which includes data for the following tasks:
+- Classification tasks with low-rank matrices (lr_c1, lr_c2)
+    - lr_c1: ranks 1-8, 121-128, matrix size 256 (binary classification, high vs low rank)
+    - lr_c2: ranks 2, 4, 8, 16, 32, 64, 128, 256, matrix size 256 (multi-class classification)
+- Reconstruction tasks with low-rank matrices (lr_r_32, lr_r_64, lr_r_128, lr_r_256)
+    - rank 8, matrix sizes 32, 64, 128, 256
+- Reconstruction tasks with sparse matrices (sparse_200)
+    - rank 2, sparsity 1/3, matrix size 200
+    
+The data is saved in a JLD2 file with Bzip2 compression.
+=#
+
 using Random
 using JLD2, CodecBzip2
 

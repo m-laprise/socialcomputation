@@ -1,8 +1,12 @@
+#=
+This script defines function to generate random matrices with specific properties, including 
+both ground truth matrices and measurements, as well as other utilities for data generation.
+=#
+
 using LinearAlgebra
 using Random
 using Distributions
 using SparseArrays
-#using Statistics
 
 """
     gen_matrix(m, n, r; seed=0, noisy=false, sparse=false, noisevar=1e-2, sparsity=1/3, 

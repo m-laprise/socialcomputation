@@ -1,9 +1,15 @@
+#= 
+This script defines the loss functions for the RNN experiments, for 
+the reconstruction and classification tasks. The loss functions are
+logit binary cross-entropy, classification accuracy, mean squared 
+reconstruction error, and spectral distance of singular values.
+=#
+
 using Random
 using Distributions
 using Flux
 using Zygote
 using LinearAlgebra
-
 
 function logitbinarycrossent(m, 
                 xs::AbstractArray{Float32}, 
