@@ -343,7 +343,6 @@ fig
 
 save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_rank1only.png", fig)
 
-
 Whh = Flux.params(activemodel.layers[1].cell)[1]
 bs = Flux.params(activemodel.layers[1].cell)[2]
 
@@ -375,9 +374,8 @@ save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_learnedparams.pn
 
 
 
-#if INFERENCE_EXPERIMENT
-
-    k = 151
+if INFERENCE_EXPERIMENT
+    k = 100
     forwardpasses = [i for i in 1:k]
     mse_by_nbpasses = zeros(Float32, length(forwardpasses))
     spectraldist_by_nbpasses = zeros(Float32, length(forwardpasses))
@@ -419,5 +417,5 @@ save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_learnedparams.pn
         "the RNN has no rank information.", fontsize = 12)
     fig3
 
-    #save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_inferencetests.png", fig3)
-#end
+    save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_inferencetests.png", fig3)
+end

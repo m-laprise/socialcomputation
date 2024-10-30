@@ -26,7 +26,14 @@ function init_socgraph(type::String, numagents::Int, param::Int = 3, seed::Int =
     return socgraph
 end
 
-adj_to_graph(A) = issymmetric(A) ? SimpleWeightedGraph(A) : SimpleWeightedDiGraph(A)
+function adj_to_graph(A::AbstractMatrix; threshold::Float64=1e-3)
+    if threshold > 0
+        A = A .* (A .> threshold)
+    end
+    g = issymmetric(A) ? SimpleWeightedGraph(A) : SimpleWeightedDiGraph(A)
+    return g
+end
+
 graph_to_adj(g; alpha::Float64=1.0) = adjacency_matrix(g) + alpha*I(ne(g))
 
 function print_socgraph_descr(g)
@@ -44,7 +51,7 @@ end
 
 function plot_socgraph(g)
     fig, ax, p = graphplot(
-        g; layout=Spring(dim=2, seed=5),
+        g; #layout=Spring(dim=2, seed=5),
         node_marker=Circle,
         #nlabels=repr.(vertices(g)),
         #nlabels_color=:black, nlabels_fontsize=11,
@@ -57,16 +64,12 @@ function plot_socgraph(g)
 end
 
 function plot_degree_distrib(g)
-    fig = Figure(size = (300,300))
-    ax = Axis(fig[1, 1], xlabel = "Number of agents", ylabel = "Degree distribution", yticks = minimum(degree(g)):maximum(degree(g)))
+    fig = Figure()
+    ax = Axis(fig[1, 1], xlabel = "Number of agents", ylabel = "Degree distribution", #yticks = minimum(degree(g)):maximum(degree(g))
+    )
     hist!(ax, degree(g), bins=minimum(degree(g))-0.5:1:maximum(degree(g))+0.5, 
-          #bar_labels = :values, label_formatter = x -> Int(round(x)), label_size = 15,
           direction=:x, offset = 0.0,
           strokewidth = 1, strokecolor = (:black, 0.5), color=:values)
     hidespines!(ax)
     return fig
 end
-
-f1 = mygraphplot(socgraph)
-f2 = plot_degree_distrib(socgraph)
-

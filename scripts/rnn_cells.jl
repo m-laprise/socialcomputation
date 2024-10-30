@@ -119,11 +119,12 @@ mutable struct bfl_cell{A,V}
 end
 
 function bfl_cell(net_width::Int;
-                  h_init::String, 
+                  h_init::String, Whh_init = nothing, 
                   basal_u::Float32 = Float32(1e-2),
                   damping::Float32 = Float32(1.0),
                   gain::Float32 = Float32(0.5))
     @assert net_width > 0
+    # Initialize hidden state
     if h_init == "zero"
         h = zeros(Float32, net_width)
     elseif h_init == "randn"
@@ -131,11 +132,17 @@ function bfl_cell(net_width::Int;
     else
         error("Invalid h_init value. Choose from 'zero' or 'randn'.")
     end
+    # Initialize recurrent weight matrix
+    if isnothing(Whh_init)
+        Whh = randn(Float32, net_width, net_width) / sqrt(Float32(net_width))
+    else
+        Whh = Float32.(Whh_init)
+    end
     u = ones(Float32, net_width) * basal_u
     damping = ones(Float32, net_width) * damping
     gain = ones(Float32, net_width) * gain
     return bfl_cell(
-            randn(Float32, net_width, net_width) / sqrt(Float32(net_width)),
+            Whh,
             randn(Float32, net_width) / sqrt(Float32(net_width)),
             h, u, damping, gain, h, u
         )
