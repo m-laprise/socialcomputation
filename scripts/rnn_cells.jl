@@ -112,7 +112,6 @@ mutable struct bfl_cell{A,V}
     b::V
     h::V
     u::V
-    damping::V
     gain::V
     init_h::V # store initial state for reset
     init_u::V # store initial attention for reset
@@ -121,7 +120,6 @@ end
 function bfl_cell(net_width::Int;
                   h_init::String, Whh_init = nothing, 
                   basal_u::Float32 = Float32(1e-2),
-                  damping::Float32 = Float32(1.0),
                   gain::Float32 = Float32(0.5))
     @assert net_width > 0
     # Initialize hidden state
@@ -139,29 +137,13 @@ function bfl_cell(net_width::Int;
         Whh = Float32.(Whh_init)
     end
     u = ones(Float32, net_width) * basal_u
-    damping = ones(Float32, net_width) * damping
     gain = ones(Float32, net_width) * gain
     return bfl_cell(
             Whh,
             randn(Float32, net_width) / sqrt(Float32(net_width)),
-            h, u, damping, gain, h, u
+            h, u, gain, h, u
         )
 end
-
-#= FIRST ATTEMPT - DO NOT USE function(m::bfl_cell)(state, I)
-    Whh, b, damping, gain, basal_u = m.Whh, m.b, m.damping, m.gain, m.init_u
-    u, h = m.u, state
-    stepsize = 0.5f0
-    bias = b .+ pad_input(I, length(h))
-    h2 = h .* h
-    u_update = (-1 * u) .+ basal_u .+ ((Whh * h2) .* gain)
-    u_new = u .+ stepsize * u_update
-    h_update = (-damping .* h) .+ tanh.((Whh * h) .* u_new) .+ bias
-    h_new = h .+ stepsize * h_update
-    m.u = u_new
-    m.h = h_new
-    return h_new, h_new
-end =#
 
 function(m::bfl_cell)(state, I)
     Whh, b, gain, basal_u = m.Whh, m.b, m.gain, m.init_u
@@ -175,7 +157,7 @@ function(m::bfl_cell)(state, I)
     return h_new, h_new
 end 
 
-Flux.@layer bfl_cell trainable=(Whh, b, damping, gain)
+Flux.@layer bfl_cell trainable=(Whh, b, gain)
 
 state(m::bfl_cell) = m.h
 
