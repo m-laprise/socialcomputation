@@ -151,7 +151,7 @@ function spectral_distance(m,
         end
         svdvals_hat = svdvals(ys_hat_m)
         svdvals_true = svdvals(ys_m)
-        errors[i] = norm(svdvals_true .- svdvals_hat)
+        errors[i] = norm(svdvals_true .- svdvals_hat) / length(svdvals_true)
     end
     spectral_distances = copy(errors)
     return mean(spectral_distances)

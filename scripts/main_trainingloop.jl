@@ -28,13 +28,24 @@ DATASETNAME = datasetnames[3]
 TASKCAT = taskcats[2]
 MEASCAT = measurecats[1]
 TASK = tasks[5]
-TURNS = 10
+TURNS = 1
 VANILLA = true
 
 INFERENCE_EXPERIMENT = false
+WIDTH_EXPERIMENT = true
 SOCGRAPHINIT = false
 
-net_width = 100
+if WIDTH_EXPERIMENT
+    widthvec = []
+    sotamsevec = []
+    sotaspectralvec = []
+    trainlossvec = []
+    trainaccvec = []
+    testaccvec = []
+    testlossvec = []
+end
+
+net_width = 150
 
 ##########
 
@@ -260,15 +271,21 @@ starttime = time()
 for epoch in 1:epochs
     reset!(activemodel.layers[1])
     println("Commencing epoch $epoch")
-    n, v, e = 0, 0, 0
+    mb, n, v, e = 1, 0, 0, 0
     for (x, y) in traindataloader
         grads = gradient(myloss, activemodel, x, y)[1]
         _n, _v, _e = inspect_gradients(grads)
         J = getjacobian(activemodel; wrt = "state")
-        push!(jacobian_spectra, eigvals(J))
+        try
+            push!(jacobian_spectra, eigvals(J))
+        catch err
+            println("Jacobian computation failed at epoch $epoch and minibatch $mb")
+            println("with error: $err")
+        end
         n += _n
         v += _v
         e += _e
+        mb += 1
         Flux.update!(opt_state, activemodel, grads)
     end
     diagnose_gradients(n, v, e)
@@ -299,7 +316,7 @@ else
     accuracyname = "Classification accuracy"
 end
 if TASK == "recon32"
-    tasklab = "Reconstructing 32x32 rank 8 matrices from 100 of their entries"
+    tasklab = "Reconstructing 32x32 rank 8 matrices from $(net_width) of their entries"
     taskfilename = "32recon"
 #= elseif TASK == "small_classification"
     tasklab = "Classifying 8x8 matrices as full rank or rank 1"
@@ -344,7 +361,40 @@ Label(
 )
 fig
 
-save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns.png", fig)
+save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns.png", fig)
+
+if WIDTH_EXPERIMENT
+    push!(widthvec, net_width)
+    push!(sotamsevec, sota_test_mse)
+    push!(sotaspectralvec, sota_test_spectraldist)
+    push!(trainlossvec, train_loss[end])
+    push!(testlossvec, test_loss)
+    push!(trainaccvec, train_accuracy[end])
+    push!(testaccvec, test_accuracy)
+    
+    fig_w = Figure(size = (850, 380))
+    ax1 = Axis(fig_w[1, 1], xlabel = "Width of RNN and nb of entries", ylabel = "Mean squared reconstruction error", 
+               title = "End of training error")
+    lines!(ax1, Int.(widthvec), Float64.(sotamsevec), color = :blue, linestyle = :dash, label = "Scaled ASD")
+    lines!(ax1, Int.(widthvec), Float64.(trainlossvec), color = :red, label = "RNN on training data")
+    lines!(ax1, Int.(widthvec), Float64.(testlossvec), color = :green, label = "RNN on test data")
+    axislegend(ax1, backgroundcolor = :transparent)
+    ax2 = Axis(fig_w[1, 2], xlabel = "Width of RNN and nb of entries", ylabel = "Mean norm of spectral distance", 
+               title = "End of training spectral distance")
+    lines!(ax2, Int.(widthvec), Float64.(sotaspectralvec), color = :blue, linestyle = :dash, label = "Scaled ASD")
+    lines!(ax2, Int.(widthvec), Float64.(trainaccvec), color = :red, label = "RNN on training data")
+    lines!(ax2, Int.(widthvec), Float64.(testaccvec), color = :green, label = "RNN on test data")
+    axislegend(ax2, backgroundcolor = :transparent)
+    Label(
+        fig_w[begin-1, 1:2],
+        "Reconstructing 32x32 rank-8 matrices from K of their entries,\nwith $(modlabel) RNNs of width K, for K between 10 and 100",
+        fontsize = 20,
+        padding = (0, 0, 0, 0),
+    )
+    fig_w
+    save("data/$(modlabel)RNNvaryingwidths_$(taskfilename)_$(TURNS)turns.png", fig_w)
+end
+
 
 Whh = Flux.params(activemodel.layers[1].cell)[1]
 bs = Flux.params(activemodel.layers[1].cell)[2]
@@ -359,6 +409,7 @@ else
     height = 400
 end
 
+
 fig2 = Figure(size = (700, height))
 ax1 = Axis(fig2[1, 1], title = "Eigenvalues of Recurrent Weights", xlabel = "Real", ylabel = "Imaginary")
 ploteigvals!(ax1, Whh)
@@ -372,16 +423,16 @@ if GATED
 end
 fig2
 
-save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_Whh.jld2", "Whh", Whh)
-save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_learnedparams.png", fig2)
+save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_Whh.jld2", "Whh", Whh)
+save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_learnedparams.png", fig2)
 
 include("inprogress/helpersWhh.jl")
-g_end = adj_to_graph(Whh)
+g_end = adj_to_graph(Whh; threshold = 0.01)
 print_socgraph_descr(g_end)
 plot_degree_distrib(g_end)
+plot_socgraph(g_end)
 
-
-if INFERENCE_EXPERIMENT
+#if INFERENCE_EXPERIMENT
     k = 50
     forwardpasses = [i for i in 1:k]
     mse_by_nbpasses = zeros(Float32, length(forwardpasses))
@@ -414,7 +465,7 @@ if INFERENCE_EXPERIMENT
     #ylims!(ax1, 37.0, maximum(mse_by_nbpasses) + 1.0)
     #ylims!(ax2, 4.5, maximum(spectraldist_by_nbpasses) + 0.1)
     axislegend(ax1, backgroundcolor = :transparent)
-    axislegend(ax2, backgroundcolor = :transparent)
+    axislegend(ax2, backgroundcolor = :transparent, position = :rb)
     Label(fig3[begin-1, 1:2], 
         "$(tasklab)\n$(modlabel) RNN of $net_width units, trained with $TURNS forward passes\nRecurrent inference on test set", 
         fontsize = 16)
@@ -424,5 +475,5 @@ if INFERENCE_EXPERIMENT
         "the RNN has no rank information.", fontsize = 12)
     fig3
 
-    save("data/$(modlabel)RNNwidth100_$(taskfilename)_$(TURNS)turns_inferencetests_WSinit.png", fig3)
-end
+    save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_inferencetests.png", fig3)
+#end
