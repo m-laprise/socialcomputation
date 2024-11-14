@@ -421,36 +421,3 @@ function trace_measurements(X::AbstractArray{Float32, 3}, O::AbstractArray{Float
 end
 
 trace_product(X::AbstractMatrix, O::AbstractMatrix) = sum(diag(X * O))
-
-"""
-    train_val_test_split(X::AbstractArray,
-                         train_prop::Float64, val_prop::Float64, test_prop::Float64)
-
-Split any array into training, validation, and test sets. The function takes the input data
-and the proportions to allocate to the training, validation, and test sets. The function returns 
-the split data as separate matrices or vectors.
-"""
-function train_val_test_split(X::AbstractArray, 
-                              train_prop::Float64, val_prop::Float64, test_prop::Float64)
-    @assert train_prop + val_prop + test_prop == 1.0
-    dimsX = length(size(X))
-    dataset_size = size(X, dimsX)
-    train_nb = Int(train_prop * dataset_size)
-    val_nb = Int(val_prop * dataset_size)
-    train_idxs = 1:train_nb
-    val_idxs = train_nb+1:train_nb+val_nb
-    test_idxs = train_nb+val_nb+1:dataset_size
-    if X isa Vector
-        Xtrain, Xval, Xtest = X[train_idxs], X[val_idxs], X[test_idxs]
-    elseif dimsX == 2
-        Xtrain, Xval, Xtest = X[:,train_idxs], X[:,val_idxs], X[:,test_idxs]
-    elseif dimsX == 3
-        Xtrain, Xval, Xtest = X[:,:,train_idxs], X[:,:,val_idxs], X[:,:,test_idxs]
-    else
-        error("Invalid number of dimensions for X: $dimsX")
-    end
-    @assert size(Xtrain, dimsX) == train_nb
-    @assert size(Xval, dimsX) == val_nb
-    @assert size(Xtest, dimsX) == dataset_size - train_nb - val_nb
-    return Xtrain, Xval, Xtest
-end

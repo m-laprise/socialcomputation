@@ -14,11 +14,15 @@ include("train_utils.jl")
 
 #device = Flux.get_device(; verbose=true)
 
-##########
+##### EXPERIMENTAL CONDITIONS
 
-taskcats = ["classification", "reconstruction"]
-measurecats = ["masks", "traces", "blocks"]
-tasks = ["classif1a", "classif1b", "classif2a", "classif2b", 
+taskcats = ["classification", 
+            "reconstruction"]
+measurecats = ["masks", 
+               "traces", 
+               "blocks"]
+tasks = ["classif1a", "classif1b", 
+         "classif2a", "classif2b", 
          "recon32", "recon64", "recon128", "recon256",
          "sparse200a", "sparse200b"]
 datasetnames = ["lr_c1", "lr_c2", 
@@ -29,13 +33,22 @@ DATASETNAME = datasetnames[3]
 TASKCAT = taskcats[2]
 MEASCAT = measurecats[1]
 TASK = tasks[5]
-TURNS = 1
-VANILLA = true
 
-INFERENCE_EXPERIMENT = false
-WIDTH_EXPERIMENT = true
-SOCGRAPHINIT = false
+TURNS::Int = 1
+VANILLA::Bool = true
+net_width::Int = 150
 
+if MEASCAT == "masks"
+    knownentries = 150
+else 
+    knownentries = nothing
+end
+
+EPOCHS = 50
+MINIBATCH_SIZE = 64
+
+INFERENCE_EXPERIMENT::Bool = false
+WIDTH_EXPERIMENT::Bool = false
 if WIDTH_EXPERIMENT
     widthvec = []
     sotamsevec = []
@@ -45,61 +58,26 @@ if WIDTH_EXPERIMENT
     testaccvec = []
     testlossvec = []
 end
-
-net_width = 150
+SOCGRAPHINIT::Bool = false
 
 ##########
 
-train_prop = 0.8
-val_prop = 0.1
-test_prop = 0.1
+train_prop::Float64 = 0.8
+val_prop::Float64 = 0.1
+test_prop::Float64 = 0.1
 
 data = load("data/rnn_firstexpdata.jld2", DATASETNAME)
 m, n, dataset_size = size(data["X"])
 
 # Create label data
-if TASKCAT == "reconstruction"
-    Y = data["X"]
-elseif TASKCAT == "classification"
-    if TASK == "classif1a" || TASK == "classif1b"
-        Y = data["ranks"] .> 100
-    elseif TASK == "classif2a" || TASK == "classif2b"
-        ranks = data["ranks"]
-        # Convert vector of possible ranks to multi-class one-hot encoded matrix
-        nb_classes = length(unique(ranks))
-        ordered_classes = sort(unique(ranks))
-        Y = zeros(Int, nb_classes, dataset_size)
-        for i in 1:dataset_size
-            Y[findall(x -> x == ranks[i], ordered_classes)[1], i] = 1
-        end
-    end
-end
+Y = label_setup(data, TASKCAT, TASK)
+# Create input data from ground truth
+X = input_setup(Y, MEASCAT, m, n, dataset_size, knownentries)
 
-# Create input data
-if MEASCAT == "masks"
-    masks = sensingmasks(m, n; k=net_width, seed=9632)
-    X = zeros(Float32, net_width, dataset_size)
-    for k in 1:dataset_size
-        for l in 1:net_width
-            i, j = masks[l]
-            X[l, k] = Y[i, j, k]
-        end
-    end
-    #= X = zeros(Float32, net_width, 3, dataset_size)
-    for k in 1:dataset_size
-        for l in 1:net_width
-            i, j = masks[l]
-            X[l, 1, k] = Y[i, j, k]
-            X[l, 2, k] = i
-            X[l, 3, k] = j
-        end
-    end =#
-elseif MEASCAT == "traces" || MEASCAT == "blocks"
-    error("Not implemented yet.")
-end
-
+# Split data between training, validation, and test sets
 Xtrain, Xval, Xtest = train_val_test_split(X, train_prop, val_prop, test_prop)
 Ytrain, Yval, Ytest = train_val_test_split(Y, train_prop, val_prop, test_prop)
+
 if TASKCAT == "reconstruction"
     ranks = unique(data["ranks"])
     size(ranks)
@@ -107,10 +85,9 @@ else
     ranks_train, ranks_val, ranks_test = train_val_test_split(data["ranks"], train_prop, val_prop, test_prop)
     size(ranks_train)
 end
-size(masks), size(Xtrain), size(Ytrain)
-##########
+size(Xtrain), size(Ytrain)
 
-input_size = 0
+##### INITIALIZE NETWORK
 
 Whh_init = nothing
 #Whh_init = load("data/Whh_init.jld2", "Whh_init")
@@ -126,21 +103,34 @@ if SOCGRAPHINIT
     #plot_degree_distrib(g)
 end
 
+# Set input size
+input_size = 0
+
+# Set output size based on task
 if TASKCAT == "classification"
-    
+    # For binary classification, output size is 1
     if TASK == "classif1a" || TASK == "classif1b"
         output_size = 1
+    # For multi-class classification, output size is the number of classes
     elseif TASK == "classif2a" || TASK == "classif2b"
         output_size = nb_classes
     end
+elseif TASKCAT == "reconstruction"
+    # For matrix reconstruction, output size is the number of entries in the matrix
+    output_size = m * n
+end
 
+# Initialize the models for classification with a sigmoid 
+# and the models for reconstruction without a sigmoid
+if TASKCAT == "classification"
+    # Initialize the vanilla RNN model
     m_binpred = Chain(
         rnn(input_size, net_width, 
             Whh_init = Whh_init, 
             h_init="randn"),
         Dense(net_width => output_size, sigmoid)
     )
-
+    # Initialize the BFL RNN model
     m_bfl = Chain(
         bfl(net_width, 
             Whh_init = Whh_init,
@@ -149,17 +139,15 @@ if TASKCAT == "classification"
             gain = 0.5f0),
         Dense(net_width => output_size, sigmoid)
     )
-
 elseif TASKCAT == "reconstruction"
-    
-    output_size = m * n
-
+    # Initialize the vanilla RNN model
     m_binpred = Chain(
         rnn(input_size, net_width, 
             Whh_init = Whh_init, 
             h_init="randn"),
         Dense(net_width => output_size)
     )
+    # Initialize the BFL RNN model
     m_bfl = Chain(
         bfl(net_width, 
             Whh_init = Whh_init, 
@@ -168,7 +156,6 @@ elseif TASKCAT == "reconstruction"
             gain = 0.5f0),
         Dense(net_width => output_size)
     )
-
 end
 
 # Flux.params(m_binpred)[1]
@@ -190,7 +177,7 @@ end
 # m_bfl.layers[1].state
 # reset!(m_bfl.layers[1])
 
-###########
+##### DEFINE LOSS FUNCTIONS
 
 if TASKCAT == "classification" 
     myloss = logitbinarycrossent
@@ -199,6 +186,8 @@ elseif TASKCAT == "reconstruction"
     myloss = recon_mse
     accuracy = spectral_distance
 end
+
+##### ESTABLISH BASELINE PERFORMANCE
 
 if TASKCAT == "reconstruction"
     # For reference, compute the loss of a non-distributed algorithm on this data.
@@ -219,6 +208,8 @@ if TASKCAT == "reconstruction"
     sota_test_mse, sota_test_spectraldist = scaled_asd_performance(Xtest, Ytest, I_idx, J_idx, opts, 8)
 end
 
+##### TRAINING
+
 #m_binpred((Xtrain[:,1]))
 #m_binpred((Xtrain[:,1]))[1]
 #m_binpred((Xtrain[:,2]))[1]
@@ -230,8 +221,7 @@ end
 #g = gradient(myloss, m_binpred, (Xtrain[:,1:20]), Ytrain[:,1:20])[1]
 
 eta = 1e-3
-#beta = (0.89, 0.995)
-#decay = 0.1
+#beta, decay = (0.89, 0.995), 0.1
 #omega = 10
 opt = OptimiserChain(
     #ClipNorm(omega), AdamW(eta, beta, decay)
@@ -247,11 +237,11 @@ else
 end
 
 opt_state = Flux.setup(opt, activemodel)
-epochs = 50
-minibatch_size = 64
 
 traindataloader = Flux.DataLoader(
-    (data=Xtrain, label=Ytrain), batchsize=minibatch_size, shuffle=true)
+    (data=Xtrain, label=Ytrain), 
+    batchsize=MINIBATCH_SIZE, 
+    shuffle=true)
 
 train_loss = Float32[]
 val_loss = Float32[]
@@ -264,16 +254,19 @@ jacobian_spectra = []
 reset!(activemodel.layers[1])
 
 push!(train_loss, myloss(activemodel, Xtrain, Ytrain, turns = TURNS))
-push!(train_accuracy, accuracy(activemodel, Xtrain, Ytrain, turns = TURNS) )
+push!(train_accuracy, accuracy(activemodel, Xtrain, Ytrain, turns = TURNS))
 push!(val_loss, myloss(activemodel, Xval, Yval, turns = TURNS))
-push!(val_accuracy, accuracy(activemodel, Xval, Yval, turns = TURNS) )
+push!(val_accuracy, accuracy(activemodel, Xval, Yval, turns = TURNS))
 
 starttime = time()
-for epoch in 1:epochs
+for epoch in 1:EPOCHS
     reset!(activemodel.layers[1])
     println("Commencing epoch $epoch")
+    # Initialize counters for gradient diagnostics
     mb, n, v, e = 1, 0, 0, 0
+    # Iterate over minibatches
     for (x, y) in traindataloader
+        # Backpropagate gradients
         grads = gradient(myloss, activemodel, x, y)[1]
         _n, _v, _e = inspect_gradients(grads)
         J = getjacobian(activemodel; wrt = "state")
@@ -287,7 +280,9 @@ for epoch in 1:epochs
         v += _v
         e += _e
         mb += 1
-        Flux.update!(opt_state, activemodel, grads)
+        # Use the optimizer and grads to update the trainable parameters; also update the optimizer states
+        # (Per the docs, "you should not rely on the old model being fully updated but rather use the returned model")
+        _, activemodel = Flux.update!(opt_state, activemodel, grads)
     end
     diagnose_gradients(n, v, e)
     #Flux.@withprogress Flux.train!(loss, activemodel, data, opt_state)

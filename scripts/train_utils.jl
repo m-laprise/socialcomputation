@@ -1,6 +1,6 @@
 #=
-The script includes functions required to run the training loop under various experimental conditions.
-It also includes helper functions for inspecting and diagnosing gradients during training.
+The script includes helper functions for inspecting and diagnosing gradients during training
+and for analyzing the training process.
 =#
 
 #### TRAINING UTILITIES
@@ -81,6 +81,3 @@ function diagnose_gradients(n, v, e)
         println("Gradients appear to be well-behaved.")
     end
 end
-
-### TRAINING functions
-
