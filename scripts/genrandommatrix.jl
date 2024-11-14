@@ -56,7 +56,7 @@ C = gen_matrix(10, 5, 3, noisy=true)
 D = gen_matrix(10, 5, 3, seed=1234, sparse=true, sparsity=0.2)
 ```
 """
-function gen_matrix(m, n, r; 
+function gen_matrix(m::Int, n::Int, r::Int; 
                     seed::Int = 0,
                     noisy::Bool = false, 
                     noisevar::Float64 = 1e-2, 

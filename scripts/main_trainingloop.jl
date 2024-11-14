@@ -10,6 +10,7 @@ include("genrandommatrix.jl")
 include("rnn_cells.jl")
 include("customlossfunctions.jl")
 include("plot_utils.jl")
+include("train_utils.jl")
 
 #device = Flux.get_device(; verbose=true)
 
@@ -115,9 +116,9 @@ Whh_init = nothing
 #Whh_init = load("data/Whh_init.jld2", "Whh_init")
 if SOCGRAPHINIT
     include("inprogress/helpersWhh.jl")
-    #g = init_socgraph("Barabasi-Albert", net_width, 3, 9632)
+    g = init_socgraph("Barabasi-Albert", net_width, 3, 9632)
     #g = init_socgraph("Erdos-Renyi", net_width, 3, 9632)
-    g = init_socgraph("Watts-Strogatz", net_width, 3, 9632)
+    #g = init_socgraph("Watts-Strogatz", net_width, 3, 9632)
     adj = Float32.(graph_to_adj(g))
     Whh_init = adj .+ 0.5*(randn(Float32, net_width, net_width) / sqrt(Float32(net_width)))
     #print_socgraph_descr(g)
