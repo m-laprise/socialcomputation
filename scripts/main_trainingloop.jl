@@ -11,6 +11,7 @@ include("rnn_cells.jl")
 include("customlossfunctions.jl")
 include("plot_utils.jl")
 include("train_utils.jl")
+include("train_setup.jl")
 
 #device = Flux.get_device(; verbose=true)
 
@@ -220,14 +221,6 @@ end
 #test1 = myloss(m_binpred, (Xtrain[:,1:20]), Ytrain[:,1:20], turns = turns)
 #g = gradient(myloss, m_binpred, (Xtrain[:,1:20]), Ytrain[:,1:20])[1]
 
-eta = 1e-3
-#beta, decay = (0.89, 0.995), 0.1
-#omega = 10
-opt = OptimiserChain(
-    #ClipNorm(omega), AdamW(eta, beta, decay)
-    Adam(eta)
-)
-
 if VANILLA
     activemodel = m_binpred
     GATED = false
@@ -236,6 +229,15 @@ else
     GATED = true
 end
 
+# State optimizing rule
+eta = 1e-3
+#beta, decay = (0.89, 0.995), 0.1
+#omega = 10
+opt = OptimiserChain(
+    #ClipNorm(omega), AdamW(eta, beta, decay)
+    Adam(eta)
+)
+# Tree of states
 opt_state = Flux.setup(opt, activemodel)
 
 traindataloader = Flux.DataLoader(
@@ -249,6 +251,7 @@ train_accuracy = Float32[]
 val_accuracy = Float32[]
 
 jacobian_spectra = []
+
 # Train using training data, plot training and validation accuracy and loss over training
 # Using the Zygote package to compute gradients
 reset!(activemodel.layers[1])
@@ -259,33 +262,34 @@ push!(val_loss, myloss(activemodel, Xval, Yval, turns = TURNS))
 push!(val_accuracy, accuracy(activemodel, Xval, Yval, turns = TURNS))
 
 starttime = time()
-for epoch in 1:EPOCHS
+for epoch in 1:3 #EPOCHS
     reset!(activemodel.layers[1])
     println("Commencing epoch $epoch")
     # Initialize counters for gradient diagnostics
     mb, n, v, e = 1, 0, 0, 0
     # Iterate over minibatches
     for (x, y) in traindataloader
-        # Backpropagate gradients
+        # Forward pass (to compute the loss) and backward pass (to compute the gradients)
         grads = gradient(myloss, activemodel, x, y)[1]
+        # Diagnose the gradients
         _n, _v, _e = inspect_gradients(grads)
-        J = getjacobian(activemodel; wrt = "state")
-        try
-            push!(jacobian_spectra, eigvals(J))
-        catch err
-            println("Jacobian computation failed at epoch $epoch and minibatch $mb")
-            println("with error: $err")
-        end
         n += _n
         v += _v
         e += _e
         mb += 1
-        # Use the optimizer and grads to update the trainable parameters; also update the optimizer states
-        # (Per the docs, "you should not rely on the old model being fully updated but rather use the returned model")
-        _, activemodel = Flux.update!(opt_state, activemodel, grads)
+        # Use the optimizer and grads to update the trainable parameters; update the optimizer states
+        Flux.update!(opt_state, activemodel, grads)
     end
+    # Compute the Jacobian
+    J = getjacobian(activemodel; wrt = "state")
+    try
+        push!(jacobian_spectra, eigvals(J))
+    catch err
+        println("Jacobian computation failed after epoch $epoch")
+        println("with error: $err")
+    end
+    # Print a summary of the gradient diagnostics for the epoch
     diagnose_gradients(n, v, e)
-    #Flux.@withprogress Flux.train!(loss, activemodel, data, opt_state)
     # Compute training loss and accuracy
     push!(train_loss, myloss(activemodel, Xtrain, Ytrain, turns = TURNS))
     push!(train_accuracy, accuracy(activemodel, Xtrain, Ytrain, turns = TURNS) )

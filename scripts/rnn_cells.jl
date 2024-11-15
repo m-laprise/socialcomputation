@@ -65,19 +65,27 @@ function rnn_cell(input_size::Int, net_width::Int;
     end
 end
 
-function(m::rnn_cell_xb)(state, x, I)
-    @assert I isa Vector || size(I, 2) == 1
+function(m::rnn_cell_xb)(state, x, I=nothing)
     Wxh, Whh, b, h = m.Wxh, m.Whh, m.b, state
-    bias = b .+ pad_input(I, length(h))
+    if isnothing(I)
+        bias = b
+    else
+        @assert I isa Vector || size(I, 2) == 1
+        bias = b .+ pad_input(I, length(h))
+    end
     h_new = tanh.(Wxh * x .+ Whh * h .+ bias)
     m.h = h_new
     return h_new, h_new
 end
 
-function(m::rnn_cell_b)(state, I)
-    @assert I isa Vector || size(I, 2) == 1
+function(m::rnn_cell_b)(state, I=nothing)
     Whh, b, h = m.Whh, m.b, state
-    bias = b .+ pad_input(I, length(h))
+    if isnothing(I)
+        bias = b
+    else
+        @assert I isa Vector || size(I, 2) == 1
+        bias = b .+ pad_input(I, length(h))
+    end
     h_new = tanh.(Whh * h .+ bias)
     m.h = h_new
     return h_new, h_new
@@ -145,10 +153,15 @@ function bfl_cell(net_width::Int;
         )
 end
 
-function(m::bfl_cell)(state, I)
+function(m::bfl_cell)(state, I=nothing)
     Whh, b, gain, basal_u = m.Whh, m.b, m.gain, m.init_u
     u, h = m.u, state
-    bias = pad_input(I, length(h)) .+ b
+    if isnothing(I)
+        bias = b
+    else
+        @assert I isa Vector || size(I, 2) == 1
+        bias = pad_input(I, length(h)) .+ b
+    end
     h2 = h .* h
     u_new = basal_u .+ ((Whh * h2) .* gain)
     h_new = tanh.((Whh * h) .* u_new) .+ bias 
