@@ -165,10 +165,7 @@ function scaled_asd_performance(X_dataset, Y_dataset, I_idx, J_idx, opts, r)
     return mean(mse_losses), mean(spectral_dists)
 end
 
-
-
 #----------------#
-
 #A_true = reshape(Ytrain[:,1], 8, 8)
 #nonzeroindices = findall(x -> x != 0, A)
 #A_mask = zeros(Float64, 8, 8)
@@ -184,7 +181,6 @@ mask = rand(0:1, m, n)
 A_obs = A_true .* mask
 
 I_idx, J_idx, data = sparse2idx(A_obs)
-
 start = Dict(:L => randn(m, r), :R => randn(r, n))  # Optional starting point
 opts = Dict(
     :rel_res_tol => 1e-5,           # Float64
@@ -192,9 +188,161 @@ opts = Dict(
     :verbosity => true,                # Int or Bool
     :rel_res_change_tol => 1e-4     # Float64
 )
-
 Factors, Out = ScaledASD(m, n, r, I_idx, J_idx, data, start, opts)
-
 final_X, final_Y = Factors[end]
 soln = final_X * final_Y
 =#
+
+"""
+    IRLS_M(m, n, I_idx, J_idx, data, q, alpha, tol, maxit)
+
+Julia implementation of the Iteratively Reweighted Least Squares (IRLS) algorithm for matrix completion.
+See M. Fronnasier, H. Rauhut and R. Ward. Low-rank matrix recovery via iteratively reweighted least squares 
+minimization. SIAM Journal on Optimization, 21(4): 1614-1640, 2011.
+
+Pseudo-code:
+Input: a constant q >= r; a scaling parameter alpha > 0; a stopping criterion T
+Initialize: an iteration counter k = 0; a regularizing sequence eps0 = 1; W0 = I
+Algorithm:
+While T = false do
+    k = k + 1
+    X_k = argmin_{known entries} ||W_{k-1}^(1/2) * X||_F^2  ; a WLS problem solved by updating each column of X_k
+    eps_k = min(eps_{k-1}, alpha * sigma_{q+1}(X_k) )
+    Compute SVD perturbation version tildeX_k of X_k  (to avoid misbehavior in the subsequent inversion)
+    W_k = (tildeX_k * tildeX_k^T)^(-1/2)
+End
+Output: a matrix X
+"""
+function IRLS_M(
+    m::Int, # Number of rows
+    n::Int, # Number of columns
+    I_idx::Vector{Int}, # I indices of the observed entries
+    J_idx::Vector{Int}, # J indices of the observed entries
+    data::Vector{Float64}, # Observed entries
+    q::Int, # Constant q >= r
+    alpha::Float64, # Scaling parameter alpha > 0
+    tol::Float64 = 1e-5, # Stopping criterion
+    maxit::Int = 5000, # Maximum number of iterations
+)
+    @assert length(data) == length(I_idx)
+    @assert length(data) == length(J_idx)
+    p = length(data) # Number of observed entries
+    @assert p > 0 && p < m * n
+    @assert q < min(m, n)
+
+    # Initialize
+    k = 0 # Iteration counter
+    eps = 1 # Regularizing sequence
+    W = I(n) # Weight matrix
+
+    diff_matrix = sparse(I_idx, J_idx, data, m, n)
+    diff_matrix.nzval .= data
+    
+    # While stopping criterion is not met
+    while k < maxit && eps > tol
+        k += 1 
+        # Weighted least squares problem
+        X = Matrix(diff_matrix) * W
+        try
+            # SVD perturbation
+            U, S, V = svd(X)
+            X_tilde = U[:, 1:q] * sqrt(Diagonal(S[1:q])) * V[:, 1:q]'
+            W = inv(X_tilde * X_tilde')^(1/2)
+            eps = min(eps, alpha * S[q+1])
+        catch e
+            @error("Numerical issue encountered: $e")
+            break
+        end
+    end
+    # Issue warning if appropriate
+    if k <= 1
+        @warn("No iterations performed.")
+    end
+    if eps <= tol
+        @info("Convergence reached after $k iterations.")
+    else
+        @info("Convergence not reached after $k iterations, with eps = $eps.")
+    end
+    return X
+end
+
+
+p = length(data) # Number of observed entries
+k = 0 # Iteration counter
+eps = 1 # Regularizing sequence
+W = I(n) # Weight matrix
+diff_matrix = sparse(I_idx, J_idx, data, m, n)
+diff_matrix.nzval .= data
+
+# LOOP
+k += 1
+# Weighted least squares problem
+X = Matrix(diff_matrix) * W
+# SVD perturbation
+U, S, V = svd(X)
+X_tilde = U[:, 1:q] * Diagonal(S[1:q]) * V[:, 1:q]'
+W = inv(X_tilde * X_tilde')^(0.5)
+eps = min(eps, alpha * S[q+1])
+
+
+# Test
+A = gen_matrix(30, 30, 2)
+m, n = size(A)
+# randomly sample 30% of the entries
+rng = MersenneTwister(1234)
+B = A .* (rand(rng, 30, 30) .< 1/3)
+I_idx, J_idx, data = sparse2idx(B)
+q=20
+alpha=1.0
+tol=1e-5
+maxit=5000
+
+
+t2 = randn(30, 2)
+T = t2 * t2'
+S = randn(30, 2) * randn(2, 30)
+t30 = randn(30, 30)
+T30 = t30 * t30'
+S30 = randn(30, 30) * randn(30, 30)
+ploteigvals(T)
+ploteigvals(S)
+ploteigvals(T30)
+ploteigvals(S30)
+
+# Marchenko Pastur bounds on largest and smalled eigvals if normal
+function mpbound(m, n, var)
+    λmax = (1 + sqrt(m/n))^2 * var
+    λmin = (1 - sqrt(m/n))^2 * var
+    # Warn if m and n too small for asymptotic bounds
+    if m < 50 || n < 50
+        @warn("m and n too small for asymptotic bounds to be accurate.")
+    end
+    return λmin, λmax
+end
+mpbound(30, 30, 1.0)
+
+Z = IRLS_M(m, n, I_idx, J_idx, data, q, alpha, tol, maxit)
+norm(A .- Z, 2)^2 / (m*n)
+sum((A .- Z) .^ 2) / (m*n)
+norm(svdvals(A) .- svdvals(Z)) / length(svdvals(A))
+
+ploteigvals(Z)
+
+function IRLS_performance(X_dataset, Y_dataset, I_idx, J_idx)
+    dataset_size = size(Y_dataset, 3)
+    mse_losses = zeros(Float32, dataset_size)
+    spectral_dists = zeros(Float32, dataset_size)
+    m, n = size(Y_dataset, 1), size(Y_dataset, 2)
+    for i in 1:dataset_size
+        #X = reshape(X_dataset[:,i], m, n)
+        #Y = reshape(Y_dataset[:,i], m, n)
+        #r = rank(Y)
+        #I_idx, J_idx, knownentries = sparse2idx(Float64.(X))
+        knownentries = Float64.(X_dataset[:,i])
+        soln = IRLS_M(m, n, I_idx, J_idx, knownentries, 2, 1.0, 1e-5, 5000)
+        Y = Float64.(Y_dataset[:,:,i])
+        mse_losses[i] = sum((Y .- soln) .^ 2) / (m * n)
+        spectral_dists[i] = norm(svdvals(Y) .- svdvals(soln)) / length(svdvals(Y))
+    end
+    return mean(mse_losses), mean(spectral_dists)
+end

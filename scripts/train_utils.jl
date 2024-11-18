@@ -73,8 +73,8 @@ function getjacobian(activemodel, infosize::Int; x=nothing, wrt="state")
         J = Zygote.jacobian(activemodel, x)[1]
     elseif wrt == "state"
         x = zeros(Float32, infosize)
-        J = Zygote.jacobian(x) do y
-            activemodel(y); state(activemodel.layers[1])
+        J = Zygote.jacobian(f) do f
+            activemodel(); state(activemodel.layers[1])
         end
     else
         return @warn("Invalid wrt argument. Choose from 'input' or 'state'.")
@@ -82,41 +82,49 @@ function getjacobian(activemodel, infosize::Int; x=nothing, wrt="state")
     return J[1]
 end
 
+reset!(activemodel)
+x = zeros(Float32, 150)
+h = state(activemodel.layers[1])
+
+
+function state_to_state(m, h)
+    m(nothing)
+    new_h = state(m.layers[1])
+    return new_h
+end
+
+old_h = state(activemodel.layers[1])
+new_h = state_to_state(activemodel, old_h)
+
+J = ForwardDiff.jacobian(x -> state_to_state(activemodel, x), old_h)
+J = Zygote.jacobian(x -> state_to_state(activemodel, x), old_h)[1]
+
+J = Zygote.jacobian(old_h) do h
+    state_to_state(activemodel, h)
+end
+
+
 function numerical_jacobian(activemodel, infosize::Int; x=nothing, wrt="state", epsilon=1e-8)
     if wrt == "state"
-        h = state(activemodel.layers[1])
+        h = state(activemodel)
         x = zeros(Float32, infosize)
         statesize = length(h)
-        fx = activemodel(x)
-        outputsize = length(fx)
-        J = zeros(outputsize, statesize)
-        reset!(activemodel.layers[1])
+        J = zeros(statesize, statesize)
+        reset!(activemodel)
         for i in 1:statesize
             h_perturbed = copy(h)
             h_perturbed[i] += epsilon
             activemodel.layers[1].state = h_perturbed
-            J[:, i] = (activemodel(h_perturbed) - fx) / epsilon
-            reset!(activemodel.layers[1])
+            _ = activemodel(nothing)
+            new_h = state(activemodel.layers[1])
+            J[:, i] = (new_h - h) / epsilon
+            reset!(activemodel)
         end
         return J
     else
         return @warn("Invalid wrt argument.")
     end
 end
-
-reset!(activemodel.layers[1])
-h = state(activemodel.layers[1])
-x = zeros(Float32, 150)
-n = length(h)
-J = zeros(n,n)
-fx = activemodel(x)
-reset!(activemodel.layers[1])
-h_perturbed = copy(h)
-h_perturbed[1] += 1e-8
-activemodel.layers[1].state = h_perturbed
-
-J[:, 1] = (activemodel(h_perturbed) - fx) / 1e-8
-reset!(activemodel.layers[1])
 
 function test_jacobian(J1, model, tol = 1e-6)
     fwdJ = ForwardDiff.jacobian(model, x)

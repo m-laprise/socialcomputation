@@ -10,7 +10,7 @@ include("genrandommatrix.jl")
 include("rnn_cells.jl")
 include("customlossfunctions.jl")
 include("plot_utils.jl")
-include("train_utils.jl")
+#include("train_utils.jl")
 include("train_setup.jl")
 
 #device = Flux.get_device(; verbose=true)
@@ -125,7 +125,7 @@ end
 # and the models for reconstruction without a sigmoid
 if TASKCAT == "classification"
     # Initialize the vanilla RNN model
-    m_binpred = Chain(
+    m_vanilla = Chain(
         rnn(input_size, net_width, 
             Whh_init = Whh_init, 
             h_init="randn"),
@@ -142,7 +142,7 @@ if TASKCAT == "classification"
     )
 elseif TASKCAT == "reconstruction"
     # Initialize the vanilla RNN model
-    m_binpred = Chain(
+    m_vanilla = Chain(
         rnn(input_size, net_width, 
             Whh_init = Whh_init, 
             h_init="randn"),
@@ -159,11 +159,11 @@ elseif TASKCAT == "reconstruction"
     )
 end
 
-# Flux.params(m_binpred)[1]
-# Flux.params(m_binpred)[2]
-# Flux.params(m_binpred)[3]
-# Flux.params(m_binpred)[4]
-# Flux.params(m_binpred)[5]
+# Flux.params(m_vanilla)[1]
+# Flux.params(m_vanilla)[2]
+# Flux.params(m_vanilla)[3]
+# Flux.params(m_vanilla)[4]
+# Flux.params(m_vanilla)[5]
 
 # Flux.params(m_bfl)[1]
 # Flux.params(m_bfl)[2]
@@ -176,7 +176,7 @@ end
 # I   = randn(Float32, net_width) * 0.1f0
 # y = m_bfl(I)[1]
 # m_bfl.layers[1].state
-# reset!(m_bfl.layers[1])
+# reset!(m_bfl)
 
 ##### DEFINE LOSS FUNCTIONS
 
@@ -211,23 +211,25 @@ end
 
 ##### TRAINING
 
-#m_binpred((Xtrain[:,1]))
-#m_binpred((Xtrain[:,1]))[1]
-#m_binpred((Xtrain[:,2]))[1]
-#a = myloss(m_binpred, (Xtrain[:,1]), Ytrain[:,1], turns = turns)
-#b = myloss(m_binpred, (Xtrain[:,2]), Ytrain[:,2], turns = turns)
-#c = myloss(m_binpred, (Xtrain[:,3]), Ytrain[:,3], turns = turns)
-#ab = myloss(m_binpred, (Xtrain[:,2:3]), Ytrain[:,2:3], turns = turns)
-#test1 = myloss(m_binpred, (Xtrain[:,1:20]), Ytrain[:,1:20], turns = turns)
-#g = gradient(myloss, m_binpred, (Xtrain[:,1:20]), Ytrain[:,1:20])[1]
+#m_vanilla((Xtrain[:,1]))
+#m_vanilla((Xtrain[:,1]))[1]
+#m_vanilla((Xtrain[:,2]))[1]
+#a = myloss(m_vanilla, (Xtrain[:,1]), Ytrain[:,1], turns = turns)
+#b = myloss(m_vanilla, (Xtrain[:,2]), Ytrain[:,2], turns = turns)
+#c = myloss(m_vanilla, (Xtrain[:,3]), Ytrain[:,3], turns = turns)
+#ab = myloss(m_vanilla, (Xtrain[:,2:3]), Ytrain[:,2:3], turns = turns)
+#test1 = myloss(m_vanilla, (Xtrain[:,1:20]), Ytrain[:,1:20], turns = turns)
+#g = gradient(myloss, m_vanilla, (Xtrain[:,1:20]), Ytrain[:,1:20])[1]
 
 if VANILLA
-    activemodel = m_binpred
+    activemodel = m_vanilla
     GATED = false
 else
     activemodel = m_bfl
     GATED = true
 end
+# Define method for the reset function
+reset!(m::Chain) = reset!(m.layers[1])
 
 # State optimizing rule
 eta = 1e-3
@@ -254,7 +256,7 @@ jacobian_spectra = []
 
 # Train using training data, plot training and validation accuracy and loss over training
 # Using the Zygote package to compute gradients
-reset!(activemodel.layers[1])
+reset!(activemodel)
 
 push!(train_loss, myloss(activemodel, Xtrain, Ytrain, turns = TURNS))
 push!(train_accuracy, accuracy(activemodel, Xtrain, Ytrain, turns = TURNS))
@@ -263,7 +265,7 @@ push!(val_accuracy, accuracy(activemodel, Xval, Yval, turns = TURNS))
 
 starttime = time()
 for epoch in 1:3 #EPOCHS
-    reset!(activemodel.layers[1])
+    reset!(activemodel)
     println("Commencing epoch $epoch")
     # Initialize counters for gradient diagnostics
     mb, n, v, e = 1, 0, 0, 0

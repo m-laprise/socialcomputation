@@ -26,7 +26,7 @@ function logitbinarycrossent(m,
     #println("Slice iterator size: ", size(zs))
     #println("Buffer size: ", size(preds))
     for (i, example) in enumerate(zs)
-        reset!(m.layers[1])
+        reset!(m)
         for _ in 1:turns
             m(example)
         end
@@ -59,7 +59,7 @@ function recon_mse(m,
     # and predict the label, then reset the state
     preds = Zygote.Buffer(ys)
     for (i, example) in enumerate(zs)
-        reset!(m.layers[1])
+        reset!(m)
         for _ in 1:turns
             m(example)
         end
@@ -88,7 +88,7 @@ function classification_accuracy(m,
     # and predict the label, then reset the state
     preds = Zygote.Buffer(ys)
     for (i, example) in enumerate(zs)
-        reset!(m.layers[1])
+        reset!(m)
         for _ in 1:turns
             m(example)
         end
@@ -114,7 +114,7 @@ function spectral_distance(m,
     # and predict the label, then reset the state
     preds = Zygote.Buffer(ys)
     for (i, example) in enumerate(zs)
-        reset!(m.layers[1])
+        reset!(m)
         for _ in 1:turns
             m(example)
         end
