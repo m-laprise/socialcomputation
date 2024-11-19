@@ -67,14 +67,15 @@ Compute the Jacobian of a model with respect to its input or state.
 - The Jacobian matrix. Its size is `(output_size, input_size)` if `wrt="input"`, or
   `(state_size, state_size)` if `wrt="state"`.
 """
-function getjacobian(activemodel, infosize::Int; x=nothing, wrt="state")
+function getjacobian(activemodel; x=nothing, wrt="state")
     if wrt == "input"
         @assert !isnothing(x)
-        J = Zygote.jacobian(activemodel, x)[1]
+        J = Zygote.jacobian(x -> activemodel(x), x)[1]
     elseif wrt == "state"
-        x = zeros(Float32, infosize)
-        J = Zygote.jacobian(f) do f
-            activemodel(); state(activemodel.layers[1])
+        @assert isnothing(x)
+        h = state(activemodel.layers[1])
+        J = Zygote.jacobian(h) do f
+            activemodel(x); state(activemodel.layers[1])
         end
     else
         return @warn("Invalid wrt argument. Choose from 'input' or 'state'.")
@@ -89,15 +90,14 @@ function state_to_state(m::Chain, h::Vector)
 end
 
 reset!(activemodel)
+
+#for _ in 1:20
+#    activemodel(nothing)
+#end
 old_h = state(activemodel.layers[1])
 #new_h = state_to_state(activemodel, old_h)
-#activemodel(nothing)
 
 Jpullback1 = Zygote.jacobian(x -> state_to_state(activemodel, x), old_h)[1]
-
-Jpullback2 = Zygote.jacobian(old_h) do h
-    state_to_state(activemodel, h)
-end
-Jpullback2 = Jpullback2[1]
+Jpullback2 = getjacobian(activemodel)
 
 ploteigvals(Jpullback1)
