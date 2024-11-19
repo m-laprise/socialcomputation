@@ -82,63 +82,22 @@ function getjacobian(activemodel, infosize::Int; x=nothing, wrt="state")
     return J[1]
 end
 
-reset!(activemodel)
-x = zeros(Float32, 150)
-h = state(activemodel.layers[1])
-
-
-function state_to_state(m, h)
+function state_to_state(m::Chain, h::Vector)
+    m.layers[1].state = h
     m(nothing)
-    new_h = state(m.layers[1])
-    return new_h
+    return state(m.layers[1])
 end
 
+reset!(activemodel)
 old_h = state(activemodel.layers[1])
-new_h = state_to_state(activemodel, old_h)
+#new_h = state_to_state(activemodel, old_h)
+#activemodel(nothing)
 
-J = ForwardDiff.jacobian(x -> state_to_state(activemodel, x), old_h)
-J = Zygote.jacobian(x -> state_to_state(activemodel, x), old_h)[1]
+Jpullback1 = Zygote.jacobian(x -> state_to_state(activemodel, x), old_h)[1]
 
-J = Zygote.jacobian(old_h) do h
+Jpullback2 = Zygote.jacobian(old_h) do h
     state_to_state(activemodel, h)
 end
+Jpullback2 = Jpullback2[1]
 
-
-function numerical_jacobian(activemodel, infosize::Int; x=nothing, wrt="state", epsilon=1e-8)
-    if wrt == "state"
-        h = state(activemodel)
-        x = zeros(Float32, infosize)
-        statesize = length(h)
-        J = zeros(statesize, statesize)
-        reset!(activemodel)
-        for i in 1:statesize
-            h_perturbed = copy(h)
-            h_perturbed[i] += epsilon
-            activemodel.layers[1].state = h_perturbed
-            _ = activemodel(nothing)
-            new_h = state(activemodel.layers[1])
-            J[:, i] = (new_h - h) / epsilon
-            reset!(activemodel)
-        end
-        return J
-    else
-        return @warn("Invalid wrt argument.")
-    end
-end
-
-function test_jacobian(J1, model, tol = 1e-6)
-    fwdJ = ForwardDiff.jacobian(model, x)
-    diff1 = norm(J1 - fwdJ)
-    if diff1 < tol
-        println("Jacobian computation agrees with forward mode.")
-    else
-        println("Jacobian computation differs from forward mode. Norm of difference: ", round(diff, digits=6))
-    end
-    numJ = numerical_jacobian(model)
-    diff2 = norm(J1 - numJ)
-    if diff2 < tol
-        println("Jacobian computation agrees with numerical approximation.")
-    else
-        println("Jacobian computation differs from numerical approximation. Norm of difference: ", round(diff, digits=6))
-    end
-end
+ploteigvals(Jpullback1)
