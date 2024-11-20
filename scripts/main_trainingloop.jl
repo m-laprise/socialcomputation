@@ -10,7 +10,7 @@ include("genrandommatrix.jl")
 include("rnn_cells.jl")
 include("customlossfunctions.jl")
 include("plot_utils.jl")
-#include("train_utils.jl")
+include("train_utils.jl")
 include("train_setup.jl")
 
 #device = Flux.get_device(; verbose=true)
@@ -35,7 +35,7 @@ TASKCAT = taskcats[2]
 MEASCAT = measurecats[1]
 TASK = tasks[5]
 
-TURNS::Int = 1
+TURNS::Int = 10
 VANILLA::Bool = true
 net_width::Int = 150
 
@@ -73,6 +73,7 @@ m, n, dataset_size = size(data["X"])
 # Create label data
 Y = label_setup(data, TASKCAT, TASK)
 # Create input data from ground truth
+masks = sensingmasks(m, n; k=knownentries, seed=9632)
 X = input_setup(Y, MEASCAT, m, n, dataset_size, knownentries)
 
 # Split data between training, validation, and test sets
@@ -192,7 +193,7 @@ end
 
 if TASKCAT == "reconstruction"
     # For reference, compute the loss of a non-distributed algorithm on this data.
-    include("sota_matrix_completion.jl")
+    #include("sota_matrix_completion.jl")
     opts = Dict(
         :rel_res_tol => 1e-5, 
         :maxit => 1000,    
@@ -208,6 +209,7 @@ if TASKCAT == "reconstruction"
     #sota_val_mse, sota_val_spectraldist = scaled_asd_performance(Xval, Yval, I_idx, J_idx, opts)
     sota_test_mse, sota_test_spectraldist = scaled_asd_performance(Xtest, Ytest, I_idx, J_idx, opts, 8)
 end
+
 
 ##### TRAINING
 
@@ -283,7 +285,9 @@ for epoch in 1:3 #EPOCHS
         Flux.update!(opt_state, activemodel, grads)
     end
     # Compute the Jacobian
-    J = getjacobian(activemodel; wrt = "state")
+    reset!(activemodel)
+    h = state(activemodel.layers[1])
+    J = Zygote.jacobian(x -> state_to_state(activemodel, x), h)[1]
     try
         push!(jacobian_spectra, eigvals(J))
     catch err
@@ -298,7 +302,7 @@ for epoch in 1:3 #EPOCHS
     # Compute validation loss and accuracy
     push!(val_loss, myloss(activemodel, Xval, Yval, turns = TURNS))
     push!(val_accuracy, accuracy(activemodel, Xval, Yval, turns = TURNS) )
-    println("Epoch $epoch: Train loss: $(train_loss[end]), Train accuracy: $(train_accuracy[end])")
+    println("Epoch $epoch: Train loss: $(sqrt(train_loss[end])), Train accuracy: $(train_accuracy[end])")
 end
 endtime = time()
 # training time in minutes
@@ -307,7 +311,7 @@ println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 test_accuracy = accuracy(activemodel, Xtest, Ytest, turns = TURNS) 
 println("Test accuracy: $test_accuracy")
 test_loss = myloss(activemodel, Xtest, Ytest, turns = TURNS)
-println("Test loss: $test_loss")
+println("Test loss: $(sqrt(test_loss))")
 
 
 if TASKCAT == "reconstruction"

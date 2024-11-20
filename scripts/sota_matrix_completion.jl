@@ -231,41 +231,92 @@ function IRLS_M(
     @assert q < min(m, n)
 
     # Initialize
-    k = 0 # Iteration counter
+    iter = 0 # Iteration counter
     eps = 1 # Regularizing sequence
     W = I(n) # Weight matrix
+    println("Shape of W: ", size(W))
 
     diff_matrix = sparse(I_idx, J_idx, data, m, n)
     diff_matrix.nzval .= data
-    
+    diff_matrix = Matrix(diff_matrix)
+    println("Shape of diff_matrix: ", size(diff_matrix))
+
+    converged = false
+    local X = diff_matrix * W
     # While stopping criterion is not met
-    while k < maxit && eps > tol
-        k += 1 
-        # Weighted least squares problem
-        X = Matrix(diff_matrix) * W
+    while iter < maxit && !converged
+        old_W = copy(W)        
+        println("Shape of X at iteration $(iter): ", size(X))
         try
             # SVD perturbation
             U, S, V = svd(X)
+            println("Shape of U, S, V:", size(U), size(S), size(V))
             X_tilde = U[:, 1:q] * sqrt(Diagonal(S[1:q])) * V[:, 1:q]'
+            println("Shape of X_tilde: ", size(X_tilde))
             W = inv(X_tilde * X_tilde')^(1/2)
+            println("Shape of W: ", size(W))
             eps = min(eps, alpha * S[q+1])
+            println("eps: ", eps)
         catch e
             @error("Numerical issue encountered: $e")
             break
         end
+        X = diff_matrix * W
+        iter += 1
+        if eps <= tol || norm(W - old_W) < tol
+            converged = true
+        end
     end
     # Issue warning if appropriate
-    if k <= 1
+    if iter <= 1
         @warn("No iterations performed.")
     end
-    if eps <= tol
-        @info("Convergence reached after $k iterations.")
+    if eps <= tol || norm(W - old_W) < tol
+        @info("Convergence reached after $iter iterations.")
     else
-        @info("Convergence not reached after $k iterations, with eps = $eps.")
+        @info("Convergence not reached after $iter iterations, with eps = $eps.")
     end
+    println("Shape of X after convergence: ", size(X))
     return X
 end
 
+function IRLS_performance(X_dataset, Y_dataset, I_idx, J_idx)
+    dataset_size = size(Y_dataset, 3)
+    mse_losses = zeros(Float32, dataset_size)
+    spectral_dists = zeros(Float32, dataset_size)
+    m, n = size(Y_dataset, 1), size(Y_dataset, 2)
+    for i in 1:dataset_size
+        #X = reshape(X_dataset[:,i], m, n)
+        #Y = reshape(Y_dataset[:,i], m, n)
+        #r = rank(Y)
+        #I_idx, J_idx, knownentries = sparse2idx(Float64.(X))
+        knownentries = Float64.(X_dataset[:,i])
+        soln = IRLS_M(m, n, I_idx, J_idx, knownentries, 8, 1.0, 1e-5, 5000)
+        Y = Float64.(Y_dataset[:,:,i])
+        mse_losses[i] = norm(Y .- soln, 2)^2 / (m*n)
+        spectral_dists[i] = norm(svdvals(Y) .- svdvals(soln),2)^2 / length(svdvals(Y))
+    end
+    return mean(mse_losses), mean(spectral_dists)
+end
+
+##############
+
+m, n, dataset_size = size(Ytest)
+mse_losses = zeros(Float32, dataset_size)
+spectral_dists = zeros(Float32, dataset_size)
+
+Xtest[:,1]
+#for i in 1:dataset_size
+knownentries = Float64.(Xtest[:,1])
+soln = IRLS_M(m, n, I_idx, J_idx, knownentries, 8, 1.0, 1e-5, 500)
+
+Y = Float64.(Y_dataset[:,:,i])
+mse_losses[i] = norm(Y .- soln, 2)^2 / (m*n)
+spectral_dists[i] = norm(svdvals(Y) .- svdvals(soln),2)^2 / length(svdvals(Y))
+
+IRLS_performance(Xtest, Ytest, I_idx, J_idx)
+
+##############
 
 p = length(data) # Number of observed entries
 k = 0 # Iteration counter
@@ -298,16 +349,6 @@ tol=1e-5
 maxit=5000
 
 
-t2 = randn(30, 2)
-T = t2 * t2'
-S = randn(30, 2) * randn(2, 30)
-t30 = randn(30, 30)
-T30 = t30 * t30'
-S30 = randn(30, 30) * randn(30, 30)
-ploteigvals(T)
-ploteigvals(S)
-ploteigvals(T30)
-ploteigvals(S30)
 
 # Marchenko Pastur bounds on largest and smalled eigvals if normal
 function mpbound(m, n, var)
@@ -320,29 +361,3 @@ function mpbound(m, n, var)
     return λmin, λmax
 end
 mpbound(30, 30, 1.0)
-
-Z = IRLS_M(m, n, I_idx, J_idx, data, q, alpha, tol, maxit)
-norm(A .- Z, 2)^2 / (m*n)
-sum((A .- Z) .^ 2) / (m*n)
-norm(svdvals(A) .- svdvals(Z)) / length(svdvals(A))
-
-ploteigvals(Z)
-
-function IRLS_performance(X_dataset, Y_dataset, I_idx, J_idx)
-    dataset_size = size(Y_dataset, 3)
-    mse_losses = zeros(Float32, dataset_size)
-    spectral_dists = zeros(Float32, dataset_size)
-    m, n = size(Y_dataset, 1), size(Y_dataset, 2)
-    for i in 1:dataset_size
-        #X = reshape(X_dataset[:,i], m, n)
-        #Y = reshape(Y_dataset[:,i], m, n)
-        #r = rank(Y)
-        #I_idx, J_idx, knownentries = sparse2idx(Float64.(X))
-        knownentries = Float64.(X_dataset[:,i])
-        soln = IRLS_M(m, n, I_idx, J_idx, knownentries, 2, 1.0, 1e-5, 5000)
-        Y = Float64.(Y_dataset[:,:,i])
-        mse_losses[i] = sum((Y .- soln) .^ 2) / (m * n)
-        spectral_dists[i] = norm(svdvals(Y) .- svdvals(soln)) / length(svdvals(Y))
-    end
-    return mean(mse_losses), mean(spectral_dists)
-end

@@ -70,7 +70,7 @@ function recon_mse(m,
     errors = Zygote.Buffer(ys[1,:])
     nb_examples = size(ys, 2)
     for i in 1:nb_examples
-        errors[i] = sum((ys[:,i] .- ys_hat[:,i]) .^ 2) / length(ys[:,i]) 
+        errors[i] = norm(ys[:,i] .- ys_hat[:,i], 2)^2 / length(ys[:,i])
     end
     return mean(copy(errors))
 end
@@ -151,7 +151,7 @@ function spectral_distance(m,
         end
         svdvals_hat = svdvals(ys_hat_m)
         svdvals_true = svdvals(ys_m)
-        errors[i] = norm(svdvals_true .- svdvals_hat) / length(svdvals_true)
+        errors[i] = norm(svdvals_true .- svdvals_hat, 2)^2 / length(svdvals_true)
     end
     spectral_distances = copy(errors)
     return mean(spectral_distances)

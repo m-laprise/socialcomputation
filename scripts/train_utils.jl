@@ -89,15 +89,13 @@ function state_to_state(m::Chain, h::Vector)
     return state(m.layers[1])
 end
 
-reset!(activemodel)
-
+#reset!(activemodel)
 #for _ in 1:20
 #    activemodel(nothing)
 #end
-old_h = state(activemodel.layers[1])
-#new_h = state_to_state(activemodel, old_h)
+#old_h = state(activemodel.layers[1])
 
-Jpullback1 = Zygote.jacobian(x -> state_to_state(activemodel, x), old_h)[1]
-Jpullback2 = getjacobian(activemodel)
+#Jpullback1 = Zygote.jacobian(x -> state_to_state(activemodel, x), old_h)[1]
+#Jpullback2 = getjacobian(activemodel)
 
-ploteigvals(Jpullback1)
+#ploteigvals(Jpullback1)
