@@ -3,10 +3,23 @@ using Random
 using Distributions
 using DataFrames
 using Statistics
+using Dates
+using CSV
+using CairoMakie
 
 include("sota_matrix_completion.jl")
-ENV["JULIA_NUM_THREADS"] = 4
 versioninfo()
+
+# get NUM from the command line
+if length(ARGS) == 0
+    println("Error: NUM argument missing.")
+    exit(1)
+end
+NUM = parse(Int, ARGS[1])
+if NUM < 1 || NUM > 9
+    println("Error: NUM must be an integer between 1 and 9.")
+    exit(1)
+end
 
 function nnm_setup(n, r, alpha, seed)
     rng = Random.MersenneTwister(seed)
@@ -17,17 +30,6 @@ function nnm_setup(n, r, alpha, seed)
 end
 MSE(A::AbstractArray, B::AbstractArray) = mean((A .- B).^2)
 RMSE(A::AbstractArray, B::AbstractArray) = sqrt(MSE(A, B))
-
-#=
-n = 500
-r = 10
-alpha = 1/2
-A, B, mask = nnm_setup(n, r, alpha, 3567)
-ans1 = PYnnm(B, mask)
-ans2 = SCSnnm(B, mask)
-MSE(ans1, A), MSE(ans2, A)
-RMSE(ans1, A), RMSE(ans2, A)
-=# 
 
 function run_nnm(A, B, mask, f)
     ans = @timed f(B, mask)
@@ -116,35 +118,32 @@ end
 n_range = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
 alpha_range = [i for i in 0.05:0.05:0.95]
 h(n) = n < 100 ? 1 : n / 100
-derive_r_range(n) = sort(unique([Int(round(n/i)) for i in 2:h(n):n]))
+# derive_r_range(n) = sort(unique([Int(round(n/i)) for i in 2:h(n):n])) # local
+derive_r_range(n) = [i for i in 1:min(div(n, 4), 30)] # on HPC
 
 df = DataFrame(
     k=Int[], n=Int[], r=Int[], alpha=Float64[], initial_seed=Int[],
     method=String[], metric=String[], mean=Float64[], std=Float64[], 
     min=Float64[], median=Float64[], max=Float64[], pct_success=Float64[])
 
-for n in n_range[4]
-    k = n < 100 ? 100 : 10  
+for n in n_range[NUM]
+    k = n < 100 ? 100 : 20  
     for alpha in alpha_range
         for r in derive_r_range(n)
-            data = record_stats(k, n, r, alpha, 92743)
+            data = record_stats(k, n, r, alpha, 192743)
             append!(df, data)
-            println("Finished r = ", r)
+            println("Finished r = ", r, " at ", Dates.format(now(), "HH:MM:SS"))
         end
-        println("Finished alpha = ", alpha)
+        println("Finished alpha = ", alpha, " at ", Dates.format(now(), "HH:MM:SS"))
     end
-    println("Finished n = ", n)
+    println("Finished n = ", n, " at ", Dates.format(now(), "HH:MM:SS"))
 end
 
-data = record_stats(5, 128, 1, 1/10, 6334)
-
 # Write df to csv
-using CSV
-CSV.write("data/baseline_nnm_results.csv", df, append=true)
+CSV.write("data/baseline_nnm_results.csv", df, append=false)
 
 # For a given matrix size, create three heatmap plots, each with r on the x-axis and alpha on the y-axis. 
 # The three plots should show the mean time, mean RMSE, and the percentage of success.
-using CairoMakie
 f = Figure(size=(1200, 400))
 titles = ["Mean Time (in seconds)", "Mean RMSE", "Proportion of Success (tol = 1e-4)"]
 selectedcols = [:mean, :mean, :pct_success]
