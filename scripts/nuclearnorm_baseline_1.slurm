@@ -12,4 +12,5 @@
 module purge
 module load julia/1.10.5
 cd /scratch/gpfs/mlaprise/socialcomputation
+julia import Pkg; Pkg.activate(".")
 julia nuclearnorm_baseline.jl 1
