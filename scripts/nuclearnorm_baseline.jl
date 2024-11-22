@@ -117,7 +117,7 @@ end
 
 n_range = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
 alpha_range = [i for i in 0.05:0.05:0.95]
-h(n) = n < 100 ? 1 : n / 100
+# h(n) = n < 100 ? 1 : n / 100
 # derive_r_range(n) = sort(unique([Int(round(n/i)) for i in 2:h(n):n])) # local
 derive_r_range(n) = [i for i in 1:min(div(n, 4), 30)] # on HPC
 
