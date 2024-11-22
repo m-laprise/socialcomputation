@@ -11,7 +11,7 @@ using CSV
 using CairoMakie
 
 include("sota_matrix_completion.jl")
-versioninfo()
+println(versioninfo(verbose=true))
 
 # get NUM from the command line
 if length(ARGS) == 0
