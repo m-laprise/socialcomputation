@@ -144,7 +144,11 @@ for n in n_range[NUM]
 end
 
 # Write df to csv
-CSV.write("data/baseline_nnm_results.csv", df, append=false)
+# make sure directory exists; if not, create it
+if !isdir("output")
+    mkdir("output")
+end
+CSV.write("output/baseline_nnm_results.csv", df, append=false)
 
 # For a given matrix size, create three heatmap plots, each with r on the x-axis and alpha on the y-axis. 
 # The three plots should show the mean time, mean RMSE, and the percentage of success.
@@ -165,4 +169,4 @@ end
 Label(f[0, :], text = "Performance of low-rank matrix completion via nuclear norm minimization\n"*
                       "over $(df[1, :k]) random n x n matrices of size n = $(df[1, :n])", 
       fontsize = 24)
-save("data/baseline_nnm_results_$(df[1, :n]).png", f)
+save("output/baseline_nnm_results_$(df[1, :n]).png", f)
