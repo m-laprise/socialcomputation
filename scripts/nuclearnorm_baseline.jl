@@ -1,3 +1,6 @@
+import Pkg
+Pkg.activate(".")
+
 using LinearAlgebra
 using Random
 using Distributions
