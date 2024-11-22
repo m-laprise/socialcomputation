@@ -11,6 +11,7 @@ using Flux
 using Zygote
 using LinearAlgebra
 
+
 function logitbinarycrossent(m, 
                 xs::AbstractArray{Float32}, 
                 ys::AbstractArray{Float32}; 

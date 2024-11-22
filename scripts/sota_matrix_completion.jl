@@ -1,8 +1,52 @@
-# Julia implementation of Scaled Alternating Steepest Descent (ScaledASD) for matrix completion.
-# For the algorithm itself, see Jared Tanner and Ke Wei. Low rank matrix completion by alternating 
-# steepest descent methods. Applied and Computational Harmonic Analysis, 40(2):417-429, 2016.
+#= Julia implementation of various state-of-the-art matrix completion algorithms:
+1) Nuclear norm minimization (NNM), using interior-point methods.
+2) Scaled Alternating Steepest Descent (ScaledASD).
+See Jared Tanner and Ke Wei. Low rank matrix completion by alternating 
+steepest descent methods. Applied and Computational Harmonic Analysis, 40(2):417-429, 2016.
+3) Iteratively Reweighted Least Squares (IRLS). See 
+Massimo Fornasier, Holger Rauhut, and Rachel Ward. 
+Low-rank Matrix Recovery via Iteratively Reweighted Least Squares Minimization,
+SIAM Journal on Optimization 2011 21:4, 1614-1640.
+=#
 using LinearAlgebra
 using SparseArrays
+using JuMP, SCS
+ENV["PYTHON"] = "/Users/mlaprise/.pyenv/versions/socialcomputation/bin/python"
+using PyCall
+
+py"""
+import cvxpy as cp
+import numpy as np
+def nuclear_norm_minimization(A, mask):
+    X = cp.Variable(A.shape)
+    objective = cp.Minimize(cp.norm(X, "nuc"))
+    constraints = [X[mask] == A[mask]]
+    problem = cp.Problem(objective, constraints)
+    problem.solve()
+    return X.value
+"""
+
+function PYnnm(A::AbstractArray, mask::AbstractArray)
+    return py"nuclear_norm_minimization"(A, mask)
+end
+
+import MathOptInterface as MOI
+function SCSnnm(A, mask; verbose=false)
+    model = Model(SCS.Optimizer)
+    MOI.set(model, MOI.RawOptimizerAttribute("eps_abs"), 1e-5)
+    MOI.set(model, MOI.RawOptimizerAttribute("eps_rel"), 1e-5)
+    n = size(A, 1)
+    @variable(model, X[1:n, 1:n])
+    @constraint(model, X[mask] .== A[mask])
+    @variable(model, t)
+    @constraint(model, [t; vec(X)] in MOI.NormNuclearCone(n, n))
+    @objective(model, Min, t)
+    if !verbose
+        set_silent(model)
+    end
+    optimize!(model)
+    return value.(X)
+end
 
 function sparse2idx(A::AbstractArray)
     A = sparse(A)
@@ -300,7 +344,7 @@ function IRLS_performance(X_dataset, Y_dataset, I_idx, J_idx)
 end
 
 ##############
-
+#=
 m, n, dataset_size = size(Ytest)
 mse_losses = zeros(Float32, dataset_size)
 spectral_dists = zeros(Float32, dataset_size)
@@ -347,7 +391,7 @@ q=20
 alpha=1.0
 tol=1e-5
 maxit=5000
-
+=#
 
 
 # Marchenko Pastur bounds on largest and smalled eigvals if normal
