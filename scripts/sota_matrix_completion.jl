@@ -11,9 +11,10 @@ SIAM Journal on Optimization 2011 21:4, 1614-1640.
 using LinearAlgebra
 using SparseArrays
 using JuMP, SCS
+
+#=
 ENV["PYTHON"] = "/Users/mlaprise/.pyenv/versions/socialcomputation/bin/python"
 using PyCall
-
 py"""
 import cvxpy as cp
 import numpy as np
@@ -29,6 +30,8 @@ def nuclear_norm_minimization(A, mask):
 function PYnnm(A::AbstractArray, mask::AbstractArray)
     return py"nuclear_norm_minimization"(A, mask)
 end
+=#
+PYnnm(A::AbstractArray, mask::AbstractArray) = A
 
 import MathOptInterface as MOI
 function SCSnnm(A, mask; verbose=false)
