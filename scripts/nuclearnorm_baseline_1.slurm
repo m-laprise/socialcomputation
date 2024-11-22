@@ -11,5 +11,5 @@
 
 module purge
 module load julia/1.10.5
-cd /scratch/gpfs/mlaprise/socialcomputation
+cd /scratch/gpfs/mlaprise/socialcomputation/scripts
 julia nuclearnorm_baseline.jl 1
