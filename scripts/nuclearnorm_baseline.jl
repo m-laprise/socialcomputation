@@ -148,7 +148,7 @@ end
 if !isdir("output")
     mkdir("output")
 end
-CSV.write("output/baseline_nnm_results.csv", df, append=false)
+CSV.write("output/baseline_nnm_results.csv", df, append=true)
 
 # For a given matrix size, create three heatmap plots, each with r on the x-axis and alpha on the y-axis. 
 # The three plots should show the mean time, mean RMSE, and the percentage of success.
