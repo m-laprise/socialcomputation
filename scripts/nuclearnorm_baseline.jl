@@ -1,5 +1,5 @@
-#import Pkg
-#Pkg.activate(".")
+import Pkg
+Pkg.activate(".")
 
 using LinearAlgebra
 using Random
@@ -15,7 +15,6 @@ include("sota_matrix_completion.jl")
 #println(versioninfo(verbose=true))
 
 # get NUM from the command line
-#=
 if length(ARGS) == 0
     println("Error: NUM argument missing.")
     exit(1)
@@ -25,7 +24,6 @@ if NUM < 1 || NUM > 9
     println("Error: NUM must be an integer between 1 and 9.")
     exit(1)
 end
-=#
 
 function nnm_setup(m, n, r, alpha, seed)
     rng = Random.MersenneTwister(seed)
@@ -43,63 +41,36 @@ function run_nnm(A, B, mask, f)
     return (ans.time, RMSE(ans.value[.~mask], A[.~mask]))
 end
 
-#=
-using Hypatia
-function hypatnnm(A, mask; verbose=false)
-    model = Model(Hypatia.Optimizer)
-    #MOI.set(model, MOI.RawOptimizerAttribute("eps_abs"), 1e-5)
-    #MOI.set(model, MOI.RawOptimizerAttribute("eps_rel"), 1e-5)
-    n = size(A, 1)
-    @variable(model, X[1:n, 1:n])
-    @constraint(model, X[mask] .== A[mask])
-    @variable(model, t)
-    @constraint(model, [t; vec(X)] in MOI.NormNuclearCone(n, n))
-    @objective(model, Min, t)
-    if !verbose
-        set_silent(model)
-    end
-    optimize!(model)
-    return value.(X)
-end
-
-n = 30
-r = 2
-alpha = 0.3
-seed = 392743
-A, B, mask = nnm_setup(n, r, alpha, seed)
-scsresults = run_nnm(A, B, mask, SCSnnm)
-hypres = run_nnm(A, B, mask, hypatnnm)
-@benchmark SCSnnm($B, $mask)
-@benchmark hypatnnm($B, $mask)
-=#
-
 function nnm_test(k, m, n, r, alpha, initial_seed; doPYnnm=false, doSCSnnm=true)
     @assert doPYnnm || doSCSnnm
     if doPYnnm
-        pyresults = []
-        sizehint!(pyresults, k)
+        pyresults = Vector{Any}(undef, k)
     end
     if doSCSnnm
-        scsresults = []
-        sizehint!(scsresults, k)
+        scsresults = Vector{Any}(undef, k)
     end
-    for i in 1:k
+    Threads.@threads for i in 1:k
         seed = initial_seed + i
         A, B, mask = nnm_setup(m, n, r, alpha, seed)
-        if doPYnnm
-            push!(pyresults, run_nnm(A, B, mask, PYnnm))
+        scsresults[i] = run_nnm(A, B, mask, SCSnnm)
+        #= if doPYnnm
+            pyresults[i] = run_nnm(A, B, mask, PYnnm)
         end
         if doSCSnnm
-            push!(scsresults, run_nnm(A, B, mask, SCSnnm))
-        end
+            scsresults[i] = run_nnm(A, B, mask, SCSnnm)
+        end =#
+        #= if i % 5 == 0
+            println("Completed iteration ", i, " at ", Dates.format(now(), "HH:MM:SS"))
+        end =#
     end
-    if doPYnnm && doSCSnnm
+    return scsresults
+    #= if doPYnnm && doSCSnnm
         return pyresults, scsresults
     elseif doPYnnm
         return pyresults
     else
         return scsresults
-    end
+    end =#
 end
 
 function get_stats(results; tol = 1e-4)
@@ -155,9 +126,10 @@ end
 # RUN TESTS (SQUARE n x n)
 
 n_range = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
-alpha_range = [i for i in 0.05:0.05:0.95]
-# h(n) = n < 100 ? 1 : n / 100
-# derive_r_range(n) = sort(unique([Int(round(n/i)) for i in 2:h(n):n])) # local
+#alpha_range = [i for i in 0.05:0.1:0.95] #local
+alpha_range = [i for i in 0.05:0.05:0.95] #HPC
+#h(n) = n < 100 ? 1 : n / 100
+#derive_r_range(n) = sort(unique([Int(round(n/i)) for i in 2:h(n):n])) # local
 derive_r_range(n) = [i for i in 1:min(div(n, 2), 30)] # on HPC
 
 df = DataFrame(
@@ -165,8 +137,8 @@ df = DataFrame(
     method=String[], metric=String[], mean=Float64[], std=Float64[], 
     min=Float64[], median=Float64[], max=Float64[], pct_success=Float64[])
 
-for n in n_range[2]
-    k = n < 100 ? 100 : 20  
+for n in n_range[NUM]
+    k = n < 100 ? 100 : 50
     for alpha in alpha_range
         for r in derive_r_range(n)
             data = record_stats(k, n, n, r, alpha, 892143)
@@ -188,7 +160,6 @@ CSV.write("$(subfolder)/baseline_nnm_results_2.csv", df, append=false)
 
 # Read df from csv
 #df = CSV.read("data/baseline_nnm_results_2.csv", DataFrame)
-
 
 # For a given matrix size, create three heatmap plots, each with r on the x-axis and alpha on the y-axis. 
 # The three plots should show the mean time, mean RMSE, and the percentage of success.
@@ -219,11 +190,10 @@ for i in 1:3
     end
     ax.title = titles[i]
     ax.xlabel = "Rank"
-    ax.xticks = 1:5:maximum(plotdata[!, :r])
+    ax.xticks = 0:10:maximum(plotdata[!, :r])
     ax.ylabel = "Proportion of known entries"
 end
 Label(f[0, :], text = "Performance of low-rank matrix completion via nuclear norm minimization\n"*
                       "over $(df[1, :k]) random n x n matrices of size n = $(df[1, :n])", 
       fontsize = 24)
-f
 save("$(subfolder)/baseline_nnm_results_$(df[1, :n]).png", f)
