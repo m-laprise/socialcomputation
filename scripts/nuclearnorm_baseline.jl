@@ -1,5 +1,5 @@
 import Pkg
-Pkg.activate(".")
+Pkg.activate("../")
 
 using LinearAlgebra
 using Random
@@ -137,8 +137,13 @@ df = DataFrame(
     method=String[], metric=String[], mean=Float64[], std=Float64[], 
     min=Float64[], median=Float64[], max=Float64[], pct_success=Float64[])
 
+# Run once to force compilation before timing
+println("Compiling functions...")
+println(record_stats(1, 4, 4, 1, 0.75, 89))
+println("Starting loop...")
+
 for n in n_range[NUM]
-    k = n < 100 ? 100 : 50
+    k = n < 100 ? 100 : 20
     for alpha in alpha_range
         for r in derive_r_range(n)
             data = record_stats(k, n, n, r, alpha, 892143)
