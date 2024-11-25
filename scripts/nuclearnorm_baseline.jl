@@ -161,7 +161,7 @@ subfolder = "data"
 if !isdir(subfolder)
     mkdir(subfolder)
 end
-CSV.write("$(subfolder)/baseline_nnm_results_2.csv", df, append=false)
+CSV.write("$(subfolder)/baseline_nnm_results_2.csv", df, append=true)
 
 # Read df from csv
 #df = CSV.read("data/baseline_nnm_results_2.csv", DataFrame)
@@ -195,7 +195,7 @@ for i in 1:3
     end
     ax.title = titles[i]
     ax.xlabel = "Rank"
-    ax.xticks = 0:10:maximum(plotdata[!, :r])
+    ax.xticks = 0:5:maximum(plotdata[!, :r])
     ax.ylabel = "Proportion of known entries"
 end
 Label(f[0, :], text = "Performance of low-rank matrix completion via nuclear norm minimization\n"*
