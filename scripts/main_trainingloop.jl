@@ -189,28 +189,6 @@ elseif TASKCAT == "reconstruction"
     accuracy = spectral_distance
 end
 
-##### ESTABLISH BASELINE PERFORMANCE
-
-if TASKCAT == "reconstruction"
-    # For reference, compute the loss of a non-distributed algorithm on this data.
-    #include("sota_matrix_completion.jl")
-    opts = Dict(
-        :rel_res_tol => 1e-5, 
-        :maxit => 1000,    
-        :verbosity => false, 
-        :rel_res_change_tol => 1e-4
-    )
-    I_idx = zeros(Int, net_width)
-    J_idx = zeros(Int, net_width)
-    for i in 1:net_width
-        I_idx[i], J_idx[i] = masks[i]
-    end
-    #sota_train_mse, sota_train_spectraldist = scaled_asd_performance(Xtrain, Ytrain, I_idx, J_idx, opts)
-    #sota_val_mse, sota_val_spectraldist = scaled_asd_performance(Xval, Yval, I_idx, J_idx, opts)
-    sota_test_mse, sota_test_spectraldist = scaled_asd_performance(Xtest, Ytest, I_idx, J_idx, opts, 8)
-end
-
-
 ##### TRAINING
 
 #m_vanilla((Xtrain[:,1]))
