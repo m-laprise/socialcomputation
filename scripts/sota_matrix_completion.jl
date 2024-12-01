@@ -72,12 +72,12 @@ end
 function ScaledASD(
     m::Int, # Number of rows
     n::Int, # Number of columns
-    r::Int, # Rank of the factorization
     I_idx::Vector{Int}, # I indices of the observed entries
     J_idx::Vector{Int}, # J indices of the observed entries
     data::Vector{Float64}, # Observed entries
-    opts; # Options: rel_res_tol (Float64), maxit (Int), verbosity (Int or Bool), rel_res_change_tol (Float64)
-    soln_only::Bool = false, # Return only the reconstructed matrix
+    r::Int; # Rank of the factorization
+    opts, # Options: rel_res_tol (Float64), maxit (Int), verbosity (Int or Bool), rel_res_change_tol (Float64)
+    soln_only::Bool = true, # Return only the reconstructed matrix
     start = nothing, # Optional starting point: initial factor matrices L (m x r) and R (r x n)
 )
     @assert length(data) == length(I_idx)
@@ -90,7 +90,7 @@ function ScaledASD(
     maxiter = opts[:maxit] # Maximum number of iterations
     @assert maxiter > 0
     verbosity = opts[:verbosity] 
-    rate_limit = 1 - opts[:rel_res_change_tol] # Relative change tolerance for stopping criterion
+    rate_limit = opts[:rel_res_change_tol] # Relative change tolerance for stopping criterion
     relres = reltol * norm(data) # Relative tolerance for stopping criterion (scaled by the norm of the data)
 
     # Create a sparse matrix
@@ -122,10 +122,10 @@ function ScaledASD(
     itres[iter] = res # Store the initial residual value
     Factors = Vector{Any}(undef, maxiter+1) # Array to store the factor matrices at each iteration
 
-    conv_rate = 0
+    conv_rate = 1
 
     # Iteration
-    while iter <= maxiter && res >= relres && conv_rate <= rate_limit
+    while iter <= maxiter && (res >= relres && conv_rate >= rate_limit)
         iter += 1 # Increment the iteration counter
         # Gradient for X
         @assert length(diff_matrix.nzval) == p
@@ -139,9 +139,24 @@ function ScaledASD(
         dx = grad_X * scale # Scaled gradient
         delta_XY = partXY(dx', Y, I_idx, J_idx, p)  
         tx = trace(dx' * grad_X) / norm(delta_XY)^2 # Step size
+        tx = max(tx, 1e-6) # Ensure non-negativity
+        tx = min(tx, 10) # Ensure boundedness
 
         # Update X
         X += tx * dx  
+        if any(isinf, X)
+            println("Iteration: ", iter, " with residual: ", res, " and conv_rate: ", conv_rate)
+            println("dx: ", dx)
+            @warn("Infs encountered in X; replacing with zeros.")
+            replace!(X, Inf => 0.0)
+            replace!(X, -Inf => 0.0)
+        end
+        if any(isnan, X)
+            println("Iteration: ", iter, " with residual: ", res, " and conv_rate: ", conv_rate)
+            println("dx: ", dx)
+            @warn("NaNs encountered in X; replacing with zeros.")
+            replace!(X, NaN => 0.0)
+        end
         Xt = X'
         known_diffs -= tx * delta_XY 
 
@@ -161,32 +176,40 @@ function ScaledASD(
         res = norm(known_diffs)
 
         itres[iter] = res # Store the residual at the current iteration
-        conv_rate = (itres[iter] / itres[max(1, iter - 15)])^(1 / min(15, iter - 1))
-
+        if iter > 2
+            conv_rate = abs(itres[iter] - itres[iter - 1]) / itres[iter - 1]
+        else
+            conv_rate = 1
+        end
         Factors[iter] = (X, Y) # Store the factor matrices at the current iteration
-        if verbosity
-            println("Iteration $iter: residual = $(round(res, digits=2)), "*
-                    "conv_rate = $(round(conv_rate, digits=2))")
+        if verbosity && iter % 500 == 0
+            println("Iteration $iter: residual = $(round(res, digits=7)), "*
+                    "conv_rate = $(round(conv_rate, digits=7))")
         end
     end
     if iter < 2
         # If no iteration is performed, throw an error
-        error("No iterations performed; initial residual = $(round(res, digits=2))")
+        @warn("No iterations performed; initial residual = $(round(res, digits=5))")
+        return X * Y
     end
-    if iter == maxiter
+    if iter >= maxiter
         println("Warning: maximum number of iterations reached. Algorithm may not have converged.")
     end
-
+    if verbosity
+        println("Final residual = $(round(res, digits=7)), "*
+                "final conv_rate = $(round(conv_rate, digits=7))"*
+                " after $iter iterations.")
+    end
     Factors = Factors[1:iter] # Factor matrices at each iteration up to the current iteration
     Out = Dict(
         :itrelres => itres[1:iter] / norm(data),  # Relative residuals at each iteration
         :iter => iter,  # Number of iterations
-        :reschg => abs(1 - conv_rate)  # Change in the residual
+        :reschg => conv_rate
     )
     if soln_only
         final_X, final_Y = Factors[end]
         soln = final_X * final_Y
-        return soln, Out
+        return soln
     else
         return Factors, Out
     end
@@ -203,8 +226,8 @@ function scaled_asd_performance(X_dataset, Y_dataset, I_idx, J_idx, opts, r)
         #r = rank(Y)
         #I_idx, J_idx, knownentries = sparse2idx(Float64.(X))
         knownentries = Float64.(X_dataset[:,i])
-        soln, _ = ScaledASD(m, n, r, I_idx, J_idx, knownentries, opts; 
-                            soln_only = true)
+        soln = ScaledASD(m, n, I_idx, J_idx, knownentries, r; opts = opts, 
+                         soln_only = true)
         Y = Float64.(Y_dataset[:,:,i])
         mse_losses[i] = sum((Y .- soln) .^ 2) / (m * n)
         spectral_dists[i] = norm(svdvals(Y) .- svdvals(soln)) / length(svdvals(Y))
@@ -266,6 +289,7 @@ function IRLS_M(
     I_idx::Vector{Int}, # I indices of the observed entries
     J_idx::Vector{Int}, # J indices of the observed entries
     data::Vector{Float64}, # Observed entries
+    r::Int = nothing; # Rank of the factorization (not used; only for call consistency with other functions)
     q::Int, # Constant q >= r
     alpha::Float64, # Scaling parameter alpha > 0
     tol::Float64 = 1e-5, # Stopping criterion
@@ -281,29 +305,30 @@ function IRLS_M(
     iter = 0 # Iteration counter
     eps = 1 # Regularizing sequence
     W = I(n) # Weight matrix
-    println("Shape of W: ", size(W))
+    #println("Shape of W: ", size(W))
 
     diff_matrix = sparse(I_idx, J_idx, data, m, n)
     diff_matrix.nzval .= data
     diff_matrix = Matrix(diff_matrix)
-    println("Shape of diff_matrix: ", size(diff_matrix))
+    #println("Shape of diff_matrix: ", size(diff_matrix))
 
     converged = false
     local X = diff_matrix * W
+    old_W = copy(W) 
     # While stopping criterion is not met
     while iter < maxit && !converged
         old_W = copy(W)        
-        println("Shape of X at iteration $(iter): ", size(X))
+        #println("Shape of X at iteration $(iter): ", size(X))
         try
             # SVD perturbation
             U, S, V = svd(X)
-            println("Shape of U, S, V:", size(U), size(S), size(V))
+            #println("Shape of U, S, V:", size(U), size(S), size(V))
             X_tilde = U[:, 1:q] * sqrt(Diagonal(S[1:q])) * V[:, 1:q]'
-            println("Shape of X_tilde: ", size(X_tilde))
+            #println("Shape of X_tilde: ", size(X_tilde))
             W = inv(X_tilde * X_tilde')^(1/2)
-            println("Shape of W: ", size(W))
+            #println("Shape of W: ", size(W))
             eps = min(eps, alpha * S[q+1])
-            println("eps: ", eps)
+            #println("eps: ", eps)
         catch e
             @error("Numerical issue encountered: $e")
             break
@@ -312,18 +337,17 @@ function IRLS_M(
         iter += 1
         if eps <= tol || norm(W - old_W) < tol
             converged = true
+            @info("Convergence reached after $iter iterations.")
+            @info("Shape of X after convergence: ", size(X))
         end
     end
     # Issue warning if appropriate
     if iter <= 1
         @warn("No iterations performed.")
     end
-    if eps <= tol || norm(W - old_W) < tol
-        @info("Convergence reached after $iter iterations.")
-    else
+    if eps > tol || iter >= maxit
         @info("Convergence not reached after $iter iterations, with eps = $eps.")
     end
-    println("Shape of X after convergence: ", size(X))
     return X
 end
 
@@ -338,7 +362,7 @@ function IRLS_performance(X_dataset, Y_dataset, I_idx, J_idx)
         #r = rank(Y)
         #I_idx, J_idx, knownentries = sparse2idx(Float64.(X))
         knownentries = Float64.(X_dataset[:,i])
-        soln = IRLS_M(m, n, I_idx, J_idx, knownentries, 8, 1.0, 1e-5, 5000)
+        soln = IRLS_M(m, n, I_idx, J_idx, knownentries; q=8, alpha=1.0)
         Y = Float64.(Y_dataset[:,:,i])
         mse_losses[i] = norm(Y .- soln, 2)^2 / (m*n)
         spectral_dists[i] = norm(svdvals(Y) .- svdvals(soln),2)^2 / length(svdvals(Y))
@@ -355,7 +379,7 @@ spectral_dists = zeros(Float32, dataset_size)
 Xtest[:,1]
 #for i in 1:dataset_size
 knownentries = Float64.(Xtest[:,1])
-soln = IRLS_M(m, n, I_idx, J_idx, knownentries, 8, 1.0, 1e-5, 500)
+soln = IRLS_M(m, n, I_idx, J_idx, knownentries; q=8, alpha=1.0)
 
 Y = Float64.(Y_dataset[:,:,i])
 mse_losses[i] = norm(Y .- soln, 2)^2 / (m*n)
@@ -397,7 +421,7 @@ maxit=5000
 =#
 
 
-# Marchenko Pastur bounds on largest and smalled eigvals if normal
+# Marchenko Pastur bounds on largest and smalled eigvals of matrix if normal
 function mpbound(m, n, var)
     λmax = (1 + sqrt(m/n))^2 * var
     λmin = (1 - sqrt(m/n))^2 * var

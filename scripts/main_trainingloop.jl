@@ -37,10 +37,10 @@ TASK = tasks[5]
 
 TURNS::Int = 10
 VANILLA::Bool = true
-net_width::Int = 150
+net_width::Int = 700
 
 if MEASCAT == "masks"
-    knownentries = 150
+    knownentries = 700
 else 
     knownentries = nothing
 end
