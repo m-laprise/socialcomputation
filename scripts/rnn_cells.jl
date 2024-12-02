@@ -34,11 +34,10 @@ end
 mutable struct bfl_cell{A,V}
     Whh::A
     b::V
-    h::V
-    u::V
+    h::A
     basal_u::V
     gain::V
-    init::V # store initial state for reset
+    init::A # store initial state for reset
 end
 
 function rnn_cell(input_size::Int, 
@@ -84,12 +83,16 @@ function rnn_cell(input_size::Int,
     elseif gated == true
         basal_u = ones(Float32, net_width) * basal_u
         gain = ones(Float32, net_width) * gain
+        htot = Array{Float32}(undef, net_width, 2)
+        htot[:, 1] = h
+        htot[:, 2] = basal_u
         return bfl_cell(
             Whh,
             b_init,
-            h, 
-            basal_u, basal_u, gain, 
-            h
+            htot,
+            basal_u, 
+            gain, 
+            htot
         )
     end
 end
@@ -121,18 +124,21 @@ function(m::rnn_cell_b)(state, I=nothing)
 end
 
 function(m::bfl_cell)(state, I=nothing)
-    Whh, b, u, basal_u, gain = m.Whh, m.b, m.u, m.basal_u, m.gain
-    h = state
+    Whh, b, basal_u, gain = m.Whh, m.b, m.basal_u, m.gain
+    ho, hu = state[:, 1], state[:, 2]
     if isnothing(I)
         bias = b
     else
         @assert I isa Vector || size(I, 2) == 1
-        bias = b .+ pad_input(I, length(h))
+        bias = b .+ pad_input(I, length(ho))
     end
-    h2 = (h .* h)
-    u_new = (0.1f0*u) .+ basal_u .+ ((Whh * h2) .* gain)
-    h_new = tanh.((Whh * h) .* u_new) .+ (bias)
-    m.u = u_new
+    ho2 = ho .* ho
+    hu_new = (0.1f0*hu) .+ basal_u .+ ((Whh * ho2) .* gain)
+    ho_new = tanh.((Whh * ho) .* hu_new) .+ bias
+    h_new_buf = Zygote.Buffer(state)
+    h_new_buf[:, 1] = ho_new
+    h_new_buf[:, 2] = hu_new
+    h_new = copy(h_new_buf)
     m.h = h_new
     return h_new, h_new
 end

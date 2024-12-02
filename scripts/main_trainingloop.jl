@@ -142,40 +142,42 @@ end
 if TASKCAT == "classification"
     # Initialize the vanilla RNN model
     m_vanilla = Chain(
-        rnn(input_size, net_width; 
+        rnn = rnn(input_size, net_width; 
             Whh_init = Whh_init, 
             h_init = "randn",
             gated = false),
-        Dense(net_width => output_size, sigmoid)
+        dec = Dense(net_width => output_size, sigmoid)
     )
     # Initialize the BFL RNN model
     m_bfl = Chain(
-        rnn(input_size, net_width;
+        rnn = rnn(input_size, net_width;
             Whh_init = Whh_init,
             h_init = "randn",
             gated = true,
-            basal_u = 0.001f0,
+            basal_u = 0.01f0,
             gain = 0.5f0),
-        Dense(net_width => output_size, sigmoid)
+        filter = x -> x[:,1], # Use only opinion states, not attention states, for decoding
+        dec = Dense(net_width => output_size, sigmoid)
     )
 elseif TASKCAT == "reconstruction"
     # Initialize the vanilla RNN model
     m_vanilla = Chain(
-        rnn(input_size, net_width;
+        rnn = rnn(input_size, net_width;
             Whh_init = Whh_init, 
             h_init = "randn",
             gated = false),
-        Dense(net_width => output_size)
+        dec = Dense(net_width => output_size)
     )
     # Initialize the BFL RNN model
     m_bfl = Chain(
-        rnn(input_size, net_width; 
+        rnn = rnn(input_size, net_width; 
             Whh_init = Whh_init, 
             h_init = "randn",
             gated = true,
             basal_u = 0.001f0,
             gain = 0.5f0),
-        Dense(net_width => output_size)
+        filter = x -> x[:,1], # Use only opinion states, not attention states, for decoding
+        dec = Dense(net_width => output_size)
     )
 end
 
@@ -219,14 +221,8 @@ else
     GATED = true
 end
 # Define method for the reset function
-reset!(m::Chain) = reset!(m.layers[1])
-state(m::Chain) = state(m.layers[1])
-
-activemodel(nothing)
-reset!(activemodel)
-activemodel(nothing)
-activemodel(nothing)
-state(activemodel)
+reset!(m::Chain) = reset!(m.layers[:rnn])
+state(m::Chain) = state(m.layers[:rnn])
 
 # State optimizing rule
 eta = 1e-3
@@ -251,28 +247,23 @@ val_accuracy = Float32[]
 train_rmse = Float32[]
 val_rmse = Float32[]
 jacobian_spectra = []
+Whh_spectra = []
 
 # STORE INITIAL METRICS
 reset!(activemodel)
-h = state(activemodel)
-J = Zygote.jacobian(x -> state_to_state(activemodel, x), h)[1]
+if VANILLA 
+    hJ = state(activemodel)
+else
+    hJ = state(activemodel)[:,1]
+end
+J = Zygote.jacobian(x -> state_to_state(activemodel, x), hJ)[1]
 try
     push!(jacobian_spectra, eigvals(J))
 catch err
     println("Jacobian computation failed after epoch $epoch")
     println("with error: $err")
 end
-
-activemodel(nothing)
-
-ploteigvals((Flux.params(activemodel.layers[1].cell)[1]))
-ploteigvals(J)
-
-function state_to_state(m::Chain, h::Vector)
-    m.layers[1].state = h
-    m(nothing)
-    return state(m.layers[1])
-end
+push!(Whh_spectra, eigvals(Flux.params(activemodel.layers[1].cell)[1]))
 
 initmetrics_train = myloss(activemodel, Xtrain, Ytrain, turns = TURNS, mode = "testing", set = "full")
 initmetrics_val = myloss(activemodel, Xval, Yval, turns = TURNS, mode = "testing", set = "full")
@@ -305,9 +296,14 @@ for epoch in 1:2
         mb += 1
     end
     # Compute the Jacobian
+    push!(Whh_spectra, eigvals(Flux.params(activemodel.layers[1].cell)[1]))
     reset!(activemodel)
-    h = state(activemodel.layers[1])
-    J = Zygote.jacobian(x -> state_to_state(activemodel, x), h)[1]
+    h = state(activemodel)
+    if isa(h, Array)
+        J = Zygote.jacobian(x -> state_to_state(activemodel, x), h[:,1])[1]
+    else
+        J = Zygote.jacobian(x -> state_to_state(activemodel, x), h)[1]
+    end
     try
         push!(jacobian_spectra, eigvals(J))
     catch err
