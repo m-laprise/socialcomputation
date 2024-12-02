@@ -31,10 +31,33 @@ mutable struct rnn_cell_b{A,V}
     init::V # store initial state for reset
 end
 
-function rnn_cell(input_size::Int, net_width::Int;
-                  h_init::String, Whh_init=nothing)
+mutable struct bfl_cell{A,V}
+    Whh::A
+    b::V
+    h::V
+    u::V
+    basal_u::V
+    gain::V
+    init::V # store initial state for reset
+end
+
+function rnn_cell(input_size::Int, 
+                  net_width::Int;
+                  h_init::String = "randn", 
+                  Whh_init = nothing,
+                  gated::Bool = false,
+                  basal_u::Float32 = Float32(1e-2),
+                  gain::Float32 = Float32(0.5))
     @assert input_size >= 0
     @assert net_width > 0
+    # Initialize recurrent weight matrix
+    if isnothing(Whh_init)
+        Whh = randn(Float32, net_width, net_width) / sqrt(Float32(net_width))
+    else
+        Whh = Float32.(Whh_init)
+    end
+    # Initialize bias
+    b_init = randn(Float32, net_width) / sqrt(Float32(net_width))
     # Initialize hidden state
     if h_init == "zero"
         h = zeros(Float32, net_width)
@@ -43,24 +66,30 @@ function rnn_cell(input_size::Int, net_width::Int;
     else
         error("Invalid h_init value. Choose from 'zero' or 'randn'.")
     end
-    # Initialize recurrent weight matrix
-    if isnothing(Whh_init)
-        Whh = randn(Float32, net_width, net_width) / sqrt(Float32(net_width))
-    else
-        Whh = Float32.(Whh_init)
-    end
-    if input_size > 0
+    if input_size > 0 && gated == false
+        Wxh = randn(Float32, net_width, input_size) / sqrt(Float32(net_width))
         return rnn_cell_xb(
-            randn(Float32, net_width, input_size) / sqrt(Float32(net_width)),
-            Whh,
-            randn(Float32, net_width) / sqrt(Float32(net_width)),
-            h, h
+            Wxh, Whh,
+            b_init,
+            h, 
+            h
         )
-    else
+    elseif input_size == 0 && gated == false
         return rnn_cell_b(
             Whh,
-            randn(Float32, net_width) / sqrt(Float32(net_width)),
-            h, h
+            b_init,
+            h, 
+            h
+        )
+    elseif gated == true
+        basal_u = ones(Float32, net_width) * basal_u
+        gain = ones(Float32, net_width) * gain
+        return bfl_cell(
+            Whh,
+            b_init,
+            h, 
+            basal_u, basal_u, gain, 
+            h
         )
     end
 end
@@ -91,7 +120,25 @@ function(m::rnn_cell_b)(state, I=nothing)
     return h_new, h_new
 end
 
+function(m::bfl_cell)(state, I=nothing)
+    Whh, b, u, basal_u, gain = m.Whh, m.b, m.u, m.basal_u, m.gain
+    h = state
+    if isnothing(I)
+        bias = b
+    else
+        @assert I isa Vector || size(I, 2) == 1
+        bias = b .+ pad_input(I, length(h))
+    end
+    h2 = (h .* h)
+    u_new = (0.1f0*u) .+ basal_u .+ ((Whh * h2) .* gain)
+    h_new = tanh.((Whh * h) .* u_new) .+ (bias)
+    m.u = u_new
+    m.h = h_new
+    return h_new, h_new
+end
+
 function pad_input(x, width)
+    x = Float32.(x)
     if length(x) < width
         x = vcat(x, zeros(Float32, width - length(x)))
     elseif length(x) > width
@@ -103,76 +150,17 @@ end
 
 Flux.@layer rnn_cell_b trainable=(Whh, b)
 Flux.@layer rnn_cell_xb trainable=(Wxh, Whh, b)
+Flux.@layer bfl_cell trainable=(Whh, b, gain)
 
 state(m::rnn_cell_b) = m.h
 state(m::rnn_cell_xb) = m.h
+state(m::bfl_cell) = m.h
 
 Base.show(io::IO, l::rnn_cell_xb) = print(
     io, "rnn_cell_xb(", size(l.Wxh), ", ", size(l.Whh), ")")
 
 Base.show(io::IO, l::rnn_cell_b) = print(
     io, "rnn_cell_b(", size(l.Whh), ")")
-
-###### BFL CELLS
-
-mutable struct bfl_cell{A,V}
-    Whh::A
-    b::V
-    h::V
-    u::V
-    gain::V
-    init_h::V # store initial state for reset
-    init_u::V # store initial attention for reset
-end
-
-function bfl_cell(net_width::Int;
-                  h_init::String, Whh_init = nothing, 
-                  basal_u::Float32 = Float32(1e-2),
-                  gain::Float32 = Float32(0.5))
-    @assert net_width > 0
-    # Initialize hidden state
-    if h_init == "zero"
-        h = zeros(Float32, net_width)
-    elseif h_init == "randn"
-        h = randn(Float32, net_width) * 0.01f0
-    else
-        error("Invalid h_init value. Choose from 'zero' or 'randn'.")
-    end
-    # Initialize recurrent weight matrix
-    if isnothing(Whh_init)
-        Whh = randn(Float32, net_width, net_width) / sqrt(Float32(net_width))
-    else
-        Whh = Float32.(Whh_init)
-    end
-    u = ones(Float32, net_width) * basal_u
-    gain = ones(Float32, net_width) * gain
-    return bfl_cell(
-            Whh,
-            randn(Float32, net_width) / sqrt(Float32(net_width)),
-            h, u, gain, h, u
-        )
-end
-
-function(m::bfl_cell)(state, I=nothing)
-    Whh, b, gain, basal_u = m.Whh, m.b, m.gain, m.init_u
-    u, h = m.u, state
-    if isnothing(I)
-        bias = b
-    else
-        @assert I isa Vector || size(I, 2) == 1
-        bias = pad_input(I, length(h)) .+ b
-    end
-    h2 = h .* h
-    u_new = basal_u .+ ((Whh * h2) .* gain)
-    h_new = tanh.((Whh * h) .* u_new) .+ bias 
-    m.u = u_new
-    m.h = h_new
-    return h_new, h_new
-end 
-
-Flux.@layer bfl_cell trainable=(Whh, b, gain)
-
-state(m::bfl_cell) = m.h
 
 Base.show(io::IO, l::bfl_cell) = print(
     io, "bfl_cell(", size(l.Whh), ")")
@@ -205,7 +193,6 @@ state(m::Recur{ <:bfl_cell} ) = m.state
 Flux.@functor Recur cell, init
 Base.show(io::IO, m::Recur) = print(io, "Recur(", m.cell, ")")
 rnn(args...;kwargs...) = Recur(rnn_cell(args...;kwargs...))
-bfl(args...;kwargs...) = Recur(bfl_cell(args...;kwargs...))
 
 """
     reset!(rnn)

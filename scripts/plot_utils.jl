@@ -33,3 +33,11 @@ function ploteigvals!(ax, A::AbstractMatrix)
     scatter!(ax, real(eigs), imag(eigs), color = :blue)
 end
 
+function ploteigvals!(ax, eigs::Vector)
+    θ = LinRange(0, 2π, 1000)
+    circle_x = cos.(θ)
+    circle_y = sin.(θ)
+    lines!(ax, circle_x, circle_y, color = :black)
+    scatter!(ax, real(eigs), imag(eigs), color = :blue)
+end
+

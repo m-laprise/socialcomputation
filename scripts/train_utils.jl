@@ -22,10 +22,10 @@ function inspect_gradients(grads)
     if any(isnan.(g))
         push!(nan_params, 1)
     end
-    if any(abs.(g) .< 1e-6)
+    if any(abs.(g) .< 1e-7)
         push!(vanishing_params, 1)
     end
-    if any(abs.(g) .> 1e6)
+    if any(abs.(g) .> 1e7)
         push!(exploding_params, 1)
     end
     return sum(nan_params), sum(vanishing_params), sum(exploding_params)
@@ -39,13 +39,13 @@ parameters with NaN, vanishing, or exploding gradients.
 """
 function diagnose_gradients(n, v, e)
     if n > 0
-        println(n, " NaN gradient detected")
+        println(n, " NaN gradients detected")
     end
     if v > 0
-        println(v, " vanishing gradient detected")
+        println(v, " vanishing gradients detected")
     end
     if e > 0
-        println(e, " exploding gradient detected")
+        println(e, " exploding gradients detected")
     end
     #Otherwise, report that no issues were found
     if n == 0 && v == 0 && e == 0
@@ -67,7 +67,7 @@ Compute the Jacobian of a model with respect to its input or state.
 - The Jacobian matrix. Its size is `(output_size, input_size)` if `wrt="input"`, or
   `(state_size, state_size)` if `wrt="state"`.
 """
-function getjacobian(activemodel; x=nothing, wrt="state")
+#=function getjacobian(activemodel; x=nothing, wrt="state")
     if wrt == "input"
         @assert !isnothing(x)
         J = Zygote.jacobian(x -> activemodel(x), x)[1]
@@ -81,7 +81,7 @@ function getjacobian(activemodel; x=nothing, wrt="state")
         return @warn("Invalid wrt argument. Choose from 'input' or 'state'.")
     end
     return J[1]
-end
+end=#
 
 function state_to_state(m::Chain, h::Vector)
     m.layers[1].state = h
