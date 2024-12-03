@@ -37,6 +37,7 @@ mutable struct bfl_cell{A,V}
     h::A
     basal_u::V
     gain::V
+    tauh::V
     init::A # store initial state for reset
 end
 
@@ -46,7 +47,8 @@ function rnn_cell(input_size::Int,
                   Whh_init = nothing,
                   gated::Bool = false,
                   basal_u::Float32 = Float32(1e-2),
-                  gain::Float32 = Float32(0.5))
+                  gain::Float32 = Float32(0.5),
+                  tauh::Float32 = Float32(0.5))
     @assert input_size >= 0
     @assert net_width > 0
     # Initialize recurrent weight matrix
@@ -83,6 +85,7 @@ function rnn_cell(input_size::Int,
     elseif gated == true
         basal_u = ones(Float32, net_width) * basal_u
         gain = ones(Float32, net_width) * gain
+        tauh = ones(Float32, net_width) * tauh
         htot = Array{Float32}(undef, net_width, 2)
         htot[:, 1] = h
         htot[:, 2] = basal_u
@@ -92,10 +95,13 @@ function rnn_cell(input_size::Int,
             htot,
             basal_u, 
             gain, 
+            tauh,
             htot
         )
     end
 end
+
+tanhvf0(x::Vector{Float32}) = tanh.(x)
 
 function(m::rnn_cell_xb)(state, x, I=nothing)
     Wxh, Whh, b, h = m.Wxh, m.Whh, m.b, state
@@ -105,7 +111,7 @@ function(m::rnn_cell_xb)(state, x, I=nothing)
         @assert I isa Vector || size(I, 2) == 1
         bias = b .+ pad_input(I, length(h))
     end
-    h_new = tanh.(Wxh * x .+ Whh * h .+ bias)
+    h_new = tanhvf0(Wxh * x .+ Whh * h .+ bias)
     m.h = h_new
     return h_new, h_new
 end
@@ -118,14 +124,14 @@ function(m::rnn_cell_b)(state, I=nothing)
         @assert I isa Vector || size(I, 2) == 1
         bias = b .+ pad_input(I, length(h))
     end
-    h_new = tanh.(Whh * h .+ bias)
+    h_new = tanhvf0(Whh * h .+ bias)
     m.h = h_new
     return h_new, h_new
 end
 
 function(m::bfl_cell)(state, I=nothing)
-    Whh, b, basal_u, gain = m.Whh, m.b, m.basal_u, m.gain
-    ho, hu = state[:, 1], state[:, 2]
+    Whh, b, basal_u, gain, tauh = m.Whh, m.b, m.basal_u, m.gain, m.tauh
+    ho = @view state[:, 1]
     if isnothing(I)
         bias = b
     else
@@ -133,9 +139,11 @@ function(m::bfl_cell)(state, I=nothing)
         bias = b .+ pad_input(I, length(ho))
     end
     ho2 = ho .* ho
-    hu_new = (0.1f0*hu) .+ basal_u .+ ((Whh * ho2) .* gain)
-    ho_new = tanh.((Whh * ho) .* hu_new) .+ bias
-    h_new_buf = Zygote.Buffer(state)
+    hu_new = basal_u .+ ((Whh * ho2) .* gain)
+    ho_upd = tanhvf0((Whh * ho) .* hu_new) .+ bias
+    tauh_sig = sigmoid(tauh)
+    ho_new = ((1f0 .- tauh_sig) .* ho) .+ (tauh_sig .* ho_upd)
+    h_new_buf = Zygote.Buffer(zeros(Float32, size(state)))
     h_new_buf[:, 1] = ho_new
     h_new_buf[:, 2] = hu_new
     h_new = copy(h_new_buf)
@@ -143,20 +151,24 @@ function(m::bfl_cell)(state, I=nothing)
     return h_new, h_new
 end
 
-function pad_input(x, width)
+function pad_input(x::Vector, width::Int)
     x = Float32.(x)
     if length(x) < width
-        x = vcat(x, zeros(Float32, width - length(x)))
+        padded_x = Vector{Float32}(undef, width)
+        padded_x[1:length(x)] = x
+        padded_x[length(x)+1:end] .= 0.0f0
+        return padded_x
     elseif length(x) > width
-        x = x[1:width]
         @warn "Network too small: less than one node per input. Input will be truncated for distribution."
+        return x[1:width]
+    else
+        return x
     end
-    return x
 end
 
 Flux.@layer rnn_cell_b trainable=(Whh, b)
 Flux.@layer rnn_cell_xb trainable=(Wxh, Whh, b)
-Flux.@layer bfl_cell trainable=(Whh, b, gain)
+Flux.@layer bfl_cell trainable=(Whh, b, gain, tauh)
 
 state(m::rnn_cell_b) = m.h
 state(m::rnn_cell_xb) = m.h

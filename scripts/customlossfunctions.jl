@@ -55,7 +55,7 @@ function recon_losses(m::Chain,
                    turns::Int = TURNS, 
                    mode::String = "training", 
                    set::String = "train", 
-                   type::String = "l2l1")
+                   type::String = "l2")
     @assert length(size(ys_init)) == 3
     l, n, nb_examples = size(ys_init)
     totN = l * n

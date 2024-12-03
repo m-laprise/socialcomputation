@@ -84,16 +84,15 @@ Compute the Jacobian of a model with respect to its input or state.
 end=#
 
 function state_to_state(m::Chain, h::Vector)
-    reset!(m)
-    if isa(m[:rnn], Recur{bfl_cell{Matrix{Float32}, 
-                                   Vector{Float32}}})
+    if isa(m[:rnn].cell, bfl_cell)
         u = state(m)[:,2]
         hmat = hcat(h, u)
         m[:rnn].state = hmat #hmatrix
-        m(nothing)
+        m(randn(Float32, size(u)))
         new_state = state(m)[:,1]
         return new_state
     else
+        reset!(m)
         m[:rnn].state = h
         m(nothing)
         new_state = state(m)

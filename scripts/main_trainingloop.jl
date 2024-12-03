@@ -174,18 +174,12 @@ elseif TASKCAT == "reconstruction"
             Whh_init = Whh_init, 
             h_init = "randn",
             gated = true,
-            basal_u = 0.001f0,
-            gain = 0.5f0),
+            basal_u = 0.01f0,
+            gain = 1.25f0),
         filter = x -> x[:,1], # Use only opinion states, not attention states, for decoding
         dec = Dense(net_width => output_size)
     )
 end
-
-# Flux.params(m_vanilla)[1]
-# Flux.params(m_vanilla)[2]
-# Flux.params(m_vanilla)[3]
-# Flux.params(m_vanilla)[4]
-# Flux.params(m_vanilla)[5]
 
 # I   = randn(Float32, net_width) * 0.1f0
 # y = m_bfl(I)[1]
@@ -210,7 +204,6 @@ end
 #b = myloss(m_vanilla, (Xtrain[:,2]), Ytrain[:,2], turns = turns)
 #c = myloss(m_vanilla, (Xtrain[:,3]), Ytrain[:,3], turns = turns)
 #ab = myloss(m_vanilla, (Xtrain[:,2:3]), Ytrain[:,2:3], turns = turns)
-#test1 = myloss(m_vanilla, (Xtrain[:,1:20]), Ytrain[:,1:20], turns = turns)
 #g = gradient(myloss, m_vanilla, (Xtrain[:,1:20]), Ytrain[:,1:20])[1]
 
 if VANILLA
@@ -254,6 +247,7 @@ reset!(activemodel)
 if VANILLA 
     hJ = state(activemodel)
 else
+    activemodel(randn(Float32, knownentries))
     hJ = state(activemodel)[:,1]
 end
 J = Zygote.jacobian(x -> state_to_state(activemodel, x), hJ)[1]
@@ -263,7 +257,7 @@ catch err
     println("Jacobian computation failed after epoch $epoch")
     println("with error: $err")
 end
-push!(Whh_spectra, eigvals(Flux.params(activemodel.layers[1].cell)[1]))
+push!(Whh_spectra, eigvals(activemodel[:rnn].cell.Whh))
 
 initmetrics_train = myloss(activemodel, Xtrain, Ytrain, turns = TURNS, mode = "testing", set = "full")
 initmetrics_val = myloss(activemodel, Xval, Yval, turns = TURNS, mode = "testing", set = "full")
@@ -275,7 +269,7 @@ push!(val_accuracy, initmetrics_val["spectdist"])
 push!(val_rmse, initmetrics_val["RMSE"])
 
 starttime = time()
-for epoch in 1:2
+for epoch in 1:3
     reset!(activemodel)
     println("Commencing epoch $epoch")
     # Initialize counters for gradient diagnostics
@@ -296,14 +290,15 @@ for epoch in 1:2
         mb += 1
     end
     # Compute the Jacobian
-    push!(Whh_spectra, eigvals(Flux.params(activemodel.layers[1].cell)[1]))
+    push!(Whh_spectra, eigvals(Flux.params(activemodel[:rnn].cell)[1]))
     reset!(activemodel)
-    h = state(activemodel)
-    if isa(h, Array)
-        J = Zygote.jacobian(x -> state_to_state(activemodel, x), h[:,1])[1]
+    if VANILLA 
+        hJ = state(activemodel)
     else
-        J = Zygote.jacobian(x -> state_to_state(activemodel, x), h)[1]
+        activemodel(randn(Float32, knownentries))
+        hJ = state(activemodel)[:,1]
     end
+    J = Zygote.jacobian(x -> state_to_state(activemodel, x), hJ)[1]
     try
         push!(jacobian_spectra, eigvals(J))
     catch err
@@ -333,7 +328,7 @@ println("Test RMSE: $(testmetrics["RMSE"])")
 println("Test loss: $(testmetrics["l2"])")
 
 if TASKCAT == "reconstruction"
-    lossname = "Mean l1-penalized l2 reconstruction loss"
+    lossname = "Mean l2 reconstruction loss"
     accuracyname = "Mean norm of spectral distance (singular values)"
     rmsename = "Root mean squared reconstruction error"
 else
@@ -389,7 +384,7 @@ Label(
 # Add notes to the bottom of the figure
 Label(
     fig[end+1, 1:2],
-    "Optimizer: Adam(eta=0.001 for 15 epochs, then $eta)\n"*
+    "Optimizer: Adam(eta=$eta)\n"*
     #"Training time: $(round((endtime - starttime) / 60, digits=2)) minutes; "*
     "Test loss: $(round(testmetrics["l2"],digits=2)). Test spectral distance: $(round(testmetrics["spectdist"],digits=2))."*
     "Test RMSE: $(round(testmetrics["RMSE"],digits=2)).",
@@ -434,12 +429,12 @@ if WIDTH_EXPERIMENT
 end
 
 
-Whh = Flux.params(activemodel.layers[1].cell)[1]
-bs = Flux.params(activemodel.layers[1].cell)[2]
+Whh = activemodel[:rnn].cell.Whh
+bs = activemodel[:rnn].cell.b
 
 if GATED
-    damprates = Flux.params(activemodel.layers[1].cell)[3]
-    gains = Flux.params(activemodel.layers[1].cell)[4]
+    gains = activemodel[:rnn].cell.gain
+    tauh = activemodel[:rnn].cell.tauh
 end
 if GATED
     height = 500
@@ -454,10 +449,10 @@ ploteigvals!(ax1, Whh)
 ax2 = Axis(fig2[1, 2], title = "Biases", xlabel = "Unit", ylabel = "Value")
 barplot!(ax2, 1:net_width, bs, color = :red)
 if GATED
-    #ax3 = Axis(fig2[2, 1], title = "Damping Rates", xlabel = "Unit", ylabel = "Value")
-    #barplot!(ax3, 1:net_width, damprates, color = :green)
+    ax3 = Axis(fig2[2, 1], title = "Tau", xlabel = "Unit", ylabel = "Value")
+    lines!(ax3, 1:net_width, tauh, color = :green)
     ax4 = Axis(fig2[2, 2], title = "Gains", xlabel = "Unit", ylabel = "Value")
-    barplot!(ax4, 1:net_width, gains, color = :purple)
+    lines!(ax4, 1:net_width, gains, color = :purple)
 end
 fig2
 
@@ -471,7 +466,7 @@ figdegdist = plot_degree_distrib(g_end)
 save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_degreedist.png", figdegdist)
 plot_socgraph(g_end)
 
-#if INFERENCE_EXPERIMENT
+if INFERENCE_EXPERIMENT
     k = 50
     forwardpasses = [i for i in 1:k]
     mse_by_nbpasses = zeros(Float32, length(forwardpasses))
@@ -515,10 +510,27 @@ plot_socgraph(g_end)
     fig3
 
     save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_inferencetests.png", fig3)
-#end
+end
 
 ploteigvals(jacobian_spectra[1])
 ploteigvals(jacobian_spectra[end])
+
+ploteigvals(Whh_spectra[1])
+ploteigvals(Whh_spectra[end])
+
+reset!(activemodel)
+activemodel(randn(Float32, knownentries))
+hJ = state(activemodel)[:,1]
+function state_to_state_winput(m::Chain, h::Vector)
+    u = state(m)[:,2]
+    hmat = hcat(h, u)
+    m[:rnn].state = hmat #hmatrix
+    m(randn(Float32, knownentries))
+    new_state = state(m)[:,1]
+    return new_state
+end
+test = Zygote.jacobian(x -> state_to_state_winput(activemodel, x), hJ)[1]
+ploteigvals(test)
 
 # Create animation using each ploteigvals(jacobian_spectra[i]) as one frame
 using GLMakie
