@@ -420,8 +420,7 @@ tol=1e-5
 maxit=5000
 =#
 
-
-# Marchenko Pastur bounds on largest and smalled eigvals of matrix if normal
+# Marchenko Pastur bounds on largest and smallest eigvals of normal matrix
 function mpbound(m, n, var)
     λmax = (1 + sqrt(m/n))^2 * var
     λmin = (1 - sqrt(m/n))^2 * var

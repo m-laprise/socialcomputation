@@ -250,7 +250,7 @@ else
     activemodel(randn(Float32, knownentries))
     hJ = state(activemodel)[:,1]
 end
-J = Zygote.jacobian(x -> state_to_state(activemodel, x), hJ)[1]
+J = statejacobian(activemodel, hJ)
 try
     push!(jacobian_spectra, eigvals(J))
 catch err
@@ -269,7 +269,7 @@ push!(val_accuracy, initmetrics_val["spectdist"])
 push!(val_rmse, initmetrics_val["RMSE"])
 
 starttime = time()
-for epoch in 1:3
+for epoch in 1:10
     reset!(activemodel)
     println("Commencing epoch $epoch")
     # Initialize counters for gradient diagnostics
@@ -298,7 +298,7 @@ for epoch in 1:3
         activemodel(randn(Float32, knownentries))
         hJ = state(activemodel)[:,1]
     end
-    J = Zygote.jacobian(x -> state_to_state(activemodel, x), hJ)[1]
+    J = statejacobian(activemodel, hJ)
     try
         push!(jacobian_spectra, eigvals(J))
     catch err
@@ -368,7 +368,7 @@ lines!(ax_acc, 1:epochs+1, val_accuracy, color = :red, label = "Validation")
 hlines!(ax_acc, [testmetrics["spectdist"]], color = :green, linestyle = :dash, label = "Final Test")
 #ylims!(ax_acc, 4.0, 7.0)
 axislegend(ax_acc, backgroundcolor = :transparent, position = :rt)
-ax_rmse = Axis(fig[2, 1], xlabel = "Epochs", ylabel = "RMSE", title = rmsename)
+ax_rmse = Axis(fig[2, 2], xlabel = "Epochs", ylabel = "RMSE", title = rmsename)
 lines!(ax_rmse, 1:epochs+1, train_rmse, color = :blue, label = "Training")
 lines!(ax_rmse, 1:epochs+1, val_rmse, color = :red, label = "Validation")
 hlines!(ax_rmse, [testmetrics["RMSE"]], color = :green, linestyle = :dash, label = "Final Test")
@@ -377,7 +377,8 @@ axislegend(ax_rmse, backgroundcolor = :transparent)
 modlabel = GATED ? "BFL" : "Vanilla"
 Label(
     fig[begin-1, 1:2],
-    "$(tasklab)\n$(modlabel) RNN of $net_width units, $TURNS dynamic steps",
+    "$(tasklab)\n$(modlabel) RNN of $net_width units, $TURNS dynamic steps"*
+    "\nwith training loss based on the ground truth matrix",
     fontsize = 20,
     padding = (0, 0, 0, 0),
 )
@@ -394,7 +395,7 @@ Label(
 )
 fig
 
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns.png", fig)
+save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_groundtruth.png", fig)
 
 if WIDTH_EXPERIMENT
     push!(widthvec, net_width)
@@ -437,7 +438,7 @@ if GATED
     tauh = activemodel[:rnn].cell.tauh
 end
 if GATED
-    height = 500
+    height = 550
 else
     height = 400
 end
@@ -445,25 +446,28 @@ end
 
 fig2 = Figure(size = (700, height))
 ax1 = Axis(fig2[1, 1], title = "Eigenvalues of Recurrent Weights", xlabel = "Real", ylabel = "Imaginary")
-ploteigvals!(ax1, Whh)
+#ploteigvals!(ax1, Whh; alpha = 0.5)
+θ = LinRange(0, 2π, 1000)
+scatter!(ax1, real(eigvals(Whh)), imag(eigvals(Whh)), color = :blue, alpha = 0.85, markersize = 6)
+lines!(ax1, cos.(θ), sin.(θ), color = :black, linewidth = 2)
 ax2 = Axis(fig2[1, 2], title = "Biases", xlabel = "Unit", ylabel = "Value")
-barplot!(ax2, 1:net_width, bs, color = :red)
+scatter!(ax2, 1:net_width, bs, color = :red, alpha = 0.85, markersize = 6)
 if GATED
     ax3 = Axis(fig2[2, 1], title = "Tau", xlabel = "Unit", ylabel = "Value")
-    lines!(ax3, 1:net_width, tauh, color = :green)
+    scatter!(ax3, 1:net_width, tauh, color = :green, alpha = 0.85, markersize = 6)
     ax4 = Axis(fig2[2, 2], title = "Gains", xlabel = "Unit", ylabel = "Value")
-    lines!(ax4, 1:net_width, gains, color = :purple)
+    scatter!(ax4, 1:net_width, gains, color = :purple, alpha = 0.85, markersize = 6)
 end
 fig2
 
 save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_Whh.jld2", "Whh", Whh)
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_learnedparams.png", fig2)
+save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_groundtruth_learnedparams.png", fig2)
 
 include("inprogress/helpersWhh.jl")
 g_end = adj_to_graph(Whh; threshold = 0.01)
 print_socgraph_descr(g_end)
 figdegdist = plot_degree_distrib(g_end)
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_degreedist.png", figdegdist)
+save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_groundtruth_degreedist.png", figdegdist)
 plot_socgraph(g_end)
 
 if INFERENCE_EXPERIMENT
@@ -518,44 +522,50 @@ ploteigvals(jacobian_spectra[end])
 ploteigvals(Whh_spectra[1])
 ploteigvals(Whh_spectra[end])
 
-reset!(activemodel)
-activemodel(randn(Float32, knownentries))
-hJ = state(activemodel)[:,1]
-function state_to_state_winput(m::Chain, h::Vector)
-    u = state(m)[:,2]
-    hmat = hcat(h, u)
-    m[:rnn].state = hmat #hmatrix
-    m(randn(Float32, knownentries))
-    new_state = state(m)[:,1]
-    return new_state
-end
-test = Zygote.jacobian(x -> state_to_state_winput(activemodel, x), hJ)[1]
-ploteigvals(test)
-
 # Create animation using each ploteigvals(jacobian_spectra[i]) as one frame
 using GLMakie
 GLMakie.activate!()
 
+N = length(jacobian_spectra)
 ftime = Observable(1.0)
-framerate = 3
+framerate = 2
 timestamps = 1:N
 
-N = length(jacobian_spectra)
-θ = LinRange(0, 2π, 1000)
-circle_x = cos.(θ)
-circle_y = sin.(θ)
-
-f = Figure()
-ax = Axis(f[1, 1], 
+fj = Figure()
+ax = Axis(fj[1, 1], 
           title = @lift("Spectrum of state-to-state Jacobian during training\n"*
-                        "$(tasklab)\n$(modlabel) RNN of $net_width units, trained with $TURNS forward passes\n"*
+                        "$(tasklab)\n$(modlabel) RNN of $net_width units, trained with $TURNS forward passes (ground truth loss)\n"*
                         "Epoch = $(round($ftime[], digits = 0))"))
-lines!(ax, circle_x, circle_y, color = :black)
+θ = LinRange(0, 2π, 1000)
+lines!(ax, cos.(θ), sin.(θ), color = :black)
 xs = @lift(real(jacobian_spectra[Int(round($ftime[]))]))
 ys = @lift(imag(jacobian_spectra[Int(round($ftime[]))]))
-scatter!(ax, xs, ys, color = :blue)
+scatter!(ax, xs, ys, color = :blue, alpha = 0.95, markersize = 6.5)
 
-record(f, "data/test.mp4", timestamps;
+record(fj, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_groundtruth_Jacobian.mp4", timestamps;
        framerate = framerate) do t
     ftime[] = t
+end
+
+
+N = length(Whh_spectra)
+ftime = Observable(1.0)
+framerate = 2
+timestamps = 1:N
+
+fw = Figure()
+ax = Axis(fw[1, 1], 
+          title = @lift("Spectrum of Whh weight matrix during training\n"*
+                        "$(tasklab)\n$(modlabel) RNN of $net_width units, trained with $TURNS forward passes (ground truth loss)\n"*
+                        "Epoch = $(round($ftime[], digits = 0))"))
+θ = LinRange(0, 2π, 1000)
+lines!(ax, cos.(θ), sin.(θ), color = :black)
+xs = @lift(real(Whh_spectra[Int(round($ftime[]))]))
+ys = @lift(imag(Whh_spectra[Int(round($ftime[]))]))
+scatter!(ax, xs, ys, color = :blue, alpha = 0.95, markersize = 6.5)
+
+record(fw, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_groundtruth_Whh2.mp4", timestamps;
+       framerate = framerate) do t
+    ftime[] = t
+    autolimits!(ax)
 end

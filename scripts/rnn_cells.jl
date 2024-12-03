@@ -151,7 +151,7 @@ function(m::bfl_cell)(state, I=nothing)
     return h_new, h_new
 end
 
-function pad_input(x::Vector, width::Int)
+function pad_input(x::AbstractArray, width::Int)
     x = Float32.(x)
     if length(x) < width
         padded_x = Vector{Float32}(undef, width)

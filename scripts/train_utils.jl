@@ -87,28 +87,15 @@ function state_to_state(m::Chain, h::Vector)
     if isa(m[:rnn].cell, bfl_cell)
         u = state(m)[:,2]
         hmat = hcat(h, u)
-        m[:rnn].state = hmat #hmatrix
+        m[:rnn].state = hmat 
         m(randn(Float32, size(u)))
-        new_state = state(m)[:,1]
-        return new_state
+        return state(m)[:,1]
     else
         reset!(m)
         m[:rnn].state = h
         m(nothing)
-        new_state = state(m)
-        return new_state
+        return state(m)
     end    
 end
 
-
-
-#reset!(activemodel)
-#for _ in 1:20
-#    activemodel(nothing)
-#end
-#old_h = state(activemodel.layers[1])
-
-#Jpullback1 = Zygote.jacobian(x -> state_to_state(activemodel, x), old_h)[1]
-#Jpullback2 = getjacobian(activemodel)
-
-#ploteigvals(Jpullback1)
+statejacobian(activemodel::Chain, hJ::Vector{Float32}) = Zygote.jacobian(x -> state_to_state(activemodel, x), hJ)[1]

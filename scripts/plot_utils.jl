@@ -24,20 +24,20 @@ function ploteigvals(eigs::Vector)
     return fig
 end
 
-function ploteigvals!(ax, A::AbstractMatrix)
+function ploteigvals!(ax, A::AbstractMatrix; kwargs...)
     eigs = eigvals(A)
     θ = LinRange(0, 2π, 1000)
     circle_x = cos.(θ)
     circle_y = sin.(θ)
     lines!(ax, circle_x, circle_y, color = :black)
-    scatter!(ax, real(eigs), imag(eigs), color = :blue)
+    scatter!(ax, real(eigs), imag(eigs), color = :blue, kwargs...)
 end
 
-function ploteigvals!(ax, eigs::Vector)
+function ploteigvals!(ax, eigs::Vector; kwargs...)
     θ = LinRange(0, 2π, 1000)
     circle_x = cos.(θ)
     circle_y = sin.(θ)
     lines!(ax, circle_x, circle_y, color = :black)
-    scatter!(ax, real(eigs), imag(eigs), color = :blue)
+    scatter!(ax, real(eigs), imag(eigs), color = :blue, kwargs...)
 end
 
