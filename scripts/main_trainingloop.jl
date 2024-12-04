@@ -45,7 +45,7 @@ else
     knownentries = nothing
 end
 
-EPOCHS = 20
+EPOCHS = 50
 MINIBATCH_SIZE = 64
 
 INFERENCE_EXPERIMENT::Bool = false
@@ -73,7 +73,7 @@ m, n, dataset_size = size(data["X"])
 # Create label data
 Y = label_setup(data, TASKCAT, TASK)
 # Create input data from ground truth
-masks = sensingmasks(m, n; k=knownentries, seed=9632)
+fixedmask = sensingmasks(m, n; k=knownentries, seed=9632)
 X = input_setup(Y, MEASCAT, m, n, dataset_size, knownentries)
 =#
 
@@ -87,7 +87,9 @@ Y = Array{Float32, 3}(undef, m, n, dataset_size)
 for i in 1:dataset_size
     Y[:, :, i] = setup(m, n, 1, 111+i)
 end
-masks = sensingmasks(m, n; k=knownentries, seed=9632)
+fixedmask = sensingmasks(m, n; k=knownentries, seed=9632)
+mask_mat = masktuple2array(fixedmask)
+@assert size(mask_mat) == (m, n)
 X = input_setup(Y, MEASCAT, m, n, dataset_size, knownentries)
 
 # Split data between training, validation, and test sets
@@ -235,8 +237,8 @@ traindataloader = Flux.DataLoader(
 
 train_loss = Float32[]
 val_loss = Float32[]
-train_accuracy = Float32[]
-val_accuracy = Float32[]
+#train_accuracy = Float32[]
+#val_accuracy = Float32[]
 train_rmse = Float32[]
 val_rmse = Float32[]
 jacobian_spectra = []
@@ -254,18 +256,20 @@ J = statejacobian(activemodel, hJ)
 try
     push!(jacobian_spectra, eigvals(J))
 catch err
-    println("Jacobian computation failed after epoch $epoch")
+    println("Jacobian spectrum computation failed after epoch $epoch")
     println("with error: $err")
 end
 push!(Whh_spectra, eigvals(activemodel[:rnn].cell.Whh))
 
-initmetrics_train = myloss(activemodel, Xtrain, Ytrain, turns = TURNS, mode = "testing", set = "full")
-initmetrics_val = myloss(activemodel, Xval, Yval, turns = TURNS, mode = "testing", set = "full")
+initmetrics_train = myloss(activemodel, Xtrain, Ytrain, mask_mat; 
+                           turns = TURNS, mode = "testing", incltrainloss = true, groundtruth = false)
+initmetrics_val = myloss(activemodel, Xval, Yval, mask_mat; 
+                         turns = TURNS, mode = "testing", incltrainloss = true, groundtruth = false)
 push!(train_loss, initmetrics_train["l2"])
-push!(train_accuracy, initmetrics_train["spectdist"])
+#push!(train_accuracy, initmetrics_train["spectdist"])
 push!(train_rmse, initmetrics_train["RMSE"])
 push!(val_loss, initmetrics_val["l2"])
-push!(val_accuracy, initmetrics_val["spectdist"])
+#push!(val_accuracy, initmetrics_val["spectdist"])
 push!(val_rmse, initmetrics_val["RMSE"])
 
 starttime = time()
@@ -277,7 +281,7 @@ for epoch in 1:10
     # Iterate over minibatches
     for (x, y) in traindataloader
         # Forward pass (to compute the loss) and backward pass (to compute the gradients)
-        train_loss_value, grads = Flux.withgradient(myloss, activemodel, x, y)#[1]
+        train_loss_value, grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat)#[1]
         push!(train_loss, train_loss_value)
         # Diagnose the gradients
         _n, _v, _e = inspect_gradients(grads[1])
@@ -307,25 +311,30 @@ for epoch in 1:10
     end
     # Print a summary of the gradient diagnostics for the epoch
     diagnose_gradients(n, v, e)
-    # Compute training metrics
-    trainmetrics = myloss(activemodel, Xtrain, Ytrain; turns = TURNS, mode = "testing", set = "train")
-    push!(train_accuracy, trainmetrics["spectdist"])
+    # Compute training metrics -- this is a very expensive operation because it involves a forward pass over the entire training set
+    # so I take a subset of the training set to compute the metrics
+    trainmetrics = myloss(activemodel, Xtrain[:,1:1000], Ytrain[:,1:1000], mask_mat; 
+                          turns = TURNS, mode = "testing", incltrainloss = false, groundtruth = false)
+    #push!(train_accuracy, trainmetrics["spectdist"])
     push!(train_rmse, trainmetrics["RMSE"])
     # Compute validation metrics
-    valmetrics = myloss(activemodel, Xval, Yval; turns = TURNS, mode = "testing", set = "full")
+    valmetrics = myloss(activemodel, Xval, Yval, mask_mat; 
+                        turns = TURNS, mode = "testing", incltrainloss = true, groundtruth = false)
     push!(val_loss, valmetrics["l2"])
-    push!(val_accuracy, valmetrics["spectdist"])
+    #push!(val_accuracy, valmetrics["spectdist"])
     push!(val_rmse, valmetrics["RMSE"])
-    println("Epoch $epoch: Train loss: $(train_loss[end]), Train spectdist: $(train_accuracy[end]); train RMSE: $(train_rmse[end])")
+    println("Epoch $epoch: Train loss: $(train_loss[end]); train spectdist: $(train_accuracy[end]); train RMSE: $(train_rmse[end])")
 end
 endtime = time()
 # training time in minutes
 println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 # Compute test accuracy
-testmetrics = myloss(activemodel, Xtest, Ytest; turns = TURNS, mode = "testing", set = "full")
-println("Test spectdist: $(testmetrics["spectdist"])")
+testmetrics = myloss(activemodel, Xtest, Ytest, mask_mat; 
+                     turns = TURNS, mode = "testing", incltrainloss = true, groundtruth = false)
+#println("Test spectdist: $(testmetrics["spectdist"])")
 println("Test RMSE: $(testmetrics["RMSE"])")
 println("Test loss: $(testmetrics["l2"])")
+
 
 if TASKCAT == "reconstruction"
     lossname = "Mean l2 reconstruction loss"
@@ -362,10 +371,10 @@ lines!(ax_loss, 1:epochs+1, val_loss, color = :red, label = "Validation")
 hlines!(ax_loss, [testmetrics["l2"]], color = :green, linestyle = :dash, label = "Final Test")
 #ylims!(ax_loss, 35.0, 170.0)
 axislegend(ax_loss, backgroundcolor = :transparent)
-ax_acc = Axis(fig[1, 2], xlabel = "Epochs", ylabel = "", title = accuracyname)
+#= ax_acc = Axis(fig[1, 2], xlabel = "Epochs", ylabel = "", title = accuracyname)
 lines!(ax_acc, 1:epochs+1, train_accuracy, color = :blue, label = "Training")
 lines!(ax_acc, 1:epochs+1, val_accuracy, color = :red, label = "Validation")
-hlines!(ax_acc, [testmetrics["spectdist"]], color = :green, linestyle = :dash, label = "Final Test")
+hlines!(ax_acc, [testmetrics["spectdist"]], color = :green, linestyle = :dash, label = "Final Test") =#
 #ylims!(ax_acc, 4.0, 7.0)
 axislegend(ax_acc, backgroundcolor = :transparent, position = :rt)
 ax_rmse = Axis(fig[2, 2], xlabel = "Epochs", ylabel = "RMSE", title = rmsename)
@@ -378,7 +387,7 @@ modlabel = GATED ? "BFL" : "Vanilla"
 Label(
     fig[begin-1, 1:2],
     "$(tasklab)\n$(modlabel) RNN of $net_width units, $TURNS dynamic steps"*
-    "\nwith training loss based on the ground truth matrix",
+    "\nwith training loss based on known entries",
     fontsize = 20,
     padding = (0, 0, 0, 0),
 )
@@ -395,7 +404,7 @@ Label(
 )
 fig
 
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_groundtruth.png", fig)
+save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries.png", fig)
 
 if WIDTH_EXPERIMENT
     push!(widthvec, net_width)
@@ -461,13 +470,13 @@ end
 fig2
 
 save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_Whh.jld2", "Whh", Whh)
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_groundtruth_learnedparams.png", fig2)
+save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_learnedparams.png", fig2)
 
 include("inprogress/helpersWhh.jl")
 g_end = adj_to_graph(Whh; threshold = 0.01)
 print_socgraph_descr(g_end)
 figdegdist = plot_degree_distrib(g_end)
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_groundtruth_degreedist.png", figdegdist)
+save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_degreedist.png", figdegdist)
 plot_socgraph(g_end)
 
 if INFERENCE_EXPERIMENT
@@ -534,7 +543,7 @@ timestamps = 1:N
 fj = Figure()
 ax = Axis(fj[1, 1], 
           title = @lift("Spectrum of state-to-state Jacobian during training\n"*
-                        "$(tasklab)\n$(modlabel) RNN of $net_width units, trained with $TURNS forward passes (ground truth loss)\n"*
+                        "$(tasklab)\n$(modlabel) RNN of $net_width units, trained with $TURNS forward passes (known entries loss)\n"*
                         "Epoch = $(round($ftime[], digits = 0))"))
 θ = LinRange(0, 2π, 1000)
 lines!(ax, cos.(θ), sin.(θ), color = :black)
@@ -542,7 +551,7 @@ xs = @lift(real(jacobian_spectra[Int(round($ftime[]))]))
 ys = @lift(imag(jacobian_spectra[Int(round($ftime[]))]))
 scatter!(ax, xs, ys, color = :blue, alpha = 0.95, markersize = 6.5)
 
-record(fj, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_groundtruth_Jacobian.mp4", timestamps;
+record(fj, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_Jacobian.mp4", timestamps;
        framerate = framerate) do t
     ftime[] = t
 end
@@ -556,7 +565,7 @@ timestamps = 1:N
 fw = Figure()
 ax = Axis(fw[1, 1], 
           title = @lift("Spectrum of Whh weight matrix during training\n"*
-                        "$(tasklab)\n$(modlabel) RNN of $net_width units, trained with $TURNS forward passes (ground truth loss)\n"*
+                        "$(tasklab)\n$(modlabel) RNN of $net_width units, trained with $TURNS forward passes (known entries loss)\n"*
                         "Epoch = $(round($ftime[], digits = 0))"))
 θ = LinRange(0, 2π, 1000)
 lines!(ax, cos.(θ), sin.(θ), color = :black)
@@ -564,7 +573,7 @@ xs = @lift(real(Whh_spectra[Int(round($ftime[]))]))
 ys = @lift(imag(Whh_spectra[Int(round($ftime[]))]))
 scatter!(ax, xs, ys, color = :blue, alpha = 0.95, markersize = 6.5)
 
-record(fw, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_groundtruth_Whh2.mp4", timestamps;
+record(fw, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_Whh2.mp4", timestamps;
        framerate = framerate) do t
     ftime[] = t
     autolimits!(ax)
