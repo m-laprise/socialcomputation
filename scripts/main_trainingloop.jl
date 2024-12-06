@@ -36,8 +36,8 @@ MEASCAT = measurecats[1]
 TASK = tasks[5]
 
 TURNS::Int = 10
-VANILLA::Bool = false
-net_width::Int = 750
+VANILLA::Bool = true
+net_width::Int = 800
 
 if MEASCAT == "masks"
     knownentries = 750
@@ -141,6 +141,9 @@ end
 
 # Initialize the models for classification with a sigmoid 
 # and the models for reconstruction without a sigmoid
+#Join(combine, paths) = Parallel(combine, paths)
+#Join(combine, paths...) = Join(combine, paths)
+
 if TASKCAT == "classification"
     # Initialize the vanilla RNN model
     m_vanilla = Chain(
@@ -167,8 +170,10 @@ elseif TASKCAT == "reconstruction"
         rnn = rnn(input_size, net_width;
             Whh_init = Whh_init, 
             h_init = "randn",
-            gated = false),
-        dec = Dense(net_width => output_size)
+            gated = false, dual = true),
+        combine = x -> (x[:,1] * x[:,2]'),
+        dec = BasisChange(net_width => m),
+        flatten = x -> vec(x)
     )
     # Initialize the BFL RNN model
     m_bfl = Chain(
@@ -183,11 +188,6 @@ elseif TASKCAT == "reconstruction"
     )
 end
 
-# I   = randn(Float32, net_width) * 0.1f0
-# y = m_bfl(I)[1]
-# m_bfl.layers[1].state
-# reset!(m_bfl)
-
 ##### DEFINE LOSS FUNCTIONS
 
 if TASKCAT == "classification" 
@@ -200,10 +200,7 @@ end
 ##### TRAINING
 
 #m_vanilla((Xtrain[:,1]))
-#m_vanilla((Xtrain[:,1]))[1]
 #m_vanilla((Xtrain[:,2]))[1]
-#a = myloss(m_vanilla, (Xtrain[:,1]), Ytrain[:,1], turns = turns)
-#b = myloss(m_vanilla, (Xtrain[:,2]), Ytrain[:,2], turns = turns)
 #c = myloss(m_vanilla, (Xtrain[:,3]), Ytrain[:,3], turns = turns)
 #ab = myloss(m_vanilla, (Xtrain[:,2:3]), Ytrain[:,2:3], turns = turns)
 #g = gradient(myloss, m_vanilla, (Xtrain[:,1:20]), Ytrain[:,1:20])[1]
@@ -242,29 +239,40 @@ val_loss = Float32[]
 train_rmse = Float32[]
 val_rmse = Float32[]
 jacobian_spectra = []
+jacobian_spectra2 = []
 Whh_spectra = []
 
 # STORE INITIAL METRICS
-reset!(activemodel)
+#=reset!(activemodel)
 if VANILLA 
     hJ = state(activemodel)
 else
     activemodel(randn(Float32, knownentries))
     hJ = state(activemodel)[:,1]
 end
+J = statejacobian(activemodel, hJ)=#
+reset!(activemodel)
+activemodel(randn(Float32, knownentries))
+hJ = state(activemodel)[:,1]
 J = statejacobian(activemodel, hJ)
+reset!(activemodel)
+activemodel(randn(Float32, knownentries))
+hJ2 = state(activemodel)[:,2]
+J2 = statejacobian(activemodel, hJ2)
 try
     push!(jacobian_spectra, eigvals(J))
+    push!(jacobian_spectra2, eigvals(J2))
 catch err
     println("Jacobian spectrum computation failed after epoch $epoch")
     println("with error: $err")
 end
 push!(Whh_spectra, eigvals(activemodel[:rnn].cell.Whh))
 
-initmetrics_train = myloss(activemodel, Xtrain, Ytrain, mask_mat; 
-                           turns = TURNS, mode = "testing", incltrainloss = true, groundtruth = false)
-initmetrics_val = myloss(activemodel, Xval, Yval, mask_mat; 
-                         turns = TURNS, mode = "testing", incltrainloss = true, groundtruth = false)
+gt = false
+initmetrics_train = myloss(activemodel, Xtrain[:, 1:1000], Ytrain[:, :, 1:1000], mask_mat, gt; 
+                           turns = TURNS, mode = "testing", incltrainloss = true)
+initmetrics_val = myloss(activemodel, Xval, Yval, mask_mat, gt; 
+                         turns = TURNS, mode = "testing", incltrainloss = true)
 push!(train_loss, initmetrics_train["l2"])
 #push!(train_accuracy, initmetrics_train["spectdist"])
 push!(train_rmse, initmetrics_train["RMSE"])
@@ -273,7 +281,7 @@ push!(val_loss, initmetrics_val["l2"])
 push!(val_rmse, initmetrics_val["RMSE"])
 
 starttime = time()
-for epoch in 1:10
+for epoch in 1:5
     reset!(activemodel)
     println("Commencing epoch $epoch")
     # Initialize counters for gradient diagnostics
@@ -281,7 +289,7 @@ for epoch in 1:10
     # Iterate over minibatches
     for (x, y) in traindataloader
         # Forward pass (to compute the loss) and backward pass (to compute the gradients)
-        train_loss_value, grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat)#[1]
+        train_loss_value, grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat, gt)#[1]
         push!(train_loss, train_loss_value)
         # Diagnose the gradients
         _n, _v, _e = inspect_gradients(grads[1])
@@ -290,12 +298,14 @@ for epoch in 1:10
         e += _e
         # Use the optimizer and grads to update the trainable parameters; update the optimizer states
         Flux.update!(opt_state, activemodel, grads[1])
-        println("Minibatch $(epoch)--$(mb): loss of $(round(train_loss_value, digits=4))")
+        if mb == 1 || mb % 5 == 0
+            println("Minibatch $(epoch)--$(mb): loss of $(round(train_loss_value, digits=4))")
+        end
         mb += 1
     end
     # Compute the Jacobian
     push!(Whh_spectra, eigvals(Flux.params(activemodel[:rnn].cell)[1]))
-    reset!(activemodel)
+    #=reset!(activemodel)
     if VANILLA 
         hJ = state(activemodel)
     else
@@ -308,44 +318,44 @@ for epoch in 1:10
     catch err
         println("Jacobian computation failed after epoch $epoch")
         println("with error: $err")
-    end
+    end=#
     # Print a summary of the gradient diagnostics for the epoch
     diagnose_gradients(n, v, e)
     # Compute training metrics -- this is a very expensive operation because it involves a forward pass over the entire training set
     # so I take a subset of the training set to compute the metrics
-    trainmetrics = myloss(activemodel, Xtrain[:,1:1000], Ytrain[:,1:1000], mask_mat; 
-                          turns = TURNS, mode = "testing", incltrainloss = false, groundtruth = false)
+    trainmetrics = myloss(activemodel, Xtrain[:,1:1000], Ytrain[:,:,1:1000], mask_mat, gt; 
+                          turns = TURNS, mode = "testing", incltrainloss = false)
     #push!(train_accuracy, trainmetrics["spectdist"])
     push!(train_rmse, trainmetrics["RMSE"])
     # Compute validation metrics
-    valmetrics = myloss(activemodel, Xval, Yval, mask_mat; 
-                        turns = TURNS, mode = "testing", incltrainloss = true, groundtruth = false)
+    valmetrics = myloss(activemodel, Xval, Yval, mask_mat, gt; 
+                        turns = TURNS, mode = "testing", incltrainloss = true)
     push!(val_loss, valmetrics["l2"])
     #push!(val_accuracy, valmetrics["spectdist"])
     push!(val_rmse, valmetrics["RMSE"])
-    println("Epoch $epoch: Train loss: $(train_loss[end]); train spectdist: $(train_accuracy[end]); train RMSE: $(train_rmse[end])")
+    println("Epoch $epoch: Train loss: $(train_loss[end]); train RMSE: $(train_rmse[end])")
 end
 endtime = time()
 # training time in minutes
 println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 # Compute test accuracy
-testmetrics = myloss(activemodel, Xtest, Ytest, mask_mat; 
-                     turns = TURNS, mode = "testing", incltrainloss = true, groundtruth = false)
+testmetrics = myloss(activemodel, Xtest, Ytest, mask_mat, gt; 
+                     turns = TURNS, mode = "testing", incltrainloss = true)
 #println("Test spectdist: $(testmetrics["spectdist"])")
 println("Test RMSE: $(testmetrics["RMSE"])")
 println("Test loss: $(testmetrics["l2"])")
 
 
 if TASKCAT == "reconstruction"
-    lossname = "Mean l2 reconstruction loss"
-    accuracyname = "Mean norm of spectral distance (singular values)"
-    rmsename = "Root mean squared reconstruction error"
+    lossname = "Mean nuclear-norm penalized l2 loss (known entries)"
+    #accuracyname = "Mean norm of spectral distance (singular values)"
+    rmsename = "Root mean squared reconstruction error (all entries)"
 else
     lossname = "Binary cross-entropy loss"
     accuracyname = "Classification accuracy"
 end
 
-tasklab = "Reconstructing 80x80 rank-1 matrices from $(net_width) of their entries"
+tasklab = "Reconstructing 80x80 rank-1 matrices from $(knownentries) of their entries"
 taskfilename = "80recon"
 
 #if TASK == "recon32"
@@ -358,9 +368,9 @@ elseif TASK == "random traces"
     tasklab = "Classifying 250x250 matrices as low/high rank from 50 traces of random projections"
     taskfilename = "250by250tracesclass" =#
 #end
-
-#fig = Figure(size = (820, 450))
-fig = Figure(size = (820, 700))
+CairoMakie.activate!()
+fig = Figure(size = (820, 450))
+#fig = Figure(size = (820, 700))
 #epochs = length(train_loss) - 1
 epochs = length(val_loss)-1
 ax_loss = Axis(fig[1, 1], xlabel = "Epochs", ylabel = "Loss", title = lossname)
@@ -368,19 +378,20 @@ ax_loss = Axis(fig[1, 1], xlabel = "Epochs", ylabel = "Loss", title = lossname)
 lines!(ax_loss, [i for i in range(1, epochs+1, length(train_loss))], train_loss, color = :blue, label = "Training")
 #lines!(ax_loss, 1:epochs+1, train_loss, color = :blue, label = "Training")
 lines!(ax_loss, 1:epochs+1, val_loss, color = :red, label = "Validation")
-hlines!(ax_loss, [testmetrics["l2"]], color = :green, linestyle = :dash, label = "Final Test")
+lines!(ax_loss, 1:epochs+1, [testmetrics["l2"]], color = :green, linestyle = :dash, label = "Final Test")
 #ylims!(ax_loss, 35.0, 170.0)
 axislegend(ax_loss, backgroundcolor = :transparent)
 #= ax_acc = Axis(fig[1, 2], xlabel = "Epochs", ylabel = "", title = accuracyname)
 lines!(ax_acc, 1:epochs+1, train_accuracy, color = :blue, label = "Training")
 lines!(ax_acc, 1:epochs+1, val_accuracy, color = :red, label = "Validation")
-hlines!(ax_acc, [testmetrics["spectdist"]], color = :green, linestyle = :dash, label = "Final Test") =#
+hlines!(ax_acc, [testmetrics["spectdist"]], color = :green, linestyle = :dash, label = "Final Test") 
 #ylims!(ax_acc, 4.0, 7.0)
-axislegend(ax_acc, backgroundcolor = :transparent, position = :rt)
-ax_rmse = Axis(fig[2, 2], xlabel = "Epochs", ylabel = "RMSE", title = rmsename)
+axislegend(ax_acc, backgroundcolor = :transparent, position = :rt)=#
+ax_rmse = Axis(fig[1, 2], xlabel = "Epochs", ylabel = "RMSE", title = rmsename)
+band!(ax_rmse, 1:epochs+1, 0.995 .* ones(epochs+1), 1.005 .* ones(epochs+1), label = "Random guess", color = :gray, alpha = 0.25)
 lines!(ax_rmse, 1:epochs+1, train_rmse, color = :blue, label = "Training")
 lines!(ax_rmse, 1:epochs+1, val_rmse, color = :red, label = "Validation")
-hlines!(ax_rmse, [testmetrics["RMSE"]], color = :green, linestyle = :dash, label = "Final Test")
+lines!(ax_rmse, 1:epochs+1, [testmetrics["RMSE"]], color = :green, linestyle = :dash, label = "Final Test")
 axislegend(ax_rmse, backgroundcolor = :transparent)
 # Add a title to the top of the figure
 modlabel = GATED ? "BFL" : "Vanilla"
@@ -394,9 +405,10 @@ Label(
 # Add notes to the bottom of the figure
 Label(
     fig[end+1, 1:2],
-    "Optimizer: Adam(eta=$eta)\n"*
+    "Optimizer: Adam(eta=0.002 for 5 epochs, then eta=$eta)\n"*
     #"Training time: $(round((endtime - starttime) / 60, digits=2)) minutes; "*
-    "Test loss: $(round(testmetrics["l2"],digits=2)). Test spectral distance: $(round(testmetrics["spectdist"],digits=2))."*
+    "Test loss: $(round(testmetrics["l2"],digits=2))."*
+    #"Test spectral distance: $(round(testmetrics["spectdist"],digits=2))."*
     "Test RMSE: $(round(testmetrics["RMSE"],digits=2)).",
     #"Optimizer: AdamW(eta=$eta, beta=$beta, decay=$decay)\nTraining time: $(round((endtime - starttime) / 60, digits=2)) minutes; Test accuracy: $(round(test_accuracy,digits=2)).",
     fontsize = 14,
@@ -572,9 +584,11 @@ lines!(ax, cos.(θ), sin.(θ), color = :black)
 xs = @lift(real(Whh_spectra[Int(round($ftime[]))]))
 ys = @lift(imag(Whh_spectra[Int(round($ftime[]))]))
 scatter!(ax, xs, ys, color = :blue, alpha = 0.95, markersize = 6.5)
+xlims!(ax, -1.5, 1.5)
+ylims!(ax, -1.5, 1.5)
 
-record(fw, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_Whh2.mp4", timestamps;
+record(fw, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_Whh.mp4", timestamps;
        framerate = framerate) do t
     ftime[] = t
-    autolimits!(ax)
+    #autolimits!(ax)
 end

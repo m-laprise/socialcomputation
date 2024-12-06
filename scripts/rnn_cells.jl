@@ -31,6 +31,16 @@ mutable struct rnn_cell_b{A,V}
     init::V # store initial state for reset
 end
 
+mutable struct rnn_cell_b_dual{A,V}
+    Whh::A
+    b1::V
+    b2::V
+    h::A
+    g1::V
+    g2::V
+    init::A # store initial state for reset
+end
+
 mutable struct bfl_cell{A,V}
     Whh::A
     b::V
@@ -46,6 +56,7 @@ function rnn_cell(input_size::Int,
                   h_init::String = "randn", 
                   Whh_init = nothing,
                   gated::Bool = false,
+                  dual::Bool = false,
                   basal_u::Float32 = Float32(1e-2),
                   gain::Float32 = Float32(0.5),
                   tauh::Float32 = Float32(0.5))
@@ -64,10 +75,11 @@ function rnn_cell(input_size::Int,
         h = zeros(Float32, net_width)
     elseif h_init == "randn"
         h = randn(Float32, net_width) * 0.01f0
+        h2 = randn(Float32, net_width) * 0.01f0
     else
         error("Invalid h_init value. Choose from 'zero' or 'randn'.")
     end
-    if input_size > 0 && gated == false
+    if input_size > 0 && gated == false && dual == false
         Wxh = randn(Float32, net_width, input_size) / sqrt(Float32(net_width))
         return rnn_cell_xb(
             Wxh, Whh,
@@ -75,12 +87,28 @@ function rnn_cell(input_size::Int,
             h, 
             h
         )
-    elseif input_size == 0 && gated == false
+    elseif input_size == 0 && gated == false && dual == false
         return rnn_cell_b(
             Whh,
             b_init,
             h, 
             h
+        )
+    elseif dual == true
+        b2 = randn(Float32, net_width) / sqrt(Float32(net_width))
+        g1 = rand(Float32, net_width)
+        g2 = rand(Float32, net_width)
+        hdual = Array{Float32}(undef, net_width, 2)
+        hdual[:, 1] = h
+        hdual[:, 2] = h2
+        return rnn_cell_b_dual(
+            Whh,
+            b_init,
+            b2,
+            hdual,
+            g1,
+            g2,
+            hdual
         )
     elseif gated == true
         basal_u = ones(Float32, net_width) * basal_u
@@ -129,6 +157,28 @@ function(m::rnn_cell_b)(state, I=nothing)
     return h_new, h_new
 end
 
+function(m::rnn_cell_b_dual)(state, I=nothing)
+    Whh, b1, b2, g1, g2 = m.Whh, m.b1, m.b2, m.g1, m.g2
+    h1 = @view state[:, 1]
+    h2 = @view state[:, 2]
+    if isnothing(I)
+        bias1 = b1 
+        bias2 = b2
+    else
+        @assert I isa Vector || size(I, 2) == 1
+        bias1 = b1 .+ pad_input(I, length(h1))
+        bias2 = b2 .+ pad_input(I, length(h2))
+    end
+    h1_new = tanhvf0(g1 .* (Whh * h1) .+ bias1)
+    h2_new = tanhvf0(g2 .* (Whh * h2) .+ bias2)
+    h_new_buf = Zygote.Buffer(zeros(Float32, size(state)))
+    h_new_buf[:, 1] = h1_new
+    h_new_buf[:, 2] = h2_new
+    h_new = copy(h_new_buf)
+    m.h = h_new
+    return h_new, h_new
+end
+
 function(m::bfl_cell)(state, I=nothing)
     Whh, b, basal_u, gain, tauh = m.Whh, m.b, m.basal_u, m.gain, m.tauh
     ho = @view state[:, 1]
@@ -154,10 +204,10 @@ end
 function pad_input(x::AbstractArray, width::Int)
     x = Float32.(x)
     if length(x) < width
-        padded_x = Vector{Float32}(undef, width)
-        padded_x[1:length(x)] = x
-        padded_x[length(x)+1:end] .= 0.0f0
-        return padded_x
+        #padded_x = Vector{Float32}(undef, width)
+        #padded_x[1:length(x)] = x
+        #padded_x[length(x)+1:end] .= 0.0f0
+        return vcat(x, zeros(Float32, width - length(x)))
     elseif length(x) > width
         @warn "Network too small: less than one node per input. Input will be truncated for distribution."
         return x[1:width]
@@ -168,10 +218,12 @@ end
 
 Flux.@layer rnn_cell_b trainable=(Whh, b)
 Flux.@layer rnn_cell_xb trainable=(Wxh, Whh, b)
+Flux.@layer rnn_cell_b_dual trainable=(Whh, b1, b2, g1, g2)
 Flux.@layer bfl_cell trainable=(Whh, b, gain, tauh)
 
 state(m::rnn_cell_b) = m.h
 state(m::rnn_cell_xb) = m.h
+state(m::rnn_cell_b_dual) = m.h
 state(m::bfl_cell) = m.h
 
 Base.show(io::IO, l::rnn_cell_xb) = print(
@@ -179,6 +231,9 @@ Base.show(io::IO, l::rnn_cell_xb) = print(
 
 Base.show(io::IO, l::rnn_cell_b) = print(
     io, "rnn_cell_b(", size(l.Whh), ")")
+
+Base.show(io::IO, l::rnn_cell_b_dual) = print(
+    io, "rnn_cell_b_dual(", size(l.Whh), ")")
 
 Base.show(io::IO, l::bfl_cell) = print(
     io, "bfl_cell(", size(l.Whh), ")")
@@ -206,6 +261,7 @@ function (m::Recur)(xs...)
 end
 state(m::Recur{ <:rnn_cell_b} ) = m.state
 state(m::Recur{ <:rnn_cell_xb} ) = m.state
+state(m::Recur{ <:rnn_cell_b_dual} ) = m.state
 state(m::Recur{ <:bfl_cell} ) = m.state
 
 Flux.@functor Recur cell, init
@@ -217,3 +273,35 @@ rnn(args...;kwargs...) = Recur(rnn_cell(args...;kwargs...))
 Reset the hidden state of a recurrent layer back to its original value. 
 """
 reset!(m::Recur) = (m.state = m.init)
+
+
+# Split layers
+struct Split{T}
+    paths::T
+end
+Split(paths...) = Split(paths)
+Flux.@layer Split
+(m::Split)(x::AbstractArray) = map(f -> f(x), m.paths)
+
+# CoB layer
+struct BasisChange{M<:AbstractMatrix}
+    weight::M
+    bias::M
+end
+
+function BasisChange((in, out)::Pair{<:Integer, <:Integer};
+               init = Flux.glorot_uniform)
+    bias_init = init(out, out)
+    weight_init = init(out, in)
+    BasisChange(weight_init, bias_init)
+end
+
+Flux.@layer BasisChange trainable=(weight, bias)
+(a::BasisChange)(x::AbstractVecOrMat) = (a.weight * x * a.weight' .+ a.bias)
+
+function Base.show(io::IO, l::BasisChange)
+    print(io, "BasisChange(", size(l.weight, 1), " => ", size(l.weight, 2))
+    l.bias == false && print(io, "; bias=false")
+    print(io, ")")
+end
+

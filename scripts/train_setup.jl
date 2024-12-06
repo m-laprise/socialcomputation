@@ -49,7 +49,7 @@ function input_setup(Y::AbstractArray,
         masks = sensingmasks(m, n; k=knownentries, seed=9632)
         X = zeros(Float32, knownentries, dataset_size)
         for k in 1:dataset_size
-            for l in 1:net_width
+            for l in 1:knownentries
                 i, j = masks[l]
                 X[l, k] = Y[i, j, k]
             end

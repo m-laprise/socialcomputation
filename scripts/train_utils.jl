@@ -90,6 +90,19 @@ function state_to_state(m::Chain, h::Vector)
         m[:rnn].state = hmat 
         m(randn(Float32, size(u)))
         return state(m)[:,1]
+    elseif isa(m[:rnn].cell, rnn_cell_b_dual)
+        h1 = state(m)[:,1]
+        h2 = state(m)[:,2]
+        hmat = hcat(h1, h2)
+        m[:rnn].state = hmat 
+        m(randn(Float32, size(h1)))
+        if h == h1
+            return state(m)[:,1]
+        elseif h == h2
+            return state(m)[:,2]
+        else
+            return @warn("State input does not match either state in the dual cell.")
+        end
     else
         reset!(m)
         m[:rnn].state = h

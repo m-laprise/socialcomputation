@@ -14,7 +14,8 @@ using SparseArrays: sparse
 MSE(A::AbstractArray, B::AbstractArray) = abs(mean((A .- B).^2))
 RMSE(A::AbstractArray, B::AbstractArray) = abs(sqrt(MSE(A, B)))
 
-spectdist(A, B) = norm(abs.(svdvals(A)) - abs.(svdvals(B))) / length(svdvals(A))
+spectdist(A::AbstractArray, B::AbstractArray) = norm(abs.(svdvals(A)) - abs.(svdvals(B))) / length(svdvals(A))
+nuclearnorm(A::AbstractArray) = sum(abs.(svdvals(A))) 
 
 # Use Flux.logitbinarycrossentropy instead, same operation but more numerically stable
 # mylogitbinarycrossentropy(ŷ, y) = mean(@.((1 - y) * ŷ - logσ(ŷ)))
@@ -30,7 +31,15 @@ function predict_through_time(m::Chain,
                               xs::AbstractArray{Float32}, 
                               turns::Int)
     @assert ndims(xs) == 2
-    output_size = length(m[:dec].bias)
+    if isa(m[:dec], Dense)
+        output_size = length(m[:dec].bias)
+    elseif isa(m[:dec], Split)
+        output_size = length(m[:dec].paths[1].bias)
+    elseif isa(m[:dec], BasisChange)
+        output_size = size(m[:dec].bias, 1)^2
+    else
+        @error("Model decoder layer not implemented for prediction through time.")
+    end
     nb_examples = size(xs)[2]
     # For each example, read in the input, recur for `turns` steps, 
     # and predict the label, then reset the state
@@ -85,12 +94,12 @@ end
 function recon_losses(m::Chain, 
                     xs::AbstractArray{Float32}, 
                     ys_mat::AbstractArray{Float32},
-                    mask_mat = nothing; 
+                    mask_mat = nothing,
+                    groundtruth::Bool = false; 
                     turns::Int = TURNS, 
                     mode::String = "training", 
                     incltrainloss::Bool = false, 
-                    type::String = "l2",
-                    groundtruth::Bool = false)
+                    type::String = "l2nnm")
     if !groundtruth
         @assert !isnothing(fixedmask)
     end
@@ -127,8 +136,12 @@ function recon_losses(m::Chain,
                 errors[i] = (l2normsq + l1norm) / totN
             elseif type == "l2"
                 errors[i] = l2normsq / totN
+            elseif type == "l2nnm"
+                theta = 0.7
+                nnm = nuclearnorm(ys_hat[:,i]) / l
+                errors[i] = theta * (l2normsq / totN) + (1 - theta) * nnm
             else 
-                error("Invalid type.")
+                error("Invalid type of loss function declared in training branch.")
             end
         end
         return mean(copy(errors))
@@ -150,8 +163,12 @@ function recon_losses(m::Chain,
                     l2errors[i] = (l2normsq + l1norm) / totN
                 elseif type == "l2"
                     l2errors[i] = l2normsq / totN
+                elseif type == "l2nnm"
+                    theta = 0.7
+                    nnm = nuclearnorm(ys_hat[:,i]) / l
+                    l2errors[i] = theta * (l2normsq / totN) + (1 - theta) * nnm    
                 else 
-                    error("Invalid type.")
+                    error("Invalid type of loss function declared in testing branch.")
                 end
             end
             # Include RMSE over all entries (in all cases)
