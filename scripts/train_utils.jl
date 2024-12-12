@@ -22,10 +22,10 @@ function inspect_gradients(grads)
     if any(isnan.(g))
         push!(nan_params, 1)
     end
-    if any(abs.(g) .< 1e-7)
+    if any(abs.(g) .< 1e-6)
         push!(vanishing_params, 1)
     end
-    if any(abs.(g) .> 1e7)
+    if any(abs.(g) .> 1e6)
         push!(exploding_params, 1)
     end
     return sum(nan_params), sum(vanishing_params), sum(exploding_params)
@@ -41,7 +41,7 @@ function diagnose_gradients(n, v, e)
     if n > 0
         println(n, " NaN gradients detected")
     end
-    if v > 0
+    if v > 0 && v != 125
         println(v, " vanishing gradients detected")
     end
     if e > 0
@@ -49,7 +49,7 @@ function diagnose_gradients(n, v, e)
     end
     #Otherwise, report that no issues were found
     if n == 0 && v == 0 && e == 0
-        println("Gradients appear to be well-behaved.")
+        println("Gradients appear well-behaved.")
     end
 end
 

@@ -5,8 +5,6 @@ using Zygote
 using JLD2, CodecBzip2
 using CairoMakie
 using LinearAlgebra
-using ParameterSchedulers
-using ParameterSchedulers: Scheduler
 
 include("genrandommatrix.jl")
 include("rnn_cells.jl")
@@ -32,12 +30,10 @@ datasetnames = ["lr_c1", "lr_c2",
                 "lr_r_32", "lr_r_64", "lr_r_128", "lr_r_256", 
                 "sparse_200"]
 
-TASKCAT = taskcats[2]
 DATASETNAME = datasetnames[3]
+TASKCAT = taskcats[2]
 MEASCAT = measurecats[1]
 TASK = tasks[5]
-
-RANK::Int = 1
 
 TURNS::Int = 1
 VANILLA::Bool = true
@@ -71,6 +67,16 @@ train_prop::Float64 = 0.8
 val_prop::Float64 = 0.1
 test_prop::Float64 = 0.1
 
+#= Initial setup from saved data
+data = load("data/rnn_firstexpdata.jld2", DATASETNAME)
+m, n, dataset_size = size(data["X"])
+# Create label data
+Y = label_setup(data, TASKCAT, TASK)
+# Create input data from ground truth
+fixedmask = sensingmasks(m, n; k=knownentries, seed=9632)
+X = input_setup(Y, MEASCAT, m, n, dataset_size, knownentries)
+=#
+
 m, n, dataset_size = 80, 80, 10000
 function setup(m, n, r, seed; datatype=Float32)
     rng = Random.MersenneTwister(seed)
@@ -81,7 +87,7 @@ function setup(m, n, r, seed; datatype=Float32)
 end
 Y = Array{Float32, 3}(undef, m, n, dataset_size)
 for i in 1:dataset_size
-    Y[:, :, i] = setup(m, n, RANK, 111+i)
+    Y[:, :, i] = setup(m, n, 1, 111+i)
 end
 fixedmask = sensingmasks(m, n; k=knownentries, seed=9632)
 mask_mat = masktuple2array(fixedmask)
@@ -92,8 +98,14 @@ X = input_setup(Y, MEASCAT, m, n, dataset_size, knownentries)
 Xtrain, Xval, Xtest = train_val_test_split(X, train_prop, val_prop, test_prop)
 Ytrain, Yval, Ytest = train_val_test_split(Y, train_prop, val_prop, test_prop)
 
-ranks = [RANK]
-
+ranks = [1]
+#= if TASKCAT == "reconstruction"
+    ranks = unique(data["ranks"])
+    size(ranks)
+else
+    ranks_train, ranks_val, ranks_test = train_val_test_split(data["ranks"], train_prop, val_prop, test_prop)
+    size(ranks_train)
+end =#
 size(Xtrain), size(Ytrain)
 
 ##### INITIALIZE NETWORK
@@ -116,35 +128,74 @@ end
 input_size = 0
 
 # Set output size based on task
-# For matrix reconstruction, output size is the number of entries in the matrix
-output_size = m * n
+if TASKCAT == "classification"
+    # For binary classification, output size is 1
+    if TASK == "classif1a" || TASK == "classif1b"
+        output_size = 1
+    # For multi-class classification, output size is the number of classes
+    elseif TASK == "classif2a" || TASK == "classif2b"
+        output_size = nb_classes
+    end
+elseif TASKCAT == "reconstruction"
+    # For matrix reconstruction, output size is the number of entries in the matrix
+    output_size = m * n
+end
 
+# Initialize the models for classification with a sigmoid 
+# and the models for reconstruction without a sigmoid
 #Join(combine, paths) = Parallel(combine, paths)
 #Join(combine, paths...) = Join(combine, paths)
 
-# Initialize the vanilla RNN model
-m_vanilla = Chain(
+if TASKCAT == "classification"
+    # Initialize the vanilla RNN model
+    m_vanilla = Chain(
+        rnn = rnn(input_size, net_width; 
+            Whh_init = Whh_init, 
+            h_init = "randn",
+            gated = false),
+        dec = Dense(net_width => output_size, sigmoid)
+    )
+    # Initialize the BFL RNN model
+    m_bfl = Chain(
+        rnn = rnn(input_size, net_width;
+            Whh_init = Whh_init,
+            h_init = "randn",
+            gated = true,
+            basal_u = 0.01f0,
+            gain = 0.5f0),
+        filter = x -> x[:,1], # Use only opinion states, not attention states, for decoding
+        dec = Dense(net_width => output_size, sigmoid)
+    )
+elseif TASKCAT == "reconstruction"
+    # Initialize the vanilla RNN model
+    m_vanilla = Chain(
     rnn = rnn(input_size, net_width;
         Whh_init = Whh_init, 
         h_init = "randn",
         gated = false),
     dec = Dense(net_width => output_size),
-)
-# Initialize the BFL RNN model
-m_bfl = Chain(
-    rnn = rnn(input_size, net_width; 
-        Whh_init = Whh_init, 
-        h_init = "randn",
-        gated = true,
-        basal_u = 0.01f0,
-        gain = 1.25f0),
-    filter = x -> x[:,1], # Use only opinion states, not attention states, for decoding
-    dec = Dense(net_width => output_size)
-)
+    )
+    # Initialize the BFL RNN model
+    m_bfl = Chain(
+        rnn = rnn(input_size, net_width; 
+            Whh_init = Whh_init, 
+            h_init = "randn",
+            gated = true,
+            basal_u = 0.01f0,
+            gain = 1.25f0),
+        filter = x -> x[:,1], # Use only opinion states, not attention states, for decoding
+        dec = Dense(net_width => output_size)
+    )
+end
 
 ##### DEFINE LOSS FUNCTIONS
 
-myloss = recon_losses
+if TASKCAT == "classification" 
+    myloss = logitbinarycrossent
+    accuracy = classification_accuracy
+elseif TASKCAT == "reconstruction"
+    myloss = recon_losses
+end
 
 ##### TRAINING
 
@@ -170,6 +221,8 @@ state(m::Chain) = state(m.layers[:rnn])
 opt = OptimiserChain(
     Adam(eta)
 )=#
+using ParameterSchedulers
+using ParameterSchedulers: Scheduler
 
 #= min_eta = 1e-6 # don't actually start with lr = 0
 initial_eta = 1e-2
@@ -179,11 +232,12 @@ WarmupSin(starteta, initeta, warmup, total_iters, schedule) =
              schedule => total_iters)
 s = WarmupSin(min_lr, initial_eta, warmup, total_iters, Exp(initial_eta, 0.5))=#
 # schedule = Cos(λ0 = 1e-4, λ1 = 1e-2, period = 10)
-# init_eta = 5e-3
-# decay = 0.8
+# 
+init_eta = 5e-3
+decay = 0.8
 #s = Exp(start = init_eta, decay = decay)
-l0 = 5e-4
-l1 = 1e-6
+l0 = 1e-3
+l1 = 1e-5
 s = CosAnneal(l0, l1, EPOCHS) #Int(round(EPOCHS/2))
 for (eta, epoch) in zip(s, 1:EPOCHS)
     println("Epoch $epoch: learning rate = $eta")
@@ -199,9 +253,12 @@ traindataloader = Flux.DataLoader(
 
 train_loss = Float32[]
 val_loss = Float32[]
+#train_accuracy = Float32[]
+#val_accuracy = Float32[]
 train_rmse = Float32[]
 val_rmse = Float32[]
 jacobian_spectra = []
+#jacobian_spectra2 = []
 Whh_spectra = []
 
 # STORE INITIAL METRICS
@@ -223,8 +280,10 @@ initmetrics_train = myloss(activemodel, Xtrain[:, 1:1000], Ytrain[:, :, 1:1000],
 initmetrics_val = myloss(activemodel, Xval, Yval, mask_mat, gt; 
                          turns = TURNS, mode = "testing", incltrainloss = true)
 push!(train_loss, initmetrics_train["l2"])
+#push!(train_accuracy, initmetrics_train["spectdist"])
 push!(train_rmse, initmetrics_train["RMSE"])
 push!(val_loss, initmetrics_val["l2"])
+#push!(val_accuracy, initmetrics_val["spectdist"])
 push!(val_rmse, initmetrics_val["RMSE"])
 
 starttime = time()
@@ -276,13 +335,14 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     # Compute training metrics -- this is a very expensive operation because it involves a forward pass over the entire training set
     # so I take a subset of the training set to compute the metrics
     trainmetrics = myloss(activemodel, Xtrain[:,1:1000], Ytrain[:,:,1:1000], mask_mat, gt; 
-                          turns = TURNS, mode = "testing", incltrainloss = true)
-    push!(train_loss, trainmetrics["l2"])
+                          turns = TURNS, mode = "testing", incltrainloss = false)
+    #push!(train_accuracy, trainmetrics["spectdist"])
     push!(train_rmse, trainmetrics["RMSE"])
     # Compute validation metrics
     valmetrics = myloss(activemodel, Xval, Yval, mask_mat, gt; 
                         turns = TURNS, mode = "testing", incltrainloss = true)
     push!(val_loss, valmetrics["l2"])
+    #push!(val_accuracy, valmetrics["spectdist"])
     push!(val_rmse, valmetrics["RMSE"])
     println("Epoch $epoch: Train loss: $(train_loss[end]); train RMSE: $(train_rmse[end])")
     println("Epoch $epoch: Val loss: $(val_loss[end]); val RMSE: $(val_rmse[end])")
@@ -290,21 +350,39 @@ end
 endtime = time()
 # training time in minutes
 println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
-# Assess on testing set
+# Compute test accuracy
 testmetrics = myloss(activemodel, Xtest, Ytest, mask_mat, gt; 
                      turns = TURNS, mode = "testing", incltrainloss = true)
+#println("Test spectdist: $(testmetrics["spectdist"])")
 println("Test RMSE: $(testmetrics["RMSE"])")
 println("Test loss: $(testmetrics["l2"])")
 
 
+if TASKCAT == "reconstruction"
+    lossname = "Mean nuclear-norm penalized l2 loss (known entries)"
+    #accuracyname = "Mean norm of spectral distance (singular values)"
+    rmsename = "Root mean squared reconstruction error / std (all entries)"
+else
+    lossname = "Binary cross-entropy loss"
+    accuracyname = "Classification accuracy"
+end
 
-lossname = "Mean nuclear-norm penalized l2 loss (known entries)"
-rmsename = "Root mean squared reconstruction error / std (all entries)"
-tasklab = "Reconstructing $(m)x$(m) rank-$(RANK) matrices from $(knownentries) of their entries"
+tasklab = "Reconstructing $(m)x$(m) rank-1 matrices from $(knownentries) of their entries"
 taskfilename = "$(m)recon"
 
+#if TASK == "recon32"
+#    tasklab = "Reconstructing 32x32 rank 8 matrices from $(net_width) of their entries"
+#    taskfilename = "32recon"
+#= elseif TASK == "small_classification"
+    tasklab = "Classifying 8x8 matrices as full rank or rank 1"
+    taskfilename = "8by8class"
+elseif TASK == "random traces"
+    tasklab = "Classifying 250x250 matrices as low/high rank from 50 traces of random projections"
+    taskfilename = "250by250tracesclass" =#
+#end
 CairoMakie.activate!()
 fig = Figure(size = (820, 450))
+#fig = Figure(size = (820, 700))
 #epochs = length(train_loss) - 1
 train_l = train_loss[126:end]
 val_l = val_loss[2:end]
@@ -312,12 +390,20 @@ train_r = train_rmse[2:end]
 val_r = val_rmse[2:end]
 epochs = length(val_l)
 ax_loss = Axis(fig[1, 1], xlabel = "Epochs", ylabel = "Loss", title = lossname)
-# There are many samples of train loss (init + every mini batch) and few samples of val_loss (init + every epoch)
+# There are 626 samples of train loss (init + every mini batch) and only 6 samples of val_loss (init + every epoch)
 lines!(ax_loss, [i for i in range(1, epochs, length(train_l))], train_l, color = :blue, label = "Training")
+#lines!(ax_loss, 1:epochs, train_loss, color = :blue, label = "Training")
 lines!(ax_loss, 1:epochs, val_l, color = :red, label = "Validation")
 lines!(ax_loss, 1:epochs, [testmetrics["l2"]], color = :green, linestyle = :dash)
 scatter!(ax_loss, epochs, testmetrics["l2"], color = :green, label = "Final Test")
+#ylims!(ax_loss, 35.0, 170.0)
 axislegend(ax_loss, backgroundcolor = :transparent)
+#= ax_acc = Axis(fig[1, 2], xlabel = "Epochs", ylabel = "", title = accuracyname)
+lines!(ax_acc, 1:epochs+1, train_accuracy, color = :blue, label = "Training")
+lines!(ax_acc, 1:epochs+1, val_accuracy, color = :red, label = "Validation")
+hlines!(ax_acc, [testmetrics["spectdist"]], color = :green, linestyle = :dash, label = "Final Test") 
+#ylims!(ax_acc, 4.0, 7.0)
+axislegend(ax_acc, backgroundcolor = :transparent, position = :rt)=#
 ax_rmse = Axis(fig[1, 2], xlabel = "Epochs", ylabel = "RMSE", title = rmsename)
 #band!(ax_rmse, 1:epochs, 0.995 .* ones(epochs), 1.005 .* ones(epochs), label = "Random guess", color = :gray, alpha = 0.25)
 lines!(ax_rmse, 1:epochs, train_r, color = :blue, label = "Training")
@@ -325,6 +411,7 @@ lines!(ax_rmse, 1:epochs, val_r, color = :red, label = "Validation")
 lines!(ax_rmse, 1:epochs, [testmetrics["RMSE"]], color = :green, linestyle = :dash)
 scatter!(ax_rmse, epochs, testmetrics["RMSE"], color = :green, label = "Final Test")
 axislegend(ax_rmse, backgroundcolor = :transparent)
+# Add a title to the top of the figure
 modlabel = GATED ? "BFL" : "Vanilla"
 Label(
     fig[begin-1, 1:2],
@@ -336,17 +423,18 @@ Label(
 # Add notes to the bottom of the figure
 Label(
     fig[end+1, 1:2],
-    "Optimizer: Adam with learning schedule (range: $(l0)-$(l1)))\n"*
+    "Optimizer: Adam with cosine annealing, warm restarts (range: $(l0)-$(l1)))\n"*
     #"Training time: $(round((endtime - starttime) / 60, digits=2)) minutes; "*
-    "Test loss: $(round(testmetrics["l2"],digits=4))."*
-    "Test RMSE: $(round(testmetrics["RMSE"],digits=4)).",
-    #"Optimizer: AdamW(eta=$eta, beta=$beta, decay=$decay)",
+    "Test loss: $(round(testmetrics["l2"],digits=3))."*
+    #"Test spectral distance: $(round(testmetrics["spectdist"],digits=2))."*
+    "Test RMSE: $(round(testmetrics["RMSE"],digits=3)).",
+    #"Optimizer: AdamW(eta=$eta, beta=$beta, decay=$decay)\nTraining time: $(round((endtime - starttime) / 60, digits=2)) minutes; Test accuracy: $(round(test_accuracy,digits=2)).",
     fontsize = 14,
     padding = (0, 0, 0, 0),
 )
 fig
 
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_sch3.png", fig)
+save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_sch2.png", fig)
 
 if WIDTH_EXPERIMENT
     push!(widthvec, net_width)
@@ -380,6 +468,7 @@ if WIDTH_EXPERIMENT
     save("data/$(modlabel)RNNvaryingwidths_$(taskfilename)_$(TURNS)turns.png", fig_w)
 end
 
+
 Whh = activemodel[:rnn].cell.Whh
 bs = activemodel[:rnn].cell.b
 if GATED
@@ -394,6 +483,7 @@ end
 
 fig2 = Figure(size = (700, height))
 ax1 = Axis(fig2[1, 1], title = "Eigenvalues of Recurrent Weights", xlabel = "Real", ylabel = "Imaginary")
+#ploteigvals!(ax1, Whh; alpha = 0.5)
 θ = LinRange(0, 2π, 1000)
 scatter!(ax1, real(eigvals(Whh)), imag(eigvals(Whh)), color = :blue, alpha = 0.85, markersize = 6)
 lines!(ax1, cos.(θ), sin.(θ), color = :black, linewidth = 2)
@@ -500,6 +590,7 @@ record(fj, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_k
     ftime[] = t
     #autolimits!(ax)
 end
+
 
 N = length(Whh_spectra)
 ftime = Observable(1.0)

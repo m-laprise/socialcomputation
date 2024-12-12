@@ -31,15 +31,18 @@ function predict_through_time(m::Chain,
                               xs::AbstractArray{Float32}, 
                               turns::Int)
     @assert ndims(xs) == 2
-    if isa(m[:dec], Dense)
+    trial_output = m(xs[:,1])
+    output_size = length(trial_output)
+    #= if isa(m[:dec], Dense)
         output_size = length(m[:dec].bias)
     elseif isa(m[:dec], Split)
-        output_size = length(m[:dec].paths[1].bias)
+        #output_size = length(m[:dec].paths[1].bias)
+        output_size = length(m[:dec].paths[1][:fwd].bias)
     elseif isa(m[:dec], BasisChange)
         output_size = size(m[:dec].bias, 1)^2
     else
         @error("Model decoder layer not implemented for prediction through time.")
-    end
+    end =#
     nb_examples = size(xs)[2]
     # For each example, read in the input, recur for `turns` steps, 
     # and predict the label, then reset the state
@@ -130,16 +133,16 @@ function recon_losses(m::Chain,
             else
                 diff = ys[:,i] .- ys_hat[:,i]
             end
-            l2normsq = norm(diff, 2)^2
+            l2normsq = norm(diff, 2)^2 /0.1
             if type == "l2l1"
                 l1norm = norm(diff, 1)
                 errors[i] = (l2normsq + l1norm) / totN
             elseif type == "l2"
                 errors[i] = l2normsq / totN
             elseif type == "l2nnm"
-                theta = 0.7
+                theta = 0.8
                 nnm = nuclearnorm(ys_hat[:,i]) / l
-                errors[i] = theta * (l2normsq / totN) + (1 - theta) * nnm
+                errors[i] = (theta * (l2normsq / totN) + (1 - theta) * nnm) /0.1
             else 
                 error("Invalid type of loss function declared in training branch.")
             end
@@ -157,22 +160,22 @@ function recon_losses(m::Chain,
                 else
                     diff = ys[:,i] .- ys_hat[:,i]
                 end
-                l2normsq = norm(diff, 2)^2
+                l2normsq = norm(diff, 2)^2 /0.1
                 if type == "l2l1"
                     l1norm = norm(diff, 1)
                     l2errors[i] = (l2normsq + l1norm) / totN
                 elseif type == "l2"
                     l2errors[i] = l2normsq / totN
                 elseif type == "l2nnm"
-                    theta = 0.7
+                    theta = 0.8
                     nnm = nuclearnorm(ys_hat[:,i]) / l
-                    l2errors[i] = theta * (l2normsq / totN) + (1 - theta) * nnm    
+                    l2errors[i] = (theta * (l2normsq / totN) + (1 - theta) * nnm) /0.1
                 else 
                     error("Invalid type of loss function declared in testing branch.")
                 end
             end
             # Include RMSE over all entries (in all cases)
-            RMSerrors_all[i] = RMSE(ys[:,i], ys_hat[:,i])
+            RMSerrors_all[i] = RMSE(ys[:,i], ys_hat[:,i]) /0.1
         end
         return Dict("l2" => mean(copy(l2errors)), 
                     "RMSE" => mean(copy(RMSerrors_all)))
