@@ -39,8 +39,9 @@ TASK = tasks[5]
 
 RANK::Int = 1
 
-TURNS::Int = 1
-VANILLA::Bool = true
+TURNS::Int = 20
+VANILLA::Bool = false
+GATED::Bool = true
 net_width::Int = 1500
 
 if MEASCAT == "masks"
@@ -49,7 +50,7 @@ else
     knownentries = nothing
 end
 
-EPOCHS = 30
+EPOCHS = 6
 MINIBATCH_SIZE = 64
 
 INFERENCE_EXPERIMENT::Bool = false
@@ -130,12 +131,21 @@ m_vanilla = Chain(
         gated = false),
     dec = Dense(net_width => output_size),
 )
+# Initialize the GRU model
+m_gru = Chain(
+    rnn = rnn(input_size, net_width;
+        Whh_init = Whh_init, 
+        h_init = "randn",
+        gated = true),
+    filter = x -> x[:,1], # Use only opinion states, not gating state, for decoding
+    dec = Dense(net_width => output_size),
+)
 # Initialize the BFL RNN model
 m_bfl = Chain(
     rnn = rnn(input_size, net_width; 
         Whh_init = Whh_init, 
         h_init = "randn",
-        gated = true,
+        bfl = true,
         basal_u = 0.01f0,
         gain = 1.25f0),
     filter = x -> x[:,1], # Use only opinion states, not attention states, for decoding
@@ -157,6 +167,9 @@ myloss = recon_losses
 if VANILLA
     activemodel = m_vanilla
     GATED = false
+elseif GATED
+    activemodel = m_gru
+    GATED = true
 else
     activemodel = m_bfl
     GATED = true
@@ -179,12 +192,12 @@ WarmupSin(starteta, initeta, warmup, total_iters, schedule) =
              schedule => total_iters)
 s = WarmupSin(min_lr, initial_eta, warmup, total_iters, Exp(initial_eta, 0.5))=#
 # schedule = Cos(λ0 = 1e-4, λ1 = 1e-2, period = 10)
-# init_eta = 5e-3
-# decay = 0.8
-#s = Exp(start = init_eta, decay = decay)
-l0 = 5e-4
-l1 = 1e-6
-s = CosAnneal(l0, l1, EPOCHS) #Int(round(EPOCHS/2))
+init_eta = 1e-4
+decay = 0.7
+s = Exp(start = init_eta, decay = decay)
+#l0 = 5e-4
+#l1 = 1e-6
+#s = CosAnneal(l0, l1, EPOCHS) #Int(round(EPOCHS/2))
 for (eta, epoch) in zip(s, 1:EPOCHS)
     println("Epoch $epoch: learning rate = $eta")
 end
@@ -286,6 +299,13 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     push!(val_rmse, valmetrics["RMSE"])
     println("Epoch $epoch: Train loss: $(train_loss[end]); train RMSE: $(train_rmse[end])")
     println("Epoch $epoch: Val loss: $(val_loss[end]); val RMSE: $(val_rmse[end])")
+    # Check if validation loss has increased for 2 epochs in a row; if so, stop training
+    if length(val_loss) > 2
+        if val_loss[end] > val_loss[end-1] && val_loss[end-1] > val_loss[end-2]
+            println("Early stopping at epoch $epoch")
+            break
+        end
+    end
 end
 endtime = time()
 # training time in minutes
@@ -295,7 +315,6 @@ testmetrics = myloss(activemodel, Xtest, Ytest, mask_mat, gt;
                      turns = TURNS, mode = "testing", incltrainloss = true)
 println("Test RMSE: $(testmetrics["RMSE"])")
 println("Test loss: $(testmetrics["l2"])")
-
 
 
 lossname = "Mean nuclear-norm penalized l2 loss (known entries)"
@@ -325,7 +344,7 @@ lines!(ax_rmse, 1:epochs, val_r, color = :red, label = "Validation")
 lines!(ax_rmse, 1:epochs, [testmetrics["RMSE"]], color = :green, linestyle = :dash)
 scatter!(ax_rmse, epochs, testmetrics["RMSE"], color = :green, label = "Final Test")
 axislegend(ax_rmse, backgroundcolor = :transparent)
-modlabel = GATED ? "BFL" : "Vanilla"
+modlabel = GATED ? "Gated" : "Vanilla"
 Label(
     fig[begin-1, 1:2],
     "$(tasklab)\n$(modlabel) RNN of $net_width units, $TURNS dynamic steps"*
@@ -336,7 +355,7 @@ Label(
 # Add notes to the bottom of the figure
 Label(
     fig[end+1, 1:2],
-    "Optimizer: Adam with learning schedule (range: $(l0)-$(l1)))\n"*
+    "Optimizer: Adam with schedule Exp(start = $(init_eta), decay = $(decay))\n"*
     #"Training time: $(round((endtime - starttime) / 60, digits=2)) minutes; "*
     "Test loss: $(round(testmetrics["l2"],digits=4))."*
     "Test RMSE: $(round(testmetrics["RMSE"],digits=4)).",
@@ -346,7 +365,7 @@ Label(
 )
 fig
 
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_sch3.png", fig)
+save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries.png", fig)
 
 if WIDTH_EXPERIMENT
     push!(widthvec, net_width)
@@ -383,8 +402,10 @@ end
 Whh = activemodel[:rnn].cell.Whh
 bs = activemodel[:rnn].cell.b
 if GATED
-    gains = activemodel[:rnn].cell.gain
-    tauh = activemodel[:rnn].cell.tauh
+    #gains = activemodel[:rnn].cell.gain
+    #tauh = activemodel[:rnn].cell.tauh
+    Wz = activemodel[:rnn].cell.Wz
+    bz = activemodel[:rnn].cell.bz
 end
 if GATED
     height = 550
@@ -395,15 +416,17 @@ end
 fig2 = Figure(size = (700, height))
 ax1 = Axis(fig2[1, 1], title = "Eigenvalues of Recurrent Weights", xlabel = "Real", ylabel = "Imaginary")
 θ = LinRange(0, 2π, 1000)
-scatter!(ax1, real(eigvals(Whh)), imag(eigvals(Whh)), color = :blue, alpha = 0.85, markersize = 6)
+scatter!(ax1, real(eigvals(Whh)), imag(eigvals(Whh)), color = :blue, alpha = 0.85, markersize = 5)
 lines!(ax1, cos.(θ), sin.(θ), color = :black, linewidth = 2)
-ax2 = Axis(fig2[1, 2], title = "Biases", xlabel = "Unit", ylabel = "Value")
-scatter!(ax2, 1:net_width, bs, color = :red, alpha = 0.85, markersize = 6)
+ax2 = Axis(fig2[1, 2], title = "Recurrent Biases", xlabel = "Unit", ylabel = "Value")
+scatter!(ax2, 1:net_width, bs, color = :red, alpha = 0.85, markersize = 5)
 if GATED
-    ax3 = Axis(fig2[2, 1], title = "Tau", xlabel = "Unit", ylabel = "Value")
-    scatter!(ax3, 1:net_width, tauh, color = :green, alpha = 0.85, markersize = 6)
-    ax4 = Axis(fig2[2, 2], title = "Gains", xlabel = "Unit", ylabel = "Value")
-    scatter!(ax4, 1:net_width, gains, color = :purple, alpha = 0.85, markersize = 6)
+    ax3 = Axis(fig2[2, 1], title = "Eigenvalues of Gating weights", xlabel = "Unit", ylabel = "Value")
+    #scatter!(ax3, 1:net_width, Wz, color = :green, alpha = 0.85, markersize = 6)
+    scatter!(ax3, real(eigvals(Wz)), imag(eigvals(Wz)), color = :blue, alpha = 0.85, markersize = 5)
+    lines!(ax3, cos.(θ), sin.(θ), color = :black, linewidth = 2)
+    ax4 = Axis(fig2[2, 2], title = "Gating biases", xlabel = "Unit", ylabel = "Value")
+    scatter!(ax4, 1:net_width, bz, color = :purple, alpha = 0.85, markersize = 5)
 end
 fig2
 

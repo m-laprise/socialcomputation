@@ -41,6 +41,16 @@ mutable struct rnn_cell_b_dual{A,V}
     init::A # store initial state for reset
 end
 
+mutable struct customgru_cell{A,V}
+    Whh::A
+    b::V
+    bz::V
+    g1::V
+    g2::V
+    h::A
+    init::A # store initial state for reset
+end
+
 mutable struct bfl_cell{A,V}
     Whh::A
     b::V
@@ -56,6 +66,7 @@ function rnn_cell(input_size::Int,
                   h_init::String = "randn", 
                   Whh_init = nothing,
                   gated::Bool = false,
+                  bfl::Bool = false,
                   dual::Bool = false,
                   basal_u::Float32 = Float32(1e-2),
                   gain::Float32 = Float32(0.5),
@@ -111,6 +122,21 @@ function rnn_cell(input_size::Int,
             hdual
         )
     elseif gated == true
+        bz = randn(Float32, net_width) / sqrt(Float32(net_width))
+        g1 = ones(Float32, net_width)
+        g2 = ones(Float32, net_width)
+        htot = Array{Float32}(undef, net_width, 2)
+        htot[:, 1] = h
+        htot[:, 2] = zeros(Float32, net_width)
+        return customgru_cell(
+            Whh,
+            b_init,
+            bz,
+            g1, g2,
+            htot,
+            htot
+        )
+    elseif bfl == true
         basal_u = ones(Float32, net_width) * basal_u
         gain = ones(Float32, net_width) * gain
         tauh = ones(Float32, net_width) * tauh
@@ -179,6 +205,28 @@ function(m::rnn_cell_b_dual)(state, I=nothing)
     return h_new, h_new
 end
 
+function(m::customgru_cell)(state, I=nothing)
+    Whh, b, bz, g1, g2 = m.Whh, m.b, m.bz, m.g1, m.g2
+    h = @view state[:, 1]
+    if isnothing(I)
+        bias = b
+        Iz = zeros(Float32, length(h))
+    else
+        @assert I isa Vector || size(I, 2) == 1
+        bias = b .+ pad_input(I, length(h))
+        Iz = pad_input(I, length(h))
+    end
+    h_upd = tanhvf0(Whh * h .+ bias)
+    tau = sigmoid.((g1 .* (Whh * h)) .+ (g2 .* (Whh * Iz)) .+ bz)
+    h_new = ((1f0 .- tau) .* h_upd) .+ (tau .* h)
+    state_new_buf = Zygote.Buffer(zeros(Float32, size(state)))
+    state_new_buf[:, 1] = h_new
+    state_new_buf[:, 2] = tau
+    state_new = copy(state_new_buf)
+    m.h = state_new
+    return state_new, state_new
+end
+
 function(m::bfl_cell)(state, I=nothing)
     Whh, b, basal_u, gain, tauh = m.Whh, m.b, m.basal_u, m.gain, m.tauh
     ho = @view state[:, 1]
@@ -204,9 +252,6 @@ end
 function pad_input(x::AbstractArray, width::Int)
     x = Float32.(x)
     if length(x) < width
-        #padded_x = Vector{Float32}(undef, width)
-        #padded_x[1:length(x)] = x
-        #padded_x[length(x)+1:end] .= 0.0f0
         return vcat(x, zeros(Float32, width - length(x)))
     elseif length(x) > width
         @warn "Network too small: less than one node per input. Input will be truncated for distribution."
@@ -219,11 +264,13 @@ end
 Flux.@layer rnn_cell_b trainable=(Whh, b)
 Flux.@layer rnn_cell_xb trainable=(Wxh, Whh, b)
 Flux.@layer rnn_cell_b_dual trainable=(Whh, b1, b2, g1, g2)
+Flux.@layer customgru_cell trainable=(Whh, b, bz, g1, g2)
 Flux.@layer bfl_cell trainable=(Whh, b, gain, tauh)
 
 state(m::rnn_cell_b) = m.h
 state(m::rnn_cell_xb) = m.h
 state(m::rnn_cell_b_dual) = m.h
+state(m::customgru_cell) = m.h
 state(m::bfl_cell) = m.h
 
 Base.show(io::IO, l::rnn_cell_xb) = print(
@@ -234,6 +281,9 @@ Base.show(io::IO, l::rnn_cell_b) = print(
 
 Base.show(io::IO, l::rnn_cell_b_dual) = print(
     io, "rnn_cell_b_dual(", size(l.Whh), ")")
+
+Base.show(io::IO, l::customgru_cell) = print(
+    io, "customgru_cell(", size(l.Whh), ")")
 
 Base.show(io::IO, l::bfl_cell) = print(
     io, "bfl_cell(", size(l.Whh), ")")
@@ -262,6 +312,7 @@ end
 state(m::Recur{ <:rnn_cell_b} ) = m.state
 state(m::Recur{ <:rnn_cell_xb} ) = m.state
 state(m::Recur{ <:rnn_cell_b_dual} ) = m.state
+state(m::Recur{ <:customgru_cell} ) = m.state
 state(m::Recur{ <:bfl_cell} ) = m.state
 
 Flux.@functor Recur cell, init

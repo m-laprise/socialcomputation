@@ -1,11 +1,5 @@
 # Architectures that were tried and set aside
 
-# To be tried next: 
-# Cell with matrix-valued state;
-# GRU, mGRU; 
-# symmetric data; smooth data
-
-
 # Main one
 m_vanilla = Chain(
     rnn = rnn(input_size, net_width;
@@ -26,19 +20,19 @@ m_vanilla = Chain(
     combine = x -> x[1] .+ x[2] 
 )
 
-# To try
+# Like random guessing
 m_vanilla = Chain(
     rnn = rnn(input_size, net_width;
         Whh_init = Whh_init, 
         h_init = "randn",
         gated = false),
-    dec = Dense(net_width => output_size),
+    dec = Dense(net_width => 2 * m),
     sep = Split(x -> x[1:m], 
                 x -> x[m+1:end]),
     combine = x -> vec(x[1] * x[2]')
 )
 
-# Works like random guessing
+# Like random guessing
 m_vanilla = Chain(
     rnn = rnn(input_size, net_width;
         Whh_init = Whh_init, 
