@@ -4,7 +4,6 @@ and for analyzing the training process.
 =#
 
 #### TRAINING UTILITIES
-using ForwardDiff
 
 """
     inspect_gradients(grads)

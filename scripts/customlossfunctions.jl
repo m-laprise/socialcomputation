@@ -33,16 +33,6 @@ function predict_through_time(m::Chain,
     @assert ndims(xs) == 2
     trial_output = m(xs[:,1])
     output_size = length(trial_output)
-    #= if isa(m[:dec], Dense)
-        output_size = length(m[:dec].bias)
-    elseif isa(m[:dec], Split)
-        #output_size = length(m[:dec].paths[1].bias)
-        output_size = length(m[:dec].paths[1][:fwd].bias)
-    elseif isa(m[:dec], BasisChange)
-        output_size = size(m[:dec].bias, 1)^2
-    else
-        @error("Model decoder layer not implemented for prediction through time.")
-    end =#
     nb_examples = size(xs)[2]
     # For each example, read in the input, recur for `turns` steps, 
     # and predict the label, then reset the state
@@ -69,22 +59,55 @@ function predict_through_time(m::Chain,
     return copy(preds)
 end
 
-function logitbinarycrossent(m, 
+function binary_classif_losses(m, 
                 xs::AbstractArray{Float32}, 
                 ys::AbstractArray{Float32}; 
-                turns::Int = TURNS)
-    #println(size(xs))
+                turns::Int = TURNS, include_accuracy::Bool = false)
     if length(size(xs)) == 1
         xs = reshape(xs, length(xs), 1)
     end
     ys_hat = predict_through_time(m, xs, turns)
-    #println("Predicted: ", ys_hat)
-    #println("True: ", ys)
     loss = Flux.logitbinarycrossentropy(ys_hat, ys)
-    #println("Losses: ", losses)
-    #println("Size losses: $(size(losses))")
-    return loss #, losses, ys_hat
+    if include_accuracy
+        ys_hat_bin = ys_hat .> 0.5f0
+        acc = sum(ys_hat_bin .== Bool.(ys)) / length(ys)
+        return Dict("cross-entropy loss" => loss, "accuracy" => acc)
+    else
+        return Dict("cross-entropy loss" => loss)
+    end
 end
+
+function multiclass_classif_losses(m,
+                xs::AbstractArray{Float32}, 
+                ys::AbstractArray{Float32}; 
+                turns::Int = TURNS, include_accuracy::Bool = false)
+    if length(size(xs)) == 1
+        xs = reshape(xs, length(xs), 1)
+    end
+    ys_hat = predict_through_time(m, xs, turns)
+    # Use label_smoothing to smooth the true labels as preprocessing before computing the loss
+    ys_smooth = Flux.label_smoothing(ys, 0.15f0)
+    # For multiclass loss, use Flux.crossentropy
+    loss = Flux.logitcrossentropy(ys_hat, ys_smooth)
+    if include_accuracy
+        ys_hat_int = map(i -> i[1], vec(argmax(ys_hat, dims=1)))
+        ys_label_int = map(i -> i[1], vec(argmax(ys, dims=1)))
+        acc = sum(ys_hat_int .== ys_label_int) / size(ys, 2)
+        return Dict("cross-entropy loss" => loss, "accuracy" => acc)
+    else
+        return loss
+    end
+end
+
+#=
+y_label = Float32.(Flux.onehotbatch([2, 9, 5, 7, 6], 0:9))
+y_model = softmax(reshape(-14:35, 10, 5) .* 1f0)
+sum(y_model; dims=1)
+Flux.crossentropy(y_model, y_label)
+y_smooth = Flux.label_smoothing(y_label, 0.15f0)
+Flux.crossentropy(y_model, y_smooth)
+multiclass_classif_losses(m_vanilla, randn(Float32, 100, 5), y_label; turns=1)
+=#
 
 function masktuple2array(fixedmask::Vector{Tuple{Int, Int}})
     k = length(fixedmask)    
@@ -185,20 +208,6 @@ end
 # Include spectral distance with ground truth (in all cases)
 #yhat_mat = reshape(ys_hat, l, n, nb_examples)
 #spectdists[i] = spectdist(ys_mat[:,:,i], yhat_mat[:,:,i])
-
-function classification_accuracy(m, 
-                xs::AbstractArray{Float32}, 
-                ys::AbstractArray{Float32}; 
-                turns::Int = TURNS)
-    if length(size(xs)) == 1
-        xs = reshape(xs, length(xs), 2)
-    end
-    ys_hat = predict_through_time(m, xs, turns)
-    ys_hat_bin = ys_hat .> 0.5f0
-    labels = Bool.(ys)
-    iscorrect = ys_hat_bin .== labels
-    return sum(iscorrect) / length(labels)
-end
 
 ########## Functions from Flux
 
