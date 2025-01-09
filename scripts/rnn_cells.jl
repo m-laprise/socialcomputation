@@ -228,7 +228,7 @@ function(m::customgru_cell)(state, I=nothing)
 end
 
 function(m::bfl_cell)(state, I=nothing)
-    Whh, b, basal_u, gain, tauh = m.Whh, m.b, m.basal_u, m.gain, m.tauh
+    Whh, b, basal_u, gain = m.Whh, m.b, m.basal_u, m.gain
     ho = @view state[:, 1]
     if isnothing(I)
         bias = b
@@ -238,9 +238,9 @@ function(m::bfl_cell)(state, I=nothing)
     end
     ho2 = ho .* ho
     hu_new = basal_u .+ ((Whh * ho2) .* gain)
-    ho_upd = tanhvf0((Whh * ho) .* hu_new) .+ bias
-    tauh_sig = sigmoid(tauh)
-    ho_new = ((1f0 .- tauh_sig) .* ho) .+ (tauh_sig .* ho_upd)
+    ho_new = tanhvf0((Whh * ho) .* hu_new) .+ bias
+    #tauh_sig = sigmoid(tauh)
+    #ho_new = ((1f0 .- tauh_sig) .* ho) .+ (tauh_sig .* ho_upd)
     h_new_buf = Zygote.Buffer(zeros(Float32, size(state)))
     h_new_buf[:, 1] = ho_new
     h_new_buf[:, 2] = hu_new
@@ -265,7 +265,7 @@ Flux.@layer rnn_cell_b trainable=(Whh, b)
 Flux.@layer rnn_cell_xb trainable=(Wxh, Whh, b)
 Flux.@layer rnn_cell_b_dual trainable=(Whh, b1, b2, g1, g2)
 Flux.@layer customgru_cell trainable=(Whh, b, bz, g1, g2)
-Flux.@layer bfl_cell trainable=(Whh, b, gain, tauh)
+Flux.@layer bfl_cell trainable=(Whh, b, gain)
 
 state(m::rnn_cell_b) = m.h
 state(m::rnn_cell_xb) = m.h

@@ -22,12 +22,13 @@ include("train_setup.jl")
 TASKCAT = "classification"
 DATASETNAME = "MNIST"
 MEASCAT = "identity"
-TASK = "unrolled"
+TASK = "MNISTclassification"
 
-TURNS::Int = 1
+TURNS::Int = 10
 VANILLA::Bool = true
 GATED::Bool = false
-net_width::Int = 1500
+CENTRALIZED::Bool = true
+net_width::Int = 1000
 
 knownentries = 28*28
 
@@ -52,14 +53,12 @@ Ytrain = y_train[:, (val_num+1):end]
 Ytest = Float32.(Flux.onehotbatch(y_test, 0:9))
 
 m, n = 28, 28
-
 size(Xtrain), size(Ytrain)
 
 ##### INITIALIZE NETWORK
 
 Whh_init = nothing
 input_size = 0
-# Set output size based on task
 output_size = 10
 
 # Initialize the vanilla RNN model
@@ -90,6 +89,14 @@ m_bfl = Chain(
     filter = x -> x[:,1], # Use only opinion states, not attention states, for decoding
     dec = Dense(net_width => output_size)
 )
+# Centralized input
+m_central = Chain(
+    rnn = rnn(knownentries, net_width;
+        Whh_init = Whh_init, 
+        h_init = "randn",
+        gated = false),
+    dec = Dense(net_width => output_size),
+)
 # Define methods
 reset!(m::Chain) = reset!(m.layers[:rnn])
 state(m::Chain) = state(m.layers[:rnn])
@@ -98,17 +105,15 @@ state(m::Chain) = state(m.layers[:rnn])
 myloss = multiclass_classif_losses
 
 ##### TRAINING
-if VANILLA
+if CENTRALIZED
+    activemodel = m_central
+elseif VANILLA
     activemodel = m_vanilla
-    GATED = false
 elseif GATED
     activemodel = m_gru
-    GATED = true
 else
     activemodel = m_bfl
-    GATED = true
 end
-
 
 # State optimizing rule
 #=eta = 1e-3
@@ -190,7 +195,7 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
         mb += 1
     end
     # Compute the Jacobian
-    push!(Whh_spectra, eigvals(Flux.params(activemodel[:rnn].cell)[1]))
+    push!(Whh_spectra, eigvals(activemodel[:rnn].cell.Whh))
     reset!(activemodel)
     if VANILLA 
         activemodel(randn(Float32, knownentries))
@@ -240,14 +245,14 @@ println("Test loss: $(testmetrics["cross-entropy loss"])")
 
 
 lossname = "Mean cross-entropy loss"
-accname = "Accuracy"
+accname = "Mean accuracy"
 tasklab = "Classifying unrolled MNIST with decentralized inputs"
 taskfilename = "unrolledMNIST"
 
 CairoMakie.activate!()
 fig = Figure(size = (820, 450))
 #epochs = length(train_loss) - 1
-train_l = train_loss[126:end]
+train_l = train_loss[391:end]
 val_l = val_loss[2:end]
 train_r = train_acc[2:end]
 val_r = val_acc[2:end]
@@ -256,21 +261,21 @@ ax_loss = Axis(fig[1, 1], xlabel = "Epochs", ylabel = "Loss", title = lossname)
 # There are many samples of train loss (init + every mini batch) and few samples of val_loss (init + every epoch)
 lines!(ax_loss, [i for i in range(1, epochs, length(train_l))], train_l, color = :blue, label = "Training")
 lines!(ax_loss, 1:epochs, val_l, color = :red, label = "Validation")
-lines!(ax_loss, 1:epochs, [testmetrics["cross-entropy"]], color = :green, linestyle = :dash)
-scatter!(ax_loss, epochs, testmetrics["cross-entropy"], color = :green, label = "Final Test")
+lines!(ax_loss, 1:epochs, [testmetrics["cross-entropy loss"]], color = :green, linestyle = :dash)
+scatter!(ax_loss, epochs, testmetrics["cross-entropy loss"], color = :green, label = "Final Test")
 axislegend(ax_loss, backgroundcolor = :transparent)
 ax_acc = Axis(fig[1, 2], xlabel = "Epochs", ylabel = "acc", title = accname)
 #band!(ax_acc, 1:epochs, 0.995 .* ones(epochs), 1.005 .* ones(epochs), label = "Random guess", color = :gray, alpha = 0.25)
 lines!(ax_acc, 1:epochs, train_r, color = :blue, label = "Training")
 lines!(ax_acc, 1:epochs, val_r, color = :red, label = "Validation")
-lines!(ax_acc, 1:epochs, [testmetrics["acc"]], color = :green, linestyle = :dash)
-scatter!(ax_acc, epochs, testmetrics["acc"], color = :green, label = "Final Test")
-axislegend(ax_acc, backgroundcolor = :transparent)
-modlabel = GATED ? "Gated" : "Vanilla"
+lines!(ax_acc, 1:epochs, [testmetrics["accuracy"]], color = :green, linestyle = :dash)
+scatter!(ax_acc, epochs, testmetrics["accuracy"], color = :green, label = "Final Test")
+axislegend(ax_acc, backgroundcolor = :transparent, position = :rb)
+modlabel = "Centralized Vanilla"
+#modlabel = GATED ? "Gated" : "Vanilla"
 Label(
     fig[begin-1, 1:2],
-    "$(tasklab)\n$(modlabel) RNN of $net_width units, $TURNS dynamic steps"*
-    "\nwith training loss based on known entries",
+    "$(tasklab)\n$(modlabel) RNN of $net_width units, $TURNS dynamic steps",
     fontsize = 20,
     padding = (0, 0, 0, 0),
 )
@@ -279,15 +284,15 @@ Label(
     fig[end+1, 1:2],
     "Optimizer: Adam with schedule Exp(start = $(init_eta), decay = $(decay))\n"*
     #"Training time: $(round((endtime - starttime) / 60, digits=2)) minutes; "*
-    "Test loss: $(round(testmetrics["cross-entropy"],digits=4))."*
-    "Test acc: $(round(testmetrics["acc"],digits=4)).",
+    "Test loss: $(round(testmetrics["cross-entropy loss"],digits=4))."*
+    "Test acc: $(round(testmetrics["accuracy"],digits=4)).",
     #"Optimizer: AdamW(eta=$eta, beta=$beta, decay=$decay)",
     fontsize = 14,
     padding = (0, 0, 0, 0),
 )
 fig
 
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries.png", fig)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns.png", fig)
 
 Whh = activemodel[:rnn].cell.Whh
 bs = activemodel[:rnn].cell.b
@@ -297,37 +302,37 @@ if GATED
     Wz = activemodel[:rnn].cell.Wz
     bz = activemodel[:rnn].cell.bz
 end
-if GATED
+#=if GATED
     height = 550
 else
     height = 400
-end
+end=#
 
-fig2 = Figure(size = (700, height))
+fig2 = Figure(size = (700, 400))
 ax1 = Axis(fig2[1, 1], title = "Eigenvalues of Recurrent Weights", xlabel = "Real", ylabel = "Imaginary")
 θ = LinRange(0, 2π, 1000)
 scatter!(ax1, real(eigvals(Whh)), imag(eigvals(Whh)), color = :blue, alpha = 0.85, markersize = 5)
 lines!(ax1, cos.(θ), sin.(θ), color = :black, linewidth = 2)
 ax2 = Axis(fig2[1, 2], title = "Recurrent Biases", xlabel = "Unit", ylabel = "Value")
 scatter!(ax2, 1:net_width, bs, color = :red, alpha = 0.85, markersize = 5)
-if GATED
+#=if GATED
     ax3 = Axis(fig2[2, 1], title = "Eigenvalues of Gating weights", xlabel = "Unit", ylabel = "Value")
     #scatter!(ax3, 1:net_width, Wz, color = :green, alpha = 0.85, markersize = 6)
     scatter!(ax3, real(eigvals(Wz)), imag(eigvals(Wz)), color = :blue, alpha = 0.85, markersize = 5)
     lines!(ax3, cos.(θ), sin.(θ), color = :black, linewidth = 2)
     ax4 = Axis(fig2[2, 2], title = "Gating biases", xlabel = "Unit", ylabel = "Value")
     scatter!(ax4, 1:net_width, bz, color = :purple, alpha = 0.85, markersize = 5)
-end
+end=#
 fig2
 
 #save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_Whh.jld2", "Whh", Whh)
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_learnedparams.png", fig2)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_learnedparams.png", fig2)
 
 include("inprogress/helpersWhh.jl")
 g_end = adj_to_graph(Whh; threshold = 0.01)
 print_socgraph_descr(g_end)
 figdegdist = plot_degree_distrib(g_end)
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_degreedist.png", figdegdist)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_degreedist.png", figdegdist)
 plot_socgraph(g_end)
 
 if INFERENCE_EXPERIMENT
@@ -398,17 +403,17 @@ maxval = min(maxval, 5.0)
 fj = Figure(size = (700, 700))
 ax = Axis(fj[1, 1], xlabel = "Real", ylabel = "Imaginary",
           title = @lift("Spectrum of state-to-state Jacobian during training\n"*
-                        "$(tasklab)\n$(modlabel) RNN of $net_width units, trained with $TURNS forward passes (known entries loss)\n"*
+                        "$(tasklab)\n$(modlabel) RNN of $net_width units, trained with $TURNS forward passes\n"*
                         "Epoch = $(round($ftime[], digits = 0))"))
 θ = LinRange(0, 2π, 1000)
 lines!(ax, cos.(θ), sin.(θ), color = :black)
 xs = @lift(real(jacobian_spectra[Int(round($ftime[]))]))
 ys = @lift(imag(jacobian_spectra[Int(round($ftime[]))]))
-scatter!(ax, xs, ys, color = :blue, alpha = 0.95, markersize = 6.5)
+scatter!(ax, xs, ys, color = :blue, alpha = 0.95, markersize = 6)
 xlims!(ax, -maxval, maxval)
 ylims!(ax, -maxval, maxval)
 
-record(fj, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_Jacobian.mp4", timestamps;
+record(fj, "data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_Jacobian.mp4", timestamps;
        framerate = framerate) do t
     ftime[] = t
     #autolimits!(ax)
@@ -426,17 +431,17 @@ maxval = min(maxval, 5.0)
 fw = Figure(size = (700, 600))
 ax = Axis(fw[1, 1], xlabel = "Real", ylabel = "Imaginary",
           title = @lift("Spectrum of Whh weight matrix during training\n"*
-                        "$(tasklab)\n$(modlabel) RNN of $net_width units, trained with $TURNS forward passes (known entries loss)\n"*
+                        "$(tasklab)\n$(modlabel) RNN of $net_width units, trained with $TURNS forward passes\n"*
                         "Epoch = $(round($ftime[], digits = 0))"))
 θ = LinRange(0, 2π, 1000)
 lines!(ax, cos.(θ), sin.(θ), color = :black)
 xs = @lift(real(Whh_spectra[Int(round($ftime[]))]))
 ys = @lift(imag(Whh_spectra[Int(round($ftime[]))]))
-scatter!(ax, xs, ys, color = :blue, alpha = 0.95, markersize = 6.5)
+scatter!(ax, xs, ys, color = :blue, alpha = 0.95, markersize = 6)
 xlims!(ax, -maxval, maxval)
 ylims!(ax, -maxval, maxval)
 fw
-record(fw, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_Whh.mp4", timestamps;
+record(fw, "data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_Whh.mp4", timestamps;
        framerate = framerate) do t
     ftime[] = t
     #autolimits!(ax)

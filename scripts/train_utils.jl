@@ -102,6 +102,12 @@ function state_to_state(m::Chain, h::Vector)
         else
             return @warn("State input does not match either state in the dual cell.")
         end
+    elseif isa(m[:rnn].cell, rnn_cell_xb)
+        reset!(m)
+        m[:rnn].state = h
+        inputsize = size(m[:rnn].cell.Wxh, 2)
+        m(zeros(Float32, inputsize))
+        return state(m)
     else
         reset!(m)
         m[:rnn].state = h

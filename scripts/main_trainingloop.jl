@@ -39,9 +39,10 @@ TASK = tasks[5]
 
 RANK::Int = 1
 
-TURNS::Int = 20
-VANILLA::Bool = false
-GATED::Bool = true
+TURNS::Int = 1
+VANILLA::Bool = true
+GATED::Bool = false
+CENTRALIZED::Bool = true
 net_width::Int = 1500
 
 if MEASCAT == "masks"
@@ -71,8 +72,9 @@ SOCGRAPHINIT::Bool = false
 train_prop::Float64 = 0.8
 val_prop::Float64 = 0.1
 test_prop::Float64 = 0.1
-
+ranks = [RANK]
 m, n, dataset_size = 80, 80, 10000
+
 function setup(m, n, r, seed; datatype=Float32)
     rng = Random.MersenneTwister(seed)
     #v = randn(rng, datatype, m, r) ./ sqrt(sqrt(Float32(r)))
@@ -92,8 +94,6 @@ X = input_setup(Y, MEASCAT, m, n, dataset_size, knownentries)
 # Split data between training, validation, and test sets
 Xtrain, Xval, Xtest = train_val_test_split(X, train_prop, val_prop, test_prop)
 Ytrain, Yval, Ytest = train_val_test_split(Y, train_prop, val_prop, test_prop)
-
-ranks = [RANK]
 
 size(Xtrain), size(Ytrain)
 
@@ -151,6 +151,18 @@ m_bfl = Chain(
     filter = x -> x[:,1], # Use only opinion states, not attention states, for decoding
     dec = Dense(net_width => output_size)
 )
+# Initialize the centralized input model
+m_central = Chain(
+    rnn = rnn(knownentries, net_width;
+    Whh_init = Whh_init, 
+    h_init = "randn",
+    gated = false),
+dec = Dense(net_width => output_size),
+)
+
+# Define methods
+reset!(m::Chain) = reset!(m.layers[:rnn])
+state(m::Chain) = state(m.layers[:rnn])
 
 ##### DEFINE LOSS FUNCTIONS
 
@@ -163,20 +175,15 @@ myloss = recon_losses
 #c = myloss(m_vanilla, (Xtrain[:,3]), Ytrain[:,3], turns = turns)
 #ab = myloss(m_vanilla, (Xtrain[:,2:3]), Ytrain[:,2:3], turns = turns)
 #g = gradient(myloss, m_vanilla, (Xtrain[:,1:20]), Ytrain[:,1:20])[1]
-
-if VANILLA
+if CENTRALIZED
+    activemodel = m_central
+elseif VANILLA
     activemodel = m_vanilla
-    GATED = false
 elseif GATED
     activemodel = m_gru
-    GATED = true
 else
     activemodel = m_bfl
-    GATED = true
 end
-# Define method for the reset function
-reset!(m::Chain) = reset!(m.layers[:rnn])
-state(m::Chain) = state(m.layers[:rnn])
 
 # State optimizing rule
 #=eta = 1e-3
