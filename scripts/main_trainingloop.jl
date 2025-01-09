@@ -39,7 +39,7 @@ TASK = tasks[5]
 
 RANK::Int = 1
 
-TURNS::Int = 1
+TURNS::Int = 5
 VANILLA::Bool = true
 GATED::Bool = false
 CENTRALIZED::Bool = true
@@ -275,7 +275,7 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
         mb += 1
     end
     # Compute the Jacobian
-    push!(Whh_spectra, eigvals(Flux.params(activemodel[:rnn].cell)[1]))
+    push!(Whh_spectra, eigvals(activemodel[:rnn].cell.Whh))
     reset!(activemodel)
     if VANILLA 
         activemodel(randn(Float32, knownentries))
@@ -325,7 +325,7 @@ println("Test loss: $(testmetrics["l2"])")
 
 
 lossname = "Mean nuclear-norm penalized l2 loss (known entries)"
-rmsename = "Root mean squared reconstruction error / std (all entries)"
+rmsename = "Root mean squared reconstr. error / std (all entries)"
 tasklab = "Reconstructing $(m)x$(m) rank-$(RANK) matrices from $(knownentries) of their entries"
 taskfilename = "$(m)recon"
 
@@ -351,7 +351,11 @@ lines!(ax_rmse, 1:epochs, val_r, color = :red, label = "Validation")
 lines!(ax_rmse, 1:epochs, [testmetrics["RMSE"]], color = :green, linestyle = :dash)
 scatter!(ax_rmse, epochs, testmetrics["RMSE"], color = :green, label = "Final Test")
 axislegend(ax_rmse, backgroundcolor = :transparent)
-modlabel = GATED ? "Gated" : "Vanilla"
+if CENTRALIZED
+    modlabel = "Centralized Vanilla"
+else
+    modlabel = GATED ? "Gated" : "Vanilla"
+end
 Label(
     fig[begin-1, 1:2],
     "$(tasklab)\n$(modlabel) RNN of $net_width units, $TURNS dynamic steps"*
@@ -372,7 +376,7 @@ Label(
 )
 fig
 
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries.png", fig)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries.png", fig)
 
 if WIDTH_EXPERIMENT
     push!(widthvec, net_width)
@@ -437,14 +441,14 @@ if GATED
 end
 fig2
 
-#save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_Whh.jld2", "Whh", Whh)
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_learnedparams.png", fig2)
+#save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_Whh.jld2", "Whh", Whh)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries_learnedparams.png", fig2)
 
 include("inprogress/helpersWhh.jl")
 g_end = adj_to_graph(Whh; threshold = 0.01)
 print_socgraph_descr(g_end)
 figdegdist = plot_degree_distrib(g_end)
-save("data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_degreedist.png", figdegdist)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries_degreedist.png", figdegdist)
 plot_socgraph(g_end)
 
 if INFERENCE_EXPERIMENT
@@ -499,6 +503,12 @@ ploteigvals(jacobian_spectra[end])
 ploteigvals(Whh_spectra[1])
 ploteigvals(Whh_spectra[end])
 
+#p_i = hist(imag(eigvals(Whh)), bins = 70)
+#p_r = hist(real(eigvals(Whh)), bins = 70)
+#save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries_imageig.png", p_i)
+#save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries_realeig.png", p_r)
+#plot(svdvals(activemodel[:rnn].cell.Wxh))
+
 # Create animation using each ploteigvals(jacobian_spectra[i]) as one frame
 using GLMakie
 GLMakie.activate!()
@@ -525,7 +535,7 @@ scatter!(ax, xs, ys, color = :blue, alpha = 0.95, markersize = 6.5)
 xlims!(ax, -maxval, maxval)
 ylims!(ax, -maxval, maxval)
 
-record(fj, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_Jacobian.mp4", timestamps;
+record(fj, "data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries_Jacobian.mp4", timestamps;
        framerate = framerate) do t
     ftime[] = t
     #autolimits!(ax)
@@ -553,7 +563,7 @@ scatter!(ax, xs, ys, color = :blue, alpha = 0.95, markersize = 6.5)
 xlims!(ax, -maxval, maxval)
 ylims!(ax, -maxval, maxval)
 fw
-record(fw, "data/$(modlabel)RNNwidth$(net_width)_$(taskfilename)_$(TURNS)turns_knownentries_Whh.mp4", timestamps;
+record(fw, "data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries_Whh.mp4", timestamps;
        framerate = framerate) do t
     ftime[] = t
     #autolimits!(ax)
