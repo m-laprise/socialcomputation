@@ -37,7 +37,7 @@ MEASCAT = measurecats[1]
 TASK = tasks[5]
 
 RANK::Int = 1
-M, N, dataset_size = 80, 80, 10000
+M, N, dataset_size = 80, 80, 1000
 mat_size = M * N
 
 knownentries = 1000
