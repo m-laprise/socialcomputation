@@ -1,3 +1,6 @@
+import Pkg
+Pkg.activate("../")
+
 using Random
 using Distributions
 using Flux
