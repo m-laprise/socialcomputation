@@ -31,7 +31,7 @@ mutable struct rnn_cell_b{A,V}
     init::V # store initial state for reset
 end
 
-mutable struct rnn_cell_b_dual{A,V}
+#= mutable struct rnn_cell_b_dual{A,V}
     Whh::A
     b1::V
     b2::V
@@ -39,7 +39,7 @@ mutable struct rnn_cell_b_dual{A,V}
     g1::V
     g2::V
     init::A # store initial state for reset
-end
+end =#
 
 mutable struct customgru_cell{A,V}
     Whh::A
@@ -61,13 +61,24 @@ mutable struct bfl_cell{A,V}
     init::A # store initial state for reset
 end
 
+mutable struct matrnn_cell_b{A}
+    Wx_in::A
+    Wx_out::A
+    bx_in::A
+    bx_out::A
+    Whh::A
+    bh::A
+    h::A
+    init::A # store initial state for reset
+end
+
 function rnn_cell(input_size::Int, 
                   net_width::Int;
                   h_init::String = "randn", 
                   Whh_init = nothing,
                   gated::Bool = false,
                   bfl::Bool = false,
-                  dual::Bool = false,
+                  #dual::Bool = false,
                   basal_u::Float32 = Float32(1e-2),
                   gain::Float32 = Float32(0.5),
                   tauh::Float32 = Float32(0.5))
@@ -105,7 +116,7 @@ function rnn_cell(input_size::Int,
             h, 
             h
         )
-    elseif dual == true
+    #=elseif dual == true
         b2 = randn(Float32, net_width) / sqrt(Float32(net_width))
         g1 = rand(Float32, net_width)
         g2 = rand(Float32, net_width)
@@ -120,7 +131,7 @@ function rnn_cell(input_size::Int,
             g1,
             g2,
             hdual
-        )
+        )=#
     elseif gated == true
         bz = randn(Float32, net_width) / sqrt(Float32(net_width))
         g1 = ones(Float32, net_width)
@@ -155,7 +166,46 @@ function rnn_cell(input_size::Int,
     end
 end
 
+function matrnn_cell(distribinput_capacity::Int, 
+                  net_width::Int,
+                  unit_hidim::Int;
+                  h_init::String = "randn", 
+                  Whh_init = nothing)
+    @assert distribinput_capacity > 0
+    @assert net_width > 0
+    @assert unit_hidim >= distribinput_capacity
+    # Initialize recurrent weight matrix
+    if isnothing(Whh_init)
+        Whh = randn(Float32, net_width, net_width) / sqrt(Float32(net_width))
+    else
+        Whh = Float32.(Whh_init)
+    end
+    # Initialize input weight matrices
+    Wx_in = randn(Float32, unit_hidim, distribinput_capacity) / sqrt(Float32(unit_hidim))
+    Wx_out = randn(Float32, unit_hidim, distribinput_capacity) / sqrt(Float32(unit_hidim))
+    # Initialize biases
+    bh = randn(Float32, net_width, distribinput_capacity) / sqrt(Float32(net_width))
+    bx_in = randn(Float32, net_width, unit_hidim) / sqrt(Float32(net_width))
+    bx_out = randn(Float32, net_width, distribinput_capacity) / sqrt(Float32(net_width))
+    # Initialize hidden state
+    if h_init == "zero"
+        h = zeros(Float32, net_width, distribinput_capacity)
+    elseif h_init == "randn"
+        h = randn(Float32, net_width, distribinput_capacity) * 0.01f0
+    else
+        error("Invalid h_init value. Choose from 'zero' or 'randn'.")
+    end
+    return matrnn_cell_b(
+        Wx_in, Wx_out,
+        bx_in, bx_out,
+        Whh,
+        bh,
+        h, h
+    )
+end
+
 tanhvf0(x::Vector{Float32}) = tanh.(x)
+tanhvf0(x::Matrix{Float32}) = tanh.(x)
 
 function(m::rnn_cell_xb)(state, x, I=nothing)
     Wxh, Whh, b, h = m.Wxh, m.Whh, m.b, state
@@ -183,7 +233,7 @@ function(m::rnn_cell_b)(state, I=nothing)
     return h_new, h_new
 end
 
-function(m::rnn_cell_b_dual)(state, I=nothing)
+#=function(m::rnn_cell_b_dual)(state, I=nothing)
     Whh, b1, b2, g1, g2 = m.Whh, m.b1, m.b2, m.g1, m.g2
     h1 = @view state[:, 1]
     h2 = @view state[:, 2]
@@ -203,7 +253,7 @@ function(m::rnn_cell_b_dual)(state, I=nothing)
     h_new = copy(h_new_buf)
     m.h = h_new
     return h_new, h_new
-end
+end=#
 
 function(m::customgru_cell)(state, I=nothing)
     Whh, b, bz, g1, g2 = m.Whh, m.b, m.bz, m.g1, m.g2
@@ -239,8 +289,6 @@ function(m::bfl_cell)(state, I=nothing)
     ho2 = ho .* ho
     hu_new = basal_u .+ ((Whh * ho2) .* gain)
     ho_new = tanhvf0((Whh * ho) .* hu_new) .+ bias
-    #tauh_sig = sigmoid(tauh)
-    #ho_new = ((1f0 .- tauh_sig) .* ho) .+ (tauh_sig .* ho_upd)
     h_new_buf = Zygote.Buffer(zeros(Float32, size(state)))
     h_new_buf[:, 1] = ho_new
     h_new_buf[:, 2] = hu_new
@@ -249,29 +297,74 @@ function(m::bfl_cell)(state, I=nothing)
     return h_new, h_new
 end
 
-function pad_input(x::AbstractArray, width::Int)
+function(m::matrnn_cell_b)(state, I=nothing)
+    Wx_in, Wx_out, bx_in, bx_out = m.Wx_in, m.Wx_out, m.bx_in, m.bx_out
+    Whh, bh = m.Whh, m.bh
+    @assert ndims(state) == 2
+    h = @view state[:,:]
+    net_width = size(h, 1)
+    distribinput_capacity = size(h, 2)
+    if isnothing(I)
+        bias = bh
+    else
+        @assert I isa AbstractArray && size(I, 1) == net_width && size(I, 2) <= distribinput_capacity
+        I_buf = Zygote.Buffer(zeros(Float32, size(I)))
+        for i in 1:net_width
+            I_buf[i, :] = Wx_out' * tanhvf0(Wx_in * Float32.(I[i,:]) .+ bx_in[i, :]) .+ bx_out[i, :]
+        end
+        procI = copy(I_buf)
+        bias = bh .+ procI
+    end
+    h_new = tanhvf0(Whh * h .+ bias)
+    m.h = h_new
+    return h_new, h_new
+end
+
+function pad_input(x::Vector, net_width::Int)
     x = Float32.(x)
-    if length(x) < width
-        return vcat(x, zeros(Float32, width - length(x)))
-    elseif length(x) > width
+    if length(x) < net_width
+        return vcat(x, zeros(Float32, net_width - length(x)))
+    elseif length(x) > net_width
         @warn "Network too small: less than one node per input. Input will be truncated for distribution."
-        return x[1:width]
+        return x[1:net_width]
     else
         return x
     end
 end
 
+#=function pad_input(x::Matrix, net_width::Int)
+    x = Float32.(x)
+    m, n = size(x)
+    if m < net_width
+        return vcat(x, zeros(Float32, net_width - m, n))
+    else
+        return x
+    end
+end
+
+function pad_input(x::SparseMatrixCSC, net_width::Int)
+    x = Float32.(x)
+    m, n = size(x)
+    if m < net_width
+        return vcat(x, spzeros(Float32, net_width - m, n))
+    else
+        return x
+    end
+end=#
+
 Flux.@layer rnn_cell_b trainable=(Whh, b)
 Flux.@layer rnn_cell_xb trainable=(Wxh, Whh, b)
-Flux.@layer rnn_cell_b_dual trainable=(Whh, b1, b2, g1, g2)
+#Flux.@layer rnn_cell_b_dual trainable=(Whh, b1, b2, g1, g2)
 Flux.@layer customgru_cell trainable=(Whh, b, bz, g1, g2)
 Flux.@layer bfl_cell trainable=(Whh, b, gain)
+Flux.@layer matrnn_cell_b trainable=(Wx_in, Wx_out, bx_in, bx_out, Whh, bh)
 
 state(m::rnn_cell_b) = m.h
 state(m::rnn_cell_xb) = m.h
-state(m::rnn_cell_b_dual) = m.h
+#state(m::rnn_cell_b_dual) = m.h
 state(m::customgru_cell) = m.h
 state(m::bfl_cell) = m.h
+state(m::matrnn_cell_b) = m.h
 
 Base.show(io::IO, l::rnn_cell_xb) = print(
     io, "rnn_cell_xb(", size(l.Wxh), ", ", size(l.Whh), ")")
@@ -279,14 +372,17 @@ Base.show(io::IO, l::rnn_cell_xb) = print(
 Base.show(io::IO, l::rnn_cell_b) = print(
     io, "rnn_cell_b(", size(l.Whh), ")")
 
-Base.show(io::IO, l::rnn_cell_b_dual) = print(
-    io, "rnn_cell_b_dual(", size(l.Whh), ")")
+#Base.show(io::IO, l::rnn_cell_b_dual) = print(
+#    io, "rnn_cell_b_dual(", size(l.Whh), ")")
 
 Base.show(io::IO, l::customgru_cell) = print(
     io, "customgru_cell(", size(l.Whh), ")")
 
 Base.show(io::IO, l::bfl_cell) = print(
     io, "bfl_cell(", size(l.Whh), ")")
+
+Base.show(io::IO, l::matrnn_cell_b) = print(
+    io, "matrnn_cell_b(", size(l.Wx_in), ", ", size(l.Whh), ")")
 
 ###### RECURRENCE
 
@@ -311,20 +407,20 @@ function (m::Recur)(xs...)
 end
 state(m::Recur{ <:rnn_cell_b} ) = m.state
 state(m::Recur{ <:rnn_cell_xb} ) = m.state
-state(m::Recur{ <:rnn_cell_b_dual} ) = m.state
+#state(m::Recur{ <:rnn_cell_b_dual} ) = m.state
 state(m::Recur{ <:customgru_cell} ) = m.state
 state(m::Recur{ <:bfl_cell} ) = m.state
+state(m::Recur{ <:matrnn_cell_b} ) = m.state
 
 Flux.@functor Recur cell, init
 Base.show(io::IO, m::Recur) = print(io, "Recur(", m.cell, ")")
 rnn(args...;kwargs...) = Recur(rnn_cell(args...;kwargs...))
-
+matrnn(args...;kwargs...) = Recur(matrnn_cell(args...;kwargs...))
 """
     reset!(rnn)
 Reset the hidden state of a recurrent layer back to its original value. 
 """
 reset!(m::Recur) = (m.state = m.init)
-
 
 # Split layers
 struct Split{T}
@@ -353,6 +449,25 @@ Flux.@layer BasisChange trainable=(weight, bias)
 function Base.show(io::IO, l::BasisChange)
     print(io, "BasisChange(", size(l.weight, 1), " => ", size(l.weight, 2))
     l.bias == false && print(io, "; bias=false")
+    print(io, ")")
+end
+
+# Weighted mean decoding layer
+struct WMeanRecon{V}
+    weight::V
+end
+
+function WMeanRecon(num::Int;
+                    init = ones)
+    weight_init = init(Float32, num) * 5f0
+    WMeanRecon(weight_init)
+end
+
+Flux.@layer WMeanRecon
+(a::WMeanRecon)(X::Matrix) = X' * sigmoid(a.weight) / sum(sigmoid(a.weight))
+
+function Base.show(io::IO, l::WMeanRecon)
+    print(io, "WMeanRecon(", size(l.weight, 1), ")")
     print(io, ")")
 end
 

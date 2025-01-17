@@ -2,7 +2,7 @@ using Random
 using Distributions
 using Flux
 using Zygote
-using JLD2, CodecBzip2
+#using JLD2, CodecBzip2
 using CairoMakie
 using LinearAlgebra
 using ParameterSchedulers
@@ -42,8 +42,8 @@ RANK::Int = 1
 TURNS::Int = 5
 VANILLA::Bool = true
 GATED::Bool = false
-CENTRALIZED::Bool = true
-net_width::Int = 1500
+CENTRALIZED::Bool = false
+net_width::Int = 2000
 
 if MEASCAT == "masks"
     knownentries = 1000
@@ -51,7 +51,7 @@ else
     knownentries = nothing
 end
 
-EPOCHS = 6
+EPOCHS = 4
 MINIBATCH_SIZE = 64
 
 INFERENCE_EXPERIMENT::Bool = false
@@ -225,7 +225,7 @@ jacobian_spectra = []
 Whh_spectra = []
 
 # STORE INITIAL METRICS
-reset!(activemodel)
+#= reset!(activemodel)
 if VANILLA 
     activemodel(randn(Float32, knownentries))
     hJ = state(activemodel)
@@ -235,12 +235,13 @@ else
 end
 J = statejacobian(activemodel, hJ)
 push!(jacobian_spectra, eigvals(J))
-push!(Whh_spectra, eigvals(activemodel[:rnn].cell.Whh))
+push!(Whh_spectra, eigvals(activemodel[:rnn].cell.Whh)) =#
 
 gt = false
-initmetrics_train = myloss(activemodel, Xtrain[:, 1:1000], Ytrain[:, :, 1:1000], mask_mat, gt; 
+n_loss = 500
+initmetrics_train = myloss(activemodel, Xtrain[:, 1:n_loss], Ytrain[:, :, 1:n_loss], mask_mat, gt; 
                            turns = TURNS, mode = "testing", incltrainloss = true)
-initmetrics_val = myloss(activemodel, Xval, Yval, mask_mat, gt; 
+initmetrics_val = myloss(activemodel, Xval[:, 1:n_loss], Yval[:, :, 1:n_loss], mask_mat, gt; 
                          turns = TURNS, mode = "testing", incltrainloss = true)
 push!(train_loss, initmetrics_train["l2"])
 push!(train_rmse, initmetrics_train["RMSE"])
@@ -275,7 +276,7 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
         mb += 1
     end
     # Compute the Jacobian
-    push!(Whh_spectra, eigvals(activemodel[:rnn].cell.Whh))
+    #=push!(Whh_spectra, eigvals(activemodel[:rnn].cell.Whh))
     reset!(activemodel)
     if VANILLA 
         activemodel(randn(Float32, knownentries))
@@ -290,17 +291,17 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     catch err
         println("Jacobian computation failed after epoch $epoch")
         println("with error: $err")
-    end
+    end=#
     # Print a summary of the gradient diagnostics for the epoch
     diagnose_gradients(n, v, e)
     # Compute training metrics -- this is a very expensive operation because it involves a forward pass over the entire training set
     # so I take a subset of the training set to compute the metrics
-    trainmetrics = myloss(activemodel, Xtrain[:,1:1000], Ytrain[:,:,1:1000], mask_mat, gt; 
+    trainmetrics = myloss(activemodel, Xtrain[:,1:n_loss], Ytrain[:,:,1:n_loss], mask_mat, gt; 
                           turns = TURNS, mode = "testing", incltrainloss = true)
     push!(train_loss, trainmetrics["l2"])
     push!(train_rmse, trainmetrics["RMSE"])
     # Compute validation metrics
-    valmetrics = myloss(activemodel, Xval, Yval, mask_mat, gt; 
+    valmetrics = myloss(activemodel, Xval[:,1:n_loss], Yval[:,:,1:n_loss], mask_mat, gt; 
                         turns = TURNS, mode = "testing", incltrainloss = true)
     push!(val_loss, valmetrics["l2"])
     push!(val_rmse, valmetrics["RMSE"])
@@ -327,7 +328,7 @@ println("Test loss: $(testmetrics["l2"])")
 lossname = "Mean nuclear-norm penalized l2 loss (known entries)"
 rmsename = "Root mean squared reconstr. error / std (all entries)"
 tasklab = "Reconstructing $(m)x$(m) rank-$(RANK) matrices from $(knownentries) of their entries"
-taskfilename = "$(m)recon"
+taskfilename = "$(m)recon_rank$(RANK)"
 
 CairoMakie.activate!()
 fig = Figure(size = (820, 450))

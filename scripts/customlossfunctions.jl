@@ -59,6 +59,37 @@ function predict_through_time(m::Chain,
     return copy(preds)
 end
 
+function predict_through_time(m::ComposedFunction, 
+                              xs::Vector, 
+                              turns::Int)
+    trial_output = m(Matrix(Float32.(xs[1])))
+    output_size = length(trial_output)
+    nb_examples = length(xs)
+    # For each example, read in the input, recur for `turns` steps, 
+    # and predict the label, then reset the state
+    preds = Zygote.Buffer(zeros(Float32, output_size, nb_examples))
+    for (i, example) in enumerate(xs)
+        x = Matrix(Float32.(example))
+        reset!(m)
+        for _ in 1:turns
+            m(x)
+        end
+        pred = m(x)
+        # If any predicted entry is NaN or infinity, replace with 0
+        if any(isnan.(pred)) || any(isinf.(pred))
+            @warn("NaN or Inf detected in prediction during computation of loss. Replacing with 0.")
+            pred = replace(y -> isfinite(y) ? y : 0.0f0, pred)
+        end
+        if output_size == 1
+            preds[:,i] = pred[1]
+        else
+            preds[:,i] = pred
+        end
+    end
+    reset!(m)
+    return copy(preds)
+end
+
 function binary_classif_losses(m, 
                 xs::AbstractArray{Float32}, 
                 ys::AbstractArray{Float32}; 
@@ -205,6 +236,90 @@ function recon_losses(m::Chain,
     end
 end
 
+function recon_losses(m::ComposedFunction, 
+                    xs::Vector, 
+                    ys_mat::AbstractArray{Float32},
+                    mask_mat = nothing,
+                    groundtruth::Bool = false; 
+                    turns::Int = TURNS, 
+                    mode::String = "training", 
+                    incltrainloss::Bool = false, 
+                    type::String = "l2nnm")
+    if !groundtruth
+        @assert !isnothing(fixedmask)
+    end
+    @assert ndims(ys_mat) == 3
+    l, n, nb_examples = size(ys_mat)
+
+    @assert isa(xs[1], SparseMatrixCSC)
+
+    ys = reshape(ys_mat, l * n, nb_examples)
+    ys_hat = predict_through_time(m, xs, turns)
+
+    if !groundtruth
+        totN = sum(vec(mask_mat))
+    else
+        totN = l * n
+    end
+    # If the ground truth is given, compare y (full ground truth matrix) to y_hat (full estimated matrix)
+    # If not, compare x (masked ground truth matrix) to x_hat (masked estimated matrix)
+    if mode == "training"
+        # When training, return only the training loss for gradient computation
+        errors = Zygote.Buffer(zeros(Float32, 1, nb_examples))
+        for i in 1:nb_examples
+            if !groundtruth
+                diff = vec(mask_mat) .* (ys[:,i] .- ys_hat[:,i])
+            else
+                diff = ys[:,i] .- ys_hat[:,i]
+            end
+            l2normsq = norm(diff, 2)^2 /0.1
+            if type == "l2l1"
+                l1norm = norm(diff, 1)
+                errors[i] = (l2normsq + l1norm) / totN
+            elseif type == "l2"
+                errors[i] = l2normsq / totN
+            elseif type == "l2nnm"
+                theta = 0.8
+                nnm = nuclearnorm(ys_hat[:,i]) / l
+                errors[i] = (theta * (l2normsq / totN) + (1 - theta) * nnm) /0.1
+            else 
+                error("Invalid type of loss function declared in training branch.")
+            end
+        end
+        return mean(copy(errors))
+    elseif mode == "testing"
+        # When testing or validating, return all relevant metrics
+        l2errors = Zygote.Buffer(zeros(Float32, 1, nb_examples))
+        RMSerrors_all = Zygote.Buffer(zeros(Float32, 1, nb_examples))
+        for i in 1:nb_examples
+            # Include training loss with or without ground truth
+            if incltrainloss
+                if !groundtruth
+                    diff = vec(mask_mat) .* (ys[:,i] .- ys_hat[:,i])
+                else
+                    diff = ys[:,i] .- ys_hat[:,i]
+                end
+                l2normsq = norm(diff, 2)^2 /0.1
+                if type == "l2l1"
+                    l1norm = norm(diff, 1)
+                    l2errors[i] = (l2normsq + l1norm) / totN
+                elseif type == "l2"
+                    l2errors[i] = l2normsq / totN
+                elseif type == "l2nnm"
+                    theta = 0.8
+                    nnm = nuclearnorm(ys_hat[:,i]) / l
+                    l2errors[i] = (theta * (l2normsq / totN) + (1 - theta) * nnm) /0.1
+                else 
+                    error("Invalid type of loss function declared in testing branch.")
+                end
+            end
+            # Include RMSE over all entries (in all cases)
+            RMSerrors_all[i] = RMSE(ys[:,i], ys_hat[:,i]) /0.1
+        end
+        return Dict("l2" => mean(copy(l2errors)), 
+                    "RMSE" => mean(copy(RMSerrors_all)))
+    end
+end
 # Include spectral distance with ground truth (in all cases)
 #yhat_mat = reshape(ys_hat, l, n, nb_examples)
 #spectdists[i] = spectdist(ys_mat[:,:,i], yhat_mat[:,:,i])
