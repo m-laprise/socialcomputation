@@ -321,8 +321,8 @@ save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownen
 #save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries_realeig.png", p_r)
 
 # Create animation using each ploteigvals(jacobian_spectra[i]) as one frame
-using GLMakie
-GLMakie.activate!()
+#using GLMakie
+#GLMakie.activate!()
 
 N = length(Whh_spectra)
 ftime = Observable(1.0)
