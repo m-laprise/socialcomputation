@@ -1,5 +1,6 @@
 import Pkg
 Pkg.activate("../")
+using CUDA
 
 using Random
 using Distributions
@@ -17,7 +18,7 @@ include("plot_utils.jl")
 include("train_utils.jl")
 include("train_setup.jl")
 
-#device = Flux.get_device(; verbose=true)
+device = gpu_device()
 
 ##### EXPERIMENTAL CONDITIONS
 
@@ -34,6 +35,7 @@ net_width::Int = 1200
 TURNS::Int = 5
 EPOCHS = 1
 MINIBATCH_SIZE = 64
+n_loss = 100
 
 ##########
 # Generate data and split between training, validation, and test sets
@@ -67,18 +69,20 @@ Ytrain, Yval, Ytest = train_val_test_split(Y, train_prop, val_prop, test_prop)
 Y = nothing
 size(Xtrain), size(Ytrain)
 
+println("Dataset created and split into training, validation, and test sets on cpu.")
 ##### INITIALIZE NETWORK
 
 # Initialize the RNN model
 unit_hidim = mat_size
-#= activemodel = Chain(
+#=activemodel = Chain(
     rnn = matrnn(
         mat_size, net_width, unit_hidim;
-        Whh_init = Whh_init, 
+        Whh_init = nothing, 
         h_init = "randn"),
-    dec = x -> mean(x, dims = 1)
-    #dec = WMeanRecon(net_width)
+    #dec = x -> mean(x, dims = 1)
+    dec = WMeanRecon(net_width)
 )
+activemodel()
 (activemodel[:dec] ∘ activemodel[:rnn])() 
 # Define methods
 reset!(m::Chain) = reset!(m.layers[:rnn])
@@ -87,13 +91,15 @@ state(m::Chain) = state(m.layers[:rnn])=#
 mat_rnn = matrnn(
     mat_size, net_width, unit_hidim;
     Whh_init = nothing, 
-    h_init = "randn")
+    h_init = "randn") |> device
 #dec = x -> vec(mean(x, dims = 1))
-dec = WMeanRecon(net_width)
-activemodel = dec ∘ mat_rnn
+dec = WMeanRecon(net_width) |> device
+activemodel = dec ∘ mat_rnn |> device
 reset!(activemodel) = reset!(mat_rnn)
 state(activemodel) = state(mat_rnn)
+Flux.get_device(; verbose=true)
 activemodel()
+println("Model initialized and moved to gpu.")
 
 ##### DEFINE LOSS FUNCTIONS
 myloss = recon_losses
@@ -110,25 +116,24 @@ end
 opt = Adam()
 # Tree of states
 opt_state = Flux.setup(opt, activemodel)
+println("Optimizer and state initialized.")
 
 traindataloader = Flux.DataLoader(
     (data=Xtrain, label=Ytrain), 
     batchsize=MINIBATCH_SIZE, 
     shuffle=true)
+gpu_traindataloader = device(traindataloader)
+println("Data loaded and moved to gpu.")
 
+# STORE INITIAL METRICS
 train_loss = Float32[]
 val_loss = Float32[]
 train_rmse = Float32[]
 val_rmse = Float32[]
-jacobian_spectra = []
 Whh_spectra = []
-
-# STORE INITIAL METRICS
-
 push!(Whh_spectra, eigvals(mat_rnn.cell.Whh))
 
 gt = false
-n_loss = 50
 initmetrics_train = myloss(activemodel, Xtrain[1:n_loss], Ytrain[:, :, 1:n_loss], mask_mat, gt; 
                            turns = TURNS, mode = "testing", incltrainloss = true)
 initmetrics_val = myloss(activemodel, Xval[1:n_loss], Yval[:, :, 1:n_loss], mask_mat, gt; 
@@ -147,7 +152,7 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     # Initialize counters for gradient diagnostics
     mb, n, v, e = 1, 0, 0, 0
     # Iterate over minibatches
-    for (x, y) in traindataloader
+    for (x, y) in gpu_traindataloader
         # Pass twice over each minibatch (extra gradient learning)
         for _ in 1:2
             # Forward pass (to compute the loss) and backward pass (to compute the gradients)
@@ -167,7 +172,7 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
             mb += 1
         end
     end
-    push!(Whh_spectra, eigvals(mat_rnn.cell.Whh))
+    push!(Whh_spectra, eigvals(mat_rnn.cell.Whh |> cpu))
     # Print a summary of the gradient diagnostics for the epoch
     diagnose_gradients(n, v, e)
     # Compute training metrics -- this is a very expensive operation because it involves a forward pass over the entire training set
@@ -199,7 +204,6 @@ testmetrics = myloss(activemodel, Xtest, Ytest, mask_mat, gt;
                      turns = TURNS, mode = "testing", incltrainloss = true)
 println("Test RMSE: $(testmetrics["RMSE"])")
 println("Test loss: $(testmetrics["l2"])")
-
 
 lossname = "Mean nuclear-norm penalized l2 loss (known entries)"
 rmsename = "Root mean squared reconstr. error / std (all entries)"
@@ -251,12 +255,12 @@ fig
 
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries.png", fig)
 
-Whh = mat_rnn.cell.Whh
-bh = mat_rnn.cell.bh
-Wx_in = mat_rnn.cell.Wx_in
-bx_in = mat_rnn.cell.bx_in
-Wx_out = mat_rnn.cell.Wx_out
-bx_out = mat_rnn.cell.bx_out
+Whh = mat_rnn.cell.Whh |> cpu
+bh = mat_rnn.cell.bh |> cpu
+Wx_in = mat_rnn.cell.Wx_in |> cpu
+bx_in = mat_rnn.cell.bx_in |> cpu
+Wx_out = mat_rnn.cell.Wx_out |> cpu
+bx_out = mat_rnn.cell.bx_out |> cpu
 fig2 = Figure(size = (700, 800))
 ax1 = Axis(fig2[1, 1], title = "Eigenvalues of Recurrent Weights", xlabel = "Real", ylabel = "Imaginary")
 θ = LinRange(0, 2π, 1000)

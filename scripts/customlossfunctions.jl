@@ -62,19 +62,19 @@ end
 function predict_through_time(m::ComposedFunction, 
                               xs::Vector, 
                               turns::Int)
-    trial_output = m(Matrix(Float32.(xs[1])))
+    trial_output = m(Matrix(Float32.(xs[1])) |> device) |> cpu
     output_size = length(trial_output)
     nb_examples = length(xs)
     # For each example, read in the input, recur for `turns` steps, 
     # and predict the label, then reset the state
     preds = Zygote.Buffer(zeros(Float32, output_size, nb_examples))
     for (i, example) in enumerate(xs)
-        x = Matrix(Float32.(example))
+        x = Matrix(Float32.(example)) |> device
         reset!(m)
         for _ in 1:turns
             m(x)
         end
-        pred = m(x)
+        pred = m(x) |> cpu
         # If any predicted entry is NaN or infinity, replace with 0
         if any(isnan.(pred)) || any(isinf.(pred))
             @warn("NaN or Inf detected in prediction during computation of loss. Replacing with 0.")
