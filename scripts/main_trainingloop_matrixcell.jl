@@ -21,33 +21,18 @@ include("train_setup.jl")
 
 ##### EXPERIMENTAL CONDITIONS
 
-taskcats = ["classification", 
-            "reconstruction"]
-measurecats = ["masks", 
-               "traces", 
-               "blocks"]
-tasks = ["classif1a", "classif1b", 
-         "classif2a", "classif2b", 
-         "recon32", "recon64", "recon128", "recon256",
-         "sparse200a", "sparse200b"]
-datasetnames = ["lr_c1", "lr_c2", 
-                "lr_r_32", "lr_r_64", "lr_r_128", "lr_r_256", 
-                "sparse_200"]
-
-TASKCAT = taskcats[2]
-DATASETNAME = datasetnames[3]
-MEASCAT = measurecats[1]
-TASK = tasks[5]
+TASKCAT = "reconstruction"
+TASK = "recon80"
 
 RANK::Int = 1
 M, N, dataset_size = 80, 80, 1000
 mat_size = M * N
 
 knownentries = 1000
-net_width::Int = 1500
+net_width::Int = 1200
 
 TURNS::Int = 5
-EPOCHS = 8
+EPOCHS = 1
 MINIBATCH_SIZE = 64
 
 ##########
