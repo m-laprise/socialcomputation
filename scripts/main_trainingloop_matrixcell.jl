@@ -131,7 +131,7 @@ val_loss = Float32[]
 train_rmse = Float32[]
 val_rmse = Float32[]
 Whh_spectra = []
-push!(Whh_spectra, eigvals(activemodel.rnn.cell.Whh))
+push!(Whh_spectra, eigvals(activemodel.rnn.cell.Whh |> cpu))
 
 gt = false
 initmetrics_train = myloss(activemodel, Xtrain[1:n_loss], Ytrain[:, :, 1:n_loss], mask_mat, gt; 
@@ -148,7 +148,7 @@ println("===================")
 for (eta, epoch) in zip(s, 1:EPOCHS)
     reset!(activemodel)
     println("Commencing epoch $epoch (eta = $(round(eta, digits=6)))")
-    opt.eta = eta
+    Flux.adjust!(opt_state, eta = eta)
     # Initialize counters for gradient diagnostics
     mb, n, v, e = 1, 0, 0, 0
     # Iterate over minibatches

@@ -309,11 +309,17 @@ function(m::matrnn_cell_b)(state, I=nothing)
         bias = bh
     else
         @assert I isa AbstractArray && size(I, 1) == net_width && size(I, 2) <= distribinput_capacity
-        I_buf = Zygote.Buffer(zeros(Float32, size(I)))
-        for i in 1:net_width
-            I_buf[i, :] = Wx_out' * tanhvf0(Wx_in * Float32.(I[i,:]) .+ bx_in[i, :]) .+ bx_out[i, :]
+        if Sys.CPU_NAME == "apple_m1"
+            I_buf = Zygote.Buffer(zeros(Float32, size(I)))
+            for i in 1:net_width
+                I_buf[i, :] = Wx_out' * tanhvf0(Wx_in * Float32.(I[i,:]) .+ bx_in[i, :]) .+ bx_out[i, :]
+            end
+            procI = copy(I_buf)
+        else
+            # NOTE -- equation needs double checked
+            M_in = CUDA.tanh.(Wx_in * Float32.(I)' .+ bx_in')
+            procI = (Wx_out' * M_in .+ bx_out')'
         end
-        procI = copy(I_buf)
         bias = bh .+ procI
     end
     h_new = tanhvf0(Whh * h .+ bias)
@@ -476,7 +482,7 @@ end
 #####
 # Replace Chain for matrix-valued nets
 mutable struct matnet
-    rnn::Recur{matrnn_cell_b{AbstractArray{Float32}}}
+    rnn::Recur
     dec::WMeanRecon
     #dec = x -> mean(x, dims = 1)
 end
