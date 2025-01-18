@@ -3,9 +3,7 @@ if Sys.CPU_NAME != "apple-m1"
     import Pkg
     Pkg.activate("../")
 end
-if Sys.CPU_NAME != "apple-m1"
-    using Enzyme
-end
+
 using CUDA
 using Random
 using Distributions
@@ -26,9 +24,9 @@ include("train_setup.jl")
 device = Flux.gpu
 try
     device = Flux.gpu_device()
-    println("GPU device detected.")
+    @info("GPU device detected.")
 catch
-    println("No GPU device detected. Using CPU.")
+    @info("No GPU device detected. Using CPU.")
 end
 
 ##### EXPERIMENTAL CONDITIONS
@@ -68,11 +66,11 @@ for i in 1:dataset_size
 end
 
 fixedmask = sensingmasks(M, N; k=knownentries, seed=9632)
-mask_mat = masktuple2array(fixedmask)
+mask_mat = Float32.(masktuple2array(fixedmask))
 @assert size(mask_mat) == (M, N)
 
 X = matinput_setup(Y, net_width, M, N, dataset_size, knownentries, fixedmask)
-Base.gc_live_bytes() / 1024^3
+@info("Memory usage after data generation: ", Base.gc_live_bytes() / 1024^3)
 
 Xtrain, Xval, Xtest = train_val_test_split(X, train_prop, val_prop, test_prop)
 X = nothing
@@ -80,7 +78,7 @@ Ytrain, Yval, Ytest = train_val_test_split(Y, train_prop, val_prop, test_prop)
 Y = nothing
 size(Xtrain), size(Ytrain)
 
-println("Dataset created and split into training, validation, and test sets on cpu.")
+@info("Dataset created and split into training, validation, and test sets on cpu.")
 ##### INITIALIZE NETWORK
 
 # Initialize the RNN model
@@ -91,14 +89,14 @@ activemodel = matnet(
     WMeanRecon(net_width)
 )
 
-println("Testing untrained model...")
+@info("Testing untrained model...")
 activemodel() 
-activemodel(Matrix(Float32.(Xtrain[1])))
+activemodel(Matrix(Xtrain[1]))
 reset!(activemodel)
 
 activemodel = activemodel |> device
 Flux.get_device(; verbose=true)
-println("Model initialized and moved to gpu.")
+@info("Model initialized and moved to gpu.")
 
 ##### DEFINE LOSS FUNCTIONS
 myloss = recon_losses
@@ -116,14 +114,14 @@ end
 opt = Adam()
 # Tree of states
 opt_state = Flux.setup(opt, activemodel)
-println("Optimizer and state initialized.")
+@info("Optimizer and state initialized.")
 
 traindataloader = Flux.DataLoader(
     (data=Xtrain, label=Ytrain), 
     batchsize=MINIBATCH_SIZE, 
     shuffle=true)
 gpu_traindataloader = device(traindataloader)
-println("Data loaded and moved to gpu.")
+@info("Data loaded and moved to gpu.")
 
 # STORE INITIAL METRICS
 train_loss = Float32[]
@@ -134,6 +132,7 @@ Whh_spectra = []
 push!(Whh_spectra, eigvals(activemodel.rnn.cell.Whh |> cpu))
 
 gt = false
+# Compute the initial training and validation loss with forward passes on GPU and store it back to CPU
 initmetrics_train = myloss(activemodel, Xtrain[1:n_loss], Ytrain[:, :, 1:n_loss], mask_mat, gt; 
                            turns = TURNS, mode = "testing", incltrainloss = true)
 initmetrics_val = myloss(activemodel, Xval[1:n_loss], Yval[:, :, 1:n_loss], mask_mat, gt; 
@@ -191,7 +190,7 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     # Check if validation loss has increased for 2 epochs in a row; if so, stop training
     if length(val_loss) > 2
         if val_loss[end] > val_loss[end-1] && val_loss[end-1] > val_loss[end-2]
-            println("Early stopping at epoch $epoch")
+            @warn("Early stopping at epoch $epoch")
             break
         end
     end

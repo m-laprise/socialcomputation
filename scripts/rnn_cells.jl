@@ -298,7 +298,8 @@ function(m::bfl_cell)(state, I=nothing)
     return h_new, h_new
 end
 
-function(m::matrnn_cell_b)(state, I=nothing)
+function(m::matrnn_cell_b)(state::AbstractArray{Float32}, 
+                           I::Union{Nothing, AbstractArray{Float32}}=nothing)
     Wx_in, Wx_out, bx_in, bx_out = m.Wx_in, m.Wx_out, m.bx_in, m.bx_out
     Whh, bh = m.Whh, m.bh
     @assert ndims(state) == 2
@@ -307,22 +308,29 @@ function(m::matrnn_cell_b)(state, I=nothing)
     distribinput_capacity = size(h, 2)
     if isnothing(I)
         bias = bh
+        if Sys.CPU_NAME == "apple_m1"
+            h_new = tanhvf0(Whh * h .+ bias)
+        else
+            h_new = tanh.(Whh * h .+ bias)
+        end
     else
-        @assert I isa AbstractArray && size(I, 1) == net_width && size(I, 2) <= distribinput_capacity
+        @assert size(I, 1) == net_width && size(I, 2) <= distribinput_capacity
         if Sys.CPU_NAME == "apple_m1"
             I_buf = Zygote.Buffer(zeros(Float32, size(I)))
             for i in 1:net_width
-                I_buf[i, :] = Wx_out' * tanhvf0(Wx_in * Float32.(I[i,:]) .+ bx_in[i, :]) .+ bx_out[i, :]
+                I_buf[i, :] = Wx_out' * tanhvf0(Wx_in * I[i,:] .+ bx_in[i, :]) .+ bx_out[i, :]
             end
             procI = copy(I_buf)
+            bias = bh .+ procI
+            h_new = tanhvf0(Whh * h .+ bias)
         else
             # NOTE -- equation needs double checked
-            M_in = tanh.(Wx_in * Float32.(I)' .+ bx_in')
+            M_in = tanh.(Wx_in * I' .+ bx_in')
             procI = (Wx_out' * M_in .+ bx_out')'
+            bias = bh .+ procI
+            h_new = tanh.(Whh * h .+ bias)
         end
-        bias = bh .+ procI
     end
-    h_new = tanhvf0(Whh * h .+ bias)
     m.h = h_new
     return h_new, h_new
 end

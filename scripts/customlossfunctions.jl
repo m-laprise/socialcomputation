@@ -25,7 +25,9 @@ nuclearnorm(A::AbstractArray) = sum(abs.(svdvals(A)))
 
     Takes a recurrent model `m`, a set of inputs `xs`, and the number of time steps `turns` to recur the model.
     Returns the predicted outputs for each input after `turns` steps.
-    It uses Zygote buffers and is autodifferentiable.
+
+    For vector-state models (type Chain), it uses Zygote buffers and is autodifferentiable with Zygote.
+    For matrix-state models (type matnet), it uses the GPU if available, in which case it requires Enzyme for autodiff.
 """
 function predict_through_time(m::Chain, 
                               xs::AbstractArray{Float32}, 
@@ -62,27 +64,30 @@ end
 function predict_through_time(m::matnet, 
                               xs::Vector, 
                               turns::Int)
-    m = device(m)
-    xs = device(xs)
     if Sys.CPU_NAME == "apple-m1"
-        trial_output = m(Matrix(Float32.(xs[1])))
+        trial_output = m(Matrix(xs[1]))
     else
-        trial_output = m(CuArray(Float32.(xs[1])))
+        m = device(m)
+        xs = device(xs)
+        trial_output = m(CuArray(xs[1]))
     end
     output_size = length(trial_output)
     nb_examples = length(xs)
-    # For each example, read in the input, recur for `turns` steps, 
-    # and predict the label, then reset the state
+    # Pre-allocate the output array
     preds = Zygote.Buffer(zeros(Float32, output_size, nb_examples)) |> device
+    # For each example, read in the input, recur for `turns` steps, 
+    # predict the label, then reset the state
     for (i, example) in enumerate(xs)
         if Sys.CPU_NAME == "apple-m1"
-            x = Matrix(Float32.(example))
+            x = Matrix(example)
         else
-            x = CuArray(Float32.(example))
+            x = CuArray(example)
         end
         reset!(m)
-        for _ in 1:turns
-            m(x)
+        if turns > 0
+            for _ in 1:turns
+                m(x)
+            end
         end
         pred = m(x)
         # If any predicted entry is NaN or infinity, replace with 0

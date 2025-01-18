@@ -70,7 +70,7 @@ end
 """
     matinput_setup(Y::AbstractArray, m::Int, n::Int, dataset_size::Int)
 
-Setup the input data for the specified measurement category, for matrix-state cells
+Setup the input data for matrix-state cells
     taking a k-collection of sparse M x N matrices as input, structured as a
     3D tensor of size k x (M x N) x dataset_size (k is the number of agents or net_width).
 
@@ -83,19 +83,23 @@ The `alpha` parameter determines how uniformly the known entries are distributed
 When `alpha = 50`, the known entries are almost surely distributed uniformly across the agents. When `alpha = 0`,
 one agent has all the known entries and the others have none.
 """
-function matinput_setup(Y::AbstractArray, k::Int,
-                        M::Int, N::Int, dataset_size::Int,
-                        knownentries::Int, masks::Vector;
-                        alpha::Float64 = 50.0)
+function matinput_setup(Y::AbstractArray{Float32}, 
+                        k::Int,
+                        M::Int, 
+                        N::Int, 
+                        dataset_size::Int,
+                        knownentries::Int, 
+                        masks::Vector{Tuple{Int,Int}};
+                        alpha::Float32 = 50f0)
     @assert knownentries == length(masks)
-    @assert alpha >= 0.0 && alpha <= 50.0
+    @assert alpha >= 0 && alpha <= 50
     knownentries_per_agent = zeros(Int, k)
     # Create a vector of length k with the number of known entries for each agent,
     # based on the alpha concentration parameter. The vector should sum to the total number of known entries.
     if alpha == 0
         knownentries_per_agent[1] = knownentries
     else
-        dirichlet_dist = Dirichlet(alpha * ones(minimum([k, knownentries])))
+        dirichlet_dist = Dirichlet(alpha * ones(Float32, minimum([k, knownentries])))
         proportions = rand(dirichlet_dist)
         knownentries_per_agent = round.(Int, proportions * minimum([k, knownentries]))
         # If knownentries < k, pad the vector with zeros
@@ -114,7 +118,7 @@ function matinput_setup(Y::AbstractArray, k::Int,
     #X = zeros(Float32, k, M*N, dataset_size)
     X = []
     for i in 1:dataset_size
-        inputmat = spzeros(k, M*N)
+        inputmat = spzeros(Float32, k, M*N)
         entry_count = 1
         for agent in 1:k
             for l in 1:knownentries_per_agent[agent]
