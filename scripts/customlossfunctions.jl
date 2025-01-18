@@ -59,7 +59,7 @@ function predict_through_time(m::Chain,
     return copy(preds)
 end
 
-function predict_through_time(m::ComposedFunction, 
+function predict_through_time(m::matnet, 
                               xs::Vector, 
                               turns::Int)
     trial_output = m(Matrix(Float32.(xs[1])) |> device) |> cpu
@@ -236,7 +236,7 @@ function recon_losses(m::Chain,
     end
 end
 
-function recon_losses(m::ComposedFunction, 
+function recon_losses(m::matnet, 
                     xs::Vector, 
                     ys_mat::AbstractArray{Float32},
                     mask_mat = nothing,

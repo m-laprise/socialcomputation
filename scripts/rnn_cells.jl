@@ -412,7 +412,7 @@ state(m::Recur{ <:customgru_cell} ) = m.state
 state(m::Recur{ <:bfl_cell} ) = m.state
 state(m::Recur{ <:matrnn_cell_b} ) = m.state
 
-Flux.@functor Recur cell, init
+Flux.@layer Recur trainable=(cell,) # FLAG potentially problematic
 Base.show(io::IO, m::Recur) = print(io, "Recur(", m.cell, ")")
 rnn(args...;kwargs...) = Recur(rnn_cell(args...;kwargs...))
 matrnn(args...;kwargs...) = Recur(matrnn_cell(args...;kwargs...))
@@ -443,7 +443,7 @@ function BasisChange((in, out)::Pair{<:Integer, <:Integer};
     BasisChange(weight_init, bias_init)
 end
 
-Flux.@layer BasisChange trainable=(weight, bias)
+Flux.@layer BasisChange 
 (a::BasisChange)(x::AbstractVecOrMat) = (a.weight * x * a.weight' .+ a.bias)
 
 function Base.show(io::IO, l::BasisChange)
@@ -471,3 +471,17 @@ function Base.show(io::IO, l::WMeanRecon)
     print(io, ")")
 end
 
+#####
+# Replace Chain for matrix-valued nets
+mutable struct matnet
+    rnn::Recur{matrnn_cell_b{Matrix{Float32}}}
+    dec::WMeanRecon
+    #dec = x -> mean(x, dims = 1)
+end
+(m::matnet)() = (m.dec ∘ m.rnn)()
+(m::matnet)(x::Any) = (m.dec ∘ m.rnn)(x)
+
+reset!(m::matnet) = reset!(m.rnn)
+state(m::matnet) = state(m.rnn)
+Flux.Functors.children(m::matnet) = merge(Flux.Functors.children(m.rnn), Flux.Functors.children(m.dec))
+Flux.@layer :expand matnet

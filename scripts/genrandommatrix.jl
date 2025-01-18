@@ -167,7 +167,7 @@ function test_matrix_gen()
     @assert all(eigvals(B) .≥ -1e-10)
 end
 
-test_matrix_gen()
+#test_matrix_gen()
 
 """
     gen_data_from_vcov(Σ, d)
@@ -240,7 +240,7 @@ function test_gen_data_from_vcov()
     @assert isapprox(Σ, Σhat, atol=10)
 end
 
-test_gen_data_from_vcov()
+#test_gen_data_from_vcov()
 
 """
     zscoremat(A; by="columns")
@@ -281,7 +281,7 @@ function test_zscore()
     @assert isapprox(std(D), 1.0)
 end
 
-test_zscore()
+#test_zscore()
 
 """
     submatrix(A::AbstractArray, blocksize::Int = 0; 
