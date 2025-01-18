@@ -317,7 +317,7 @@ function(m::matrnn_cell_b)(state, I=nothing)
             procI = copy(I_buf)
         else
             # NOTE -- equation needs double checked
-            M_in = CUDA.tanh.(Wx_in * Float32.(I)' .+ bx_in')
+            M_in = tanh.(Wx_in * Float32.(I)' .+ bx_in')
             procI = (Wx_out' * M_in .+ bx_out')'
         end
         bias = bh .+ procI
@@ -429,6 +429,7 @@ Reset the hidden state of a recurrent layer back to its original value.
 """
 reset!(m::Recur) = (m.state = m.init)
 
+#=
 # Split layers
 struct Split{T}
     paths::T
@@ -457,7 +458,7 @@ function Base.show(io::IO, l::BasisChange)
     print(io, "BasisChange(", size(l.weight, 1), " => ", size(l.weight, 2))
     l.bias == false && print(io, "; bias=false")
     print(io, ")")
-end
+end =#
 
 # Weighted mean decoding layer
 struct WMeanRecon{V}

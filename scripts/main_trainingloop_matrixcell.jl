@@ -4,17 +4,17 @@ if Sys.CPU_NAME != "apple-m1"
     Pkg.activate("../")
 end
 if Sys.CPU_NAME != "apple-m1"
-    using CUDA
+    using Enzyme
 end
-
+using CUDA
 using Random
 using Distributions
 using Flux
-using Zygote
+using Zygote, Enzyme
 using CairoMakie
 using LinearAlgebra
 using ParameterSchedulers
-using ParameterSchedulers: Scheduler
+#using ParameterSchedulers: Scheduler
 
 include("genrandommatrix.jl")
 include("rnn_cells.jl")
@@ -251,8 +251,6 @@ Label(
     fontsize = 14,
     padding = (0, 0, 0, 0),
 )
-fig
-
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries.png", fig)
 
 Whh = mactivemodel.rnn.cell.Whh |> cpu
@@ -278,7 +276,6 @@ scatter!(ax5, svdvals(Wx_out),
         color = :blue, alpha = 0.85, markersize = 5)
 ax6 = Axis(fig2[3, 2], title = "Singular values of bx_out biases", xlabel = "Unit", ylabel = "Value")
 scatter!(ax6, svdvals(bx_out), color = :purple, alpha = 0.85, markersize = 5)
-fig2
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries_learnedparamseigvals.png", fig2)
 
 # Plot the same parameters, but as a heatmap of each matrix
@@ -296,7 +293,6 @@ ax5 = Axis(fig3[3, 1], title = "Wx_out weights")
 heatmap!(ax5, (Wx_out), colormap = cmap)
 ax6 = Axis(fig3[3, 2], title = "bx_out biases")
 heatmap!(ax6, (bx_out), colormap = cmap)
-fig3
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries_learnedparamshmaps.png", fig3)
 
 include("inprogress/helpersWhh.jl")
