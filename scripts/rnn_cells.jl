@@ -206,6 +206,7 @@ end
 
 tanhvf0(x::Vector{Float32}) = tanh.(x)
 tanhvf0(x::Matrix{Float32}) = tanh.(x)
+tanhvf0(x::CuArray{Float32}) = tanh.(x)
 
 function(m::rnn_cell_xb)(state, x, I=nothing)
     Wxh, Whh, b, h = m.Wxh, m.Whh, m.b, state
@@ -465,6 +466,7 @@ end
 
 Flux.@layer WMeanRecon
 (a::WMeanRecon)(X::Matrix) = X' * sigmoid(a.weight) / sum(sigmoid(a.weight))
+(a::WMeanRecon)(X::CuArray) = X' * sigmoid(a.weight) / sum(sigmoid(a.weight))
 
 function Base.show(io::IO, l::WMeanRecon)
     print(io, "WMeanRecon(", size(l.weight, 1), ")")
@@ -474,7 +476,7 @@ end
 #####
 # Replace Chain for matrix-valued nets
 mutable struct matnet
-    rnn::Recur{matrnn_cell_b{Matrix{Float32}}}
+    rnn::Recur{matrnn_cell_b{AbstractArray{Float32}}}
     dec::WMeanRecon
     #dec = x -> mean(x, dims = 1)
 end

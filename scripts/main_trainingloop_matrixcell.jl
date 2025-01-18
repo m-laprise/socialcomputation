@@ -2,6 +2,8 @@
 if Sys.CPU_NAME != "apple-m1"
     import Pkg
     Pkg.activate("../")
+end
+if Sys.CPU_NAME != "apple-m1"
     using CUDA
 end
 
@@ -89,7 +91,9 @@ activemodel = matnet(
     WMeanRecon(net_width)
 )
 
+println("Testing untrained model...")
 activemodel() 
+activemodel(Matrix(Float32.(Xtrain[1])))
 reset!(activemodel)
 
 activemodel = activemodel |> device
