@@ -1,5 +1,4 @@
 data/
-Manifest.toml
 Project.toml
 
 # Edit at https://www.toptal.com/developers/gitignore?templates=julia,visualstudiocode,macos,latex
