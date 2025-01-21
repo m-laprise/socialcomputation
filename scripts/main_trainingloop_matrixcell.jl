@@ -154,15 +154,10 @@ reset!(activemodel)
 
 #Returns the value of the function f and a back-propagator function, 
 #which can be called to obtain a tuple containing ∂f/∂x for each argument x
-z, back = Zygote.pullback(myloss, activemodel, x[1:2], y[:,:,1:2], mask_mat, false)
+z, back = Zygote.pullback(myloss, activemodel, x, y, mask_mat, false)
 grads = getindex(back(one(z))[1])
 reset!(activemodel)
 
-#grads[:rnn][:state] has something and should have nothing
-grads[:rnn][:state]
-grads[:rnn][:cell]
-grads[:rnn][:cell][:Whh]
-grads[:dec][:weight]
 
 starttime = time()
 println("===================")

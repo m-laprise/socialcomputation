@@ -64,22 +64,22 @@ end
 function predict_through_time(m::matnet, 
                               xs::Vector, 
                               turns::Int)
-    if Sys.CPU_NAME == "apple-m1"
-        trial_output = m(Matrix(xs[1]))
-    else
+    if isa(xs[1], CUDA.CUSPARSE.CuSparseMatrixCSC)
         trial_output = m(CuArray(xs[1]))
+    else
+        trial_output = m(Matrix(xs[1]))
     end
     output_size = length(trial_output)
     nb_examples = length(xs)
     # Pre-allocate the output array
-    preds = Zygote.Buffer(zeros(Float32, output_size, nb_examples)) #|> device
+    preds = Zygote.Buffer(randn(Float32, output_size, nb_examples)) #|> device
     # For each example, read in the input, recur for `turns` steps, 
     # predict the label, then reset the state
     for (i, example) in enumerate(xs)
-        if Sys.CPU_NAME == "apple-m1"
-            x = Matrix(example)
-        else
+        if isa(xs[1], CUDA.CUSPARSE.CuSparseMatrixCSC)
             x = CuArray(example)
+        else
+            x = Matrix(example)
         end
         reset!(m)
         if turns > 0
@@ -89,9 +89,11 @@ function predict_through_time(m::matnet,
         end
         pred = m(x) |> cpu
         # If any predicted entry is NaN or infinity, replace with 0
-        if any(isnan.(pred)) || any(isinf.(pred))
-            @warn("NaN or Inf detected in prediction during computation of loss. Replacing with 0.")
-            pred = replace(y -> isfinite(y) ? y : 0.0f0, pred)
+        Zygote.ignore() do
+            if any(isnan.(pred)) || any(isinf.(pred))
+                @warn("NaN or Inf detected in prediction during computation of loss. Replacing with 0.")
+                pred = replace(y -> isfinite(y) ? y : 0.0f0, pred)
+            end
         end
         if output_size == 1
             preds[:,i] = pred[1]
@@ -278,7 +280,7 @@ function recon_losses(m::matnet,
     # If not, compare x (masked ground truth matrix) to x_hat (masked estimated matrix)
     if mode == "training"
         # When training, return only the training loss for gradient computation
-        errors = Zygote.Buffer(zeros(Float32, 1, nb_examples))
+        errors = Zygote.Buffer(randn(Float32, 1, nb_examples))
         for i in 1:nb_examples
             if !groundtruth
                 diff = vec(mask_mat) .* (ys[:,i] .- ys_hat[:,i])
