@@ -84,17 +84,17 @@ size(Xtrain), size(Ytrain)
 # Initialize the RNN model
 unit_hidim = mat_size
 
-activemodel = matnet(
+cpu_activemodel = matnet(
     matrnn(mat_size, net_width, unit_hidim), 
     WMeanRecon(net_width)
 )
 
 @info("Testing untrained model...")
-activemodel() 
-activemodel(Matrix(Xtrain[1]))
-reset!(activemodel)
+cpu_activemodel() 
+cpu_activemodel(Matrix(Xtrain[1]))
+reset!(cpu_activemodel)
 
-activemodel = activemodel |> device
+activemodel = cpu_activemodel |> device
 Flux.get_device(; verbose=true)
 @info("Model initialized and moved to gpu.")
 
@@ -142,6 +142,28 @@ push!(train_rmse, initmetrics_train["RMSE"])
 push!(val_loss, initmetrics_val["l2"])
 push!(val_rmse, initmetrics_val["RMSE"])
 
+#Flux.freeze!(opt_state.rnn.state)
+
+a = [(x,y) for (x,y) in traindataloader]
+x, y = a[1]
+x = x[1:2]
+y = y[:,:,1:2]
+reset!(activemodel)
+ref_loss, ref_grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat, false)
+reset!(activemodel)
+
+#Returns the value of the function f and a back-propagator function, 
+#which can be called to obtain a tuple containing ∂f/∂x for each argument x
+z, back = Zygote.pullback(myloss, activemodel, x[1:2], y[:,:,1:2], mask_mat, false)
+grads = getindex(back(one(z))[1])
+reset!(activemodel)
+
+#grads[:rnn][:state] has something and should have nothing
+grads[:rnn][:state]
+grads[:rnn][:cell]
+grads[:rnn][:cell][:Whh]
+grads[:dec][:weight]
+
 starttime = time()
 println("===================")
 for (eta, epoch) in zip(s, 1:EPOCHS)
@@ -163,6 +185,12 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
             n += _n
             v += _v
             e += _e
+            # Detect loss of Inf or NaN. Print a warning, and then skip update!
+            if !isfinite(train_loss_value)
+                @warn "Loss is $val on minibatch $(epoch)--$(mb)" 
+                mb += 1
+                continue
+            end
             # Use the optimizer and grads to update the trainable parameters; update the optimizer states
             Flux.update!(opt_state, activemodel, grads[1])
             if mb == 1 || mb % 5 == 0

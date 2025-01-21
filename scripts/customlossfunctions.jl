@@ -11,11 +11,11 @@ using Zygote
 using LinearAlgebra
 using SparseArrays: sparse
 
-MSE(A::AbstractArray, B::AbstractArray) = abs(mean((A .- B).^2))
-RMSE(A::AbstractArray, B::AbstractArray) = abs(sqrt(MSE(A, B)))
+MSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = abs(mean((A .- B).^2))
+RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = abs(sqrt(MSE(A, B)))
 
-spectdist(A::AbstractArray, B::AbstractArray) = norm(abs.(svdvals(A)) - abs.(svdvals(B))) / length(svdvals(A))
-nuclearnorm(A::AbstractArray) = sum(abs.(svdvals(A))) 
+spectdist(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = norm(abs.(svdvals(A)) - abs.(svdvals(B))) / length(svdvals(A))
+nuclearnorm(A::AbstractArray{Float32}) = sum(abs.(svdvals(A))) 
 
 # Use Flux.logitbinarycrossentropy instead, same operation but more numerically stable
 # mylogitbinarycrossentropy(ŷ, y) = mean(@.((1 - y) * ŷ - logσ(ŷ)))
@@ -67,14 +67,12 @@ function predict_through_time(m::matnet,
     if Sys.CPU_NAME == "apple-m1"
         trial_output = m(Matrix(xs[1]))
     else
-        m = device(m)
-        xs = device(xs)
         trial_output = m(CuArray(xs[1]))
     end
     output_size = length(trial_output)
     nb_examples = length(xs)
     # Pre-allocate the output array
-    preds = Zygote.Buffer(zeros(Float32, output_size, nb_examples)) |> device
+    preds = Zygote.Buffer(zeros(Float32, output_size, nb_examples)) #|> device
     # For each example, read in the input, recur for `turns` steps, 
     # predict the label, then reset the state
     for (i, example) in enumerate(xs)
@@ -89,7 +87,7 @@ function predict_through_time(m::matnet,
                 m(x)
             end
         end
-        pred = m(x)
+        pred = m(x) |> cpu
         # If any predicted entry is NaN or infinity, replace with 0
         if any(isnan.(pred)) || any(isinf.(pred))
             @warn("NaN or Inf detected in prediction during computation of loss. Replacing with 0.")

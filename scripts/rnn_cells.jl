@@ -427,7 +427,7 @@ state(m::Recur{ <:customgru_cell} ) = m.state
 state(m::Recur{ <:bfl_cell} ) = m.state
 state(m::Recur{ <:matrnn_cell_b} ) = m.state
 
-Flux.@layer Recur trainable=(cell,) # FLAG potentially problematic
+Flux.@layer Recur trainable=(cell,) 
 Base.show(io::IO, m::Recur) = print(io, "Recur(", m.cell, ")")
 rnn(args...;kwargs...) = Recur(rnn_cell(args...;kwargs...))
 matrnn(args...;kwargs...) = Recur(matrnn_cell(args...;kwargs...))
@@ -501,4 +501,13 @@ end
 reset!(m::matnet) = reset!(m.rnn)
 state(m::matnet) = state(m.rnn)
 Flux.Functors.children(m::matnet) = merge(Flux.Functors.children(m.rnn), Flux.Functors.children(m.dec))
-Flux.@layer :expand matnet
+Flux.@layer :expand matnet trainable=(rnn, dec)
+
+
+Flux.@non_differentiable reset!(m::matnet)
+Flux.@non_differentiable reset!(m::Recur)
+Flux.@non_differentiable reset!(m::matrnn_cell_b)
+Flux.@non_differentiable reset!(m::rnn_cell_b)
+Flux.@non_differentiable reset!(m::rnn_cell_xb)
+Flux.@non_differentiable reset!(m::customgru_cell)
+Flux.@non_differentiable reset!(m::bfl_cell)
