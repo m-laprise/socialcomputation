@@ -35,15 +35,15 @@ TASKCAT = "reconstruction"
 TASK = "recon80"
 
 RANK::Int = 1
-M, N, dataset_size = 80, 80, 1000
+M, N, dataset_size = 64, 64, 1000
 mat_size = M * N
 
-knownentries = 1000
-net_width::Int = 500
+knownentries = 1500
+net_width::Int = 400
 
 TURNS::Int = 5
 EPOCHS = 1
-MINIBATCH_SIZE = 64
+MINIBATCH_SIZE = 32
 n_loss = 10
 
 ##########
@@ -121,6 +121,9 @@ traindataloader = Flux.DataLoader(
     batchsize=MINIBATCH_SIZE, 
     shuffle=true)
 gpu_traindataloader = device(traindataloader)
+gpu_Xtrain, gpu_Ytrain = device(Xtrain), device(Ytrain)
+gpu_Xval, gpu_Yval = device(Xval), device(Yval)
+gpu_Xtest, gpu_Ytest = device(Xtest), device(Ytest)
 @info("Data loaded and moved to gpu.")
 
 # STORE INITIAL METRICS
@@ -133,37 +136,32 @@ push!(Whh_spectra, eigvals(activemodel.rnn.cell.Whh |> cpu))
 
 gt = false
 # Compute the initial training and validation loss with forward passes on GPU and store it back to CPU
-initmetrics_train = myloss(activemodel, Xtrain[1:n_loss], Ytrain[:, :, 1:n_loss], mask_mat, gt; 
+initmetrics_train = myloss(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:, :, 1:n_loss], mask_mat, gt; 
                            turns = TURNS, mode = "testing", incltrainloss = true)
-initmetrics_val = myloss(activemodel, Xval[1:n_loss], Yval[:, :, 1:n_loss], mask_mat, gt; 
+initmetrics_val = myloss(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:, :, 1:n_loss], mask_mat, gt; 
                          turns = TURNS, mode = "testing", incltrainloss = true)
 push!(train_loss, initmetrics_train["l2"])
 push!(train_rmse, initmetrics_train["RMSE"])
 push!(val_loss, initmetrics_val["l2"])
 push!(val_rmse, initmetrics_val["RMSE"])
 
-#Flux.freeze!(opt_state.rnn.state)
-
-a = [(x,y) for (x,y) in traindataloader]
+#=a = [(x,y) for (x,y) in traindataloader]
 x, y = a[1]
 x = x[1:2]
 y = y[:,:,1:2]
 reset!(activemodel)
 ref_loss, ref_grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat, false)
 reset!(activemodel)
-
-#Returns the value of the function f and a back-propagator function, 
-#which can be called to obtain a tuple containing ∂f/∂x for each argument x
 z, back = Zygote.pullback(myloss, activemodel, x, y, mask_mat, false)
 grads = getindex(back(one(z))[1])
-reset!(activemodel)
-
+reset!(activemodel)=#
 
 starttime = time()
 println("===================")
 for (eta, epoch) in zip(s, 1:EPOCHS)
     reset!(activemodel)
     println("Commencing epoch $epoch (eta = $(round(eta, digits=6)))")
+    @info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
     Flux.adjust!(opt_state, eta = eta)
     # Initialize counters for gradient diagnostics
     mb, n, v, e = 1, 0, 0, 0
@@ -172,7 +170,9 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
         # Pass twice over each minibatch (extra gradient learning)
         for _ in 1:2
             # Forward pass (to compute the loss) and backward pass (to compute the gradients)
-            train_loss_value, grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat, gt)#[1]
+            train_loss_value, grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat, gt)
+            GC.gc()
+            @info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
             # During training, use the backward pass to store the training loss after the previous epoch
             push!(train_loss, train_loss_value)
             # Diagnose the gradients
@@ -188,6 +188,7 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
             end
             # Use the optimizer and grads to update the trainable parameters; update the optimizer states
             Flux.update!(opt_state, activemodel, grads[1])
+            GC.gc()
             if mb == 1 || mb % 5 == 0
                 println("Minibatch $(epoch)--$(mb): loss of $(round(train_loss_value, digits=4))")
             end
@@ -199,12 +200,12 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     diagnose_gradients(n, v, e)
     # Compute training metrics -- this is a very expensive operation because it involves a forward pass over the entire training set
     # so I take a subset of the training set to compute the metrics
-    trainmetrics = myloss(activemodel, Xtrain[1:n_loss], Ytrain[:,:,1:n_loss], mask_mat, gt; 
+    trainmetrics = myloss(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:,:,1:n_loss], mask_mat, gt; 
                           turns = TURNS, mode = "testing", incltrainloss = true)
     push!(train_loss, trainmetrics["l2"])
     push!(train_rmse, trainmetrics["RMSE"])
     # Compute validation metrics
-    valmetrics = myloss(activemodel, Xval[1:n_loss], Yval[:,:,1:n_loss], mask_mat, gt; 
+    valmetrics = myloss(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:,:,1:n_loss], mask_mat, gt; 
                         turns = TURNS, mode = "testing", incltrainloss = true)
     push!(val_loss, valmetrics["l2"])
     push!(val_rmse, valmetrics["RMSE"])
@@ -222,7 +223,7 @@ endtime = time()
 # training time in minutes
 println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 # Assess on testing set
-testmetrics = myloss(activemodel, Xtest, Ytest, mask_mat, gt; 
+testmetrics = myloss(activemodel, gpu_Xtest, gpu_Ytest, mask_mat, gt; 
                      turns = TURNS, mode = "testing", incltrainloss = true)
 println("Test RMSE: $(testmetrics["RMSE"])")
 println("Test loss: $(testmetrics["l2"])")

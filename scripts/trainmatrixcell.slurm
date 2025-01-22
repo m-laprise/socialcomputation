@@ -13,5 +13,6 @@
 module purge
 module load julia/1.10.5 cudatoolkit/12.6 cudnn/cuda-11.x/8.2.0
 cd /scratch/gpfs/mlaprise/socialcomputation/scripts
+unset LD_LIBRARY_PATH
 export JULIA_DEBUG=main_trainingloop_matrixcell
 julia main_trainingloop_matrixcell.jl

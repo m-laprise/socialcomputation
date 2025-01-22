@@ -303,7 +303,7 @@ function(m::matrnn_cell_b)(state::AbstractArray{Float32},
     Wx_in, Wx_out, bx_in, bx_out = m.Wx_in, m.Wx_out, m.bx_in, m.bx_out
     Whh, bh = m.Whh, m.bh
     @assert ndims(state) == 2
-    h = @view state[:,:]
+    h = state[:,:]
     net_width = size(h, 1)
     distribinput_capacity = size(h, 2)
     if isnothing(I)
