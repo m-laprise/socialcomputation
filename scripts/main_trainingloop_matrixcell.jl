@@ -96,7 +96,7 @@ reset!(cpu_activemodel)
 
 activemodel = cpu_activemodel |> device
 Flux.get_device(; verbose=true)
-@info("Model initialized and moved to gpu.")
+@info("Model initialized and moved to device.")
 
 ##### DEFINE LOSS FUNCTIONS
 myloss = recon_losses
@@ -124,7 +124,7 @@ gpu_traindataloader = device(traindataloader)
 gpu_Xtrain, gpu_Ytrain = device(Xtrain), device(Ytrain)
 gpu_Xval, gpu_Yval = device(Xval), device(Yval)
 gpu_Xtest, gpu_Ytest = device(Xtest), device(Ytest)
-@info("Data loaded and moved to gpu.")
+@info("Data loaded and moved to device.")
 
 # STORE INITIAL METRICS
 train_loss = Float32[]
@@ -145,16 +145,17 @@ push!(train_rmse, initmetrics_train["RMSE"])
 push!(val_loss, initmetrics_val["l2"])
 push!(val_rmse, initmetrics_val["RMSE"])
 
-#=a = [(x,y) for (x,y) in traindataloader]
+a = [(x,y) for (x,y) in traindataloader]
 x, y = a[1]
-x = x[1:2]
-y = y[:,:,1:2]
+x = device(x[1:2])
+y = device(y[:,:,1:2])
 reset!(activemodel)
 ref_loss, ref_grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat, false)
 reset!(activemodel)
 z, back = Zygote.pullback(myloss, activemodel, x, y, mask_mat, false)
 grads = getindex(back(one(z))[1])
-reset!(activemodel)=#
+reset!(activemodel)
+#enz_loss, enz_grads = Flux.withgradient(myloss, Duplicated(activemodel), x, y, mask_mat, false)
 
 starttime = time()
 println("===================")

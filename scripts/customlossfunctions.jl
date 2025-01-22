@@ -64,37 +64,28 @@ end
 function predict_through_time(m::matnet, 
                               xs::Vector, 
                               turns::Int)
-    if isa(xs[1], CUDA.CUSPARSE.CuSparseMatrixCSC)
-        trial_output = m(CuArray(xs[1]))
-    else
-        trial_output = m(Matrix(xs[1]))
-    end
+    trial_output = m(xs[1])
     output_size = length(trial_output)
     nb_examples = length(xs)
     # Pre-allocate the output array
-    preds = Zygote.Buffer(randn(Float32, output_size, nb_examples)) #|> device
+    preds = Zygote.Buffer(randn(Float32, output_size, nb_examples)) |> device
     # For each example, read in the input, recur for `turns` steps, 
     # predict the label, then reset the state
     for (i, example) in enumerate(xs)
-        if isa(xs[1], CUDA.CUSPARSE.CuSparseMatrixCSC)
-            x = CuArray(example)
-        else
-            x = Matrix(example)
-        end
         reset!(m)
         if turns > 0
             for _ in 1:turns
-                m(x)
+                m(example)
             end
         end
-        pred = m(x) |> cpu
+        pred = m(example) #|> cpu
         # If any predicted entry is NaN or infinity, replace with 0
-        Zygote.ignore() do
+        #= Zygote.ignore() do
             if any(isnan.(pred)) || any(isinf.(pred))
                 @warn("NaN or Inf detected in prediction during computation of loss. Replacing with 0.")
                 pred = replace(y -> isfinite(y) ? y : 0.0f0, pred)
             end
-        end
+        end =#
         if output_size == 1
             preds[:,i] = pred[1]
         else
@@ -268,8 +259,8 @@ function recon_losses(m::matnet,
 
     @assert isa(xs[1], SparseMatrixCSC) || isa(xs[1], CUDA.CUSPARSE.CuSparseMatrixCSC)
 
-    ys = reshape(ys_mat, l * n, nb_examples) |> cpu
-    ys_hat = predict_through_time(m, xs, turns) |> cpu
+    ys = reshape(ys_mat, l * n, nb_examples) #|> cpu
+    ys_hat = predict_through_time(m, xs, turns) #|> cpu
 
     if !groundtruth
         totN = sum(vec(mask_mat))
