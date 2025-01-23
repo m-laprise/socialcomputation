@@ -4,7 +4,7 @@ if Sys.CPU_NAME != "apple-m1"
     Pkg.activate("../")
 end
 
-using CUDA
+using CUDA, Adapt
 using Random
 using Distributions
 using Flux

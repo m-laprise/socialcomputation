@@ -511,3 +511,13 @@ Flux.@non_differentiable reset!(m::rnn_cell_b)
 Flux.@non_differentiable reset!(m::rnn_cell_xb)
 Flux.@non_differentiable reset!(m::customgru_cell)
 Flux.@non_differentiable reset!(m::bfl_cell)
+
+# Make custom structs compatible with CUDA
+Adapt.@adapt_structure matnet
+Adapt.@adapt_structure Recur
+Adapt.@adapt_structure matrnn_cell_b
+Adapt.@adapt_structure rnn_cell_b
+Adapt.@adapt_structure rnn_cell_xb
+Adapt.@adapt_structure customgru_cell
+Adapt.@adapt_structure bfl_cell
+Adapt.@adapt_structure WMeanRecon

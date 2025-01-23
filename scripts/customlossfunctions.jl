@@ -68,7 +68,7 @@ function predict_through_time(m::matnet,
     output_size = length(trial_output)
     nb_examples = length(xs)
     # Pre-allocate the output array
-    preds = Zygote.Buffer(randn(Float32, output_size, nb_examples)) |> device
+    preds = Zygote.Buffer(randn(Float32, output_size, nb_examples)) 
     # For each example, read in the input, recur for `turns` steps, 
     # predict the label, then reset the state
     for (i, example) in enumerate(xs)
@@ -80,12 +80,12 @@ function predict_through_time(m::matnet,
         end
         pred = m(example) #|> cpu
         # If any predicted entry is NaN or infinity, replace with 0
-        #= Zygote.ignore() do
+        Zygote.ignore() do
             if any(isnan.(pred)) || any(isinf.(pred))
                 @warn("NaN or Inf detected in prediction during computation of loss. Replacing with 0.")
                 pred = replace(y -> isfinite(y) ? y : 0.0f0, pred)
             end
-        end =#
+        end
         if output_size == 1
             preds[:,i] = pred[1]
         else
@@ -94,6 +94,35 @@ function predict_through_time(m::matnet,
     end
     reset!(m)
     return copy(preds)
+end
+
+function gpu_predict_through_time(m::matnet, 
+                              xs::Vector, 
+                              turns::Int)
+    trial_output = m(xs[1])
+    output_size = length(trial_output)
+    @assert output_size > 1
+    nb_examples = length(xs)
+    # Pre-allocate the output array
+    preds = CuArray(zeros(Float32, output_size, nb_examples)) 
+    # For each example, read in the input, recur for `turns` steps, 
+    # predict the label, then reset the state
+    for (i, example) in enumerate(xs)
+        reset!(m)
+        if turns > 0
+            for _ in 1:turns
+                m(example)
+            end
+        end
+        pred = m(example) 
+        # If any predicted entry is NaN or infinity, warn
+        if any(isnan.(pred)) || any(isinf.(pred))
+            @warn("NaN or Inf detected in prediction during computation of loss at turn $i.")
+        end
+        @inbounds preds[:,i] = pred
+    end
+    reset!(m)
+    return preds
 end
 
 function binary_classif_losses(m, 
@@ -164,7 +193,7 @@ function recon_losses(m::Chain,
                     incltrainloss::Bool = false, 
                     type::String = "l2nnm")
     if !groundtruth
-        @assert !isnothing(fixedmask)
+        @assert !isnothing(mask_mat)
     end
     @assert ndims(ys_mat) == 3
     l, n, nb_examples = size(ys_mat)
@@ -242,6 +271,46 @@ function recon_losses(m::Chain,
     end
 end
 
+function gpu_l2nnm_nogt_loss(m::matnet, 
+                            xs::Vector, 
+                            ys_mat::AbstractArray{Float32},
+                            mask_mat::AbstractArray{Float32}; 
+                            turns::Int = TURNS, 
+                            mode::String = "training", 
+                            theta::Float32 = 0.8f0,
+                            datascale::Float32 = 0.1f0)
+
+    @assert isa(xs[1], CUDA.CUSPARSE.CuSparseMatrixCSC)
+    @assert ndims(ys_mat) == 3
+    l, n, nb_examples = size(ys_mat)
+    totN = sum(vec(mask_mat))
+
+    ys = reshape(ys_mat, l * n, nb_examples) 
+    ys_hat = gpu_predict_through_time(m, xs, turns) 
+    @assert size(ys_hat) == size(ys) 
+
+    errors = CuArray(zeros(Float32, 1, nb_examples))
+    if mode == "testing"
+        RMSerrors = CuArray(zeros(Float32, 1, nb_examples))
+    end
+    for i in 1:nb_examples
+        @inbounds diff = vec(mask_mat) .* (ys[:,i] .- ys_hat[:,i])
+        l2normsq = norm(diff, 2)^2 / datascale
+        @inbounds nnm = nuclearnorm(ys_hat[:,i]) / l
+        @inbounds errors[i] = (theta * (l2normsq / totN) + (1f0 - theta) * nnm) / datascale
+        if mode == "testing"
+            @inbounds RMSerrors[i] = RMSE(ys[:,i], ys_hat[:,i]) / datascale
+        end
+    end
+    res = mean(errors)
+    if mode == "testing"
+        return Dict("l2" => res, 
+                    "RMSE" => mean(RMSerrors))
+    else
+        return res
+    end
+end
+
 function recon_losses(m::matnet, 
                     xs::Vector, 
                     ys_mat::AbstractArray{Float32},
@@ -252,15 +321,15 @@ function recon_losses(m::matnet,
                     incltrainloss::Bool = false, 
                     type::String = "l2nnm")
     if !groundtruth
-        @assert !isnothing(fixedmask)
+        @assert !isnothing(mask_mat)
     end
     @assert ndims(ys_mat) == 3
     l, n, nb_examples = size(ys_mat)
 
-    @assert isa(xs[1], SparseMatrixCSC) || isa(xs[1], CUDA.CUSPARSE.CuSparseMatrixCSC)
+    @assert isa(xs[1], SparseMatrixCSC) #|| isa(xs[1], CUDA.CUSPARSE.CuSparseMatrixCSC)
 
-    ys = reshape(ys_mat, l * n, nb_examples) #|> cpu
-    ys_hat = predict_through_time(m, xs, turns) #|> cpu
+    ys = reshape(ys_mat, l * n, nb_examples)  #|> cpu
+    ys_hat = predict_through_time(m, xs, turns)  #|> cpu
 
     if !groundtruth
         totN = sum(vec(mask_mat))
