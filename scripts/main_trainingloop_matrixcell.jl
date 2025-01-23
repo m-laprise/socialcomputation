@@ -99,8 +99,11 @@ Flux.get_device(; verbose=true)
 @info("Model initialized and moved to device.")
 
 ##### DEFINE LOSS FUNCTIONS
-myloss = recon_losses
-
+if CUDA.functional()
+    myloss = gpu_l2nnm_nogt_loss
+else
+    myloss = recon_losses
+end
 ##### TRAINING
 
 # State optimizing rule
@@ -134,12 +137,12 @@ val_rmse = Float32[]
 Whh_spectra = []
 push!(Whh_spectra, eigvals(activemodel.rnn.cell.Whh |> cpu))
 
-gt = false
+#gt = false
 # Compute the initial training and validation loss with forward passes on GPU and store it back to CPU
-initmetrics_train = myloss(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:, :, 1:n_loss], mask_mat, gt; 
-                           turns = TURNS, mode = "testing", incltrainloss = true)
-initmetrics_val = myloss(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:, :, 1:n_loss], mask_mat, gt; 
-                         turns = TURNS, mode = "testing", incltrainloss = true)
+initmetrics_train = myloss(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:, :, 1:n_loss], device(mask_mat); 
+                           turns = TURNS, mode = "testing")
+initmetrics_val = myloss(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:, :, 1:n_loss], device(mask_mat); 
+                         turns = TURNS, mode = "testing")
 push!(train_loss, initmetrics_train["l2"])
 push!(train_rmse, initmetrics_train["RMSE"])
 push!(val_loss, initmetrics_val["l2"])
@@ -150,9 +153,9 @@ x, y = a[1]
 x = device(x[1:2])
 y = device(y[:,:,1:2])
 reset!(activemodel)
-ref_loss, ref_grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat, false)
+ref_loss, ref_grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat)
 reset!(activemodel)
-z, back = Zygote.pullback(myloss, activemodel, x, y, mask_mat, false)
+z, back = Zygote.pullback(myloss, activemodel, x, y, mask_mat)
 grads = getindex(back(one(z))[1])
 reset!(activemodel)
 #enz_loss, enz_grads = Flux.withgradient(myloss, Duplicated(activemodel), x, y, mask_mat, false)
@@ -171,7 +174,7 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
         # Pass twice over each minibatch (extra gradient learning)
         for _ in 1:2
             # Forward pass (to compute the loss) and backward pass (to compute the gradients)
-            train_loss_value, grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat, gt)
+            train_loss_value, grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat)
             GC.gc()
             @info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
             # During training, use the backward pass to store the training loss after the previous epoch
@@ -201,12 +204,12 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     diagnose_gradients(n, v, e)
     # Compute training metrics -- this is a very expensive operation because it involves a forward pass over the entire training set
     # so I take a subset of the training set to compute the metrics
-    trainmetrics = myloss(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:,:,1:n_loss], mask_mat, gt; 
+    trainmetrics = myloss(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:,:,1:n_loss], mask_mat; 
                           turns = TURNS, mode = "testing", incltrainloss = true)
     push!(train_loss, trainmetrics["l2"])
     push!(train_rmse, trainmetrics["RMSE"])
     # Compute validation metrics
-    valmetrics = myloss(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:,:,1:n_loss], mask_mat, gt; 
+    valmetrics = myloss(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:,:,1:n_loss], mask_mat; 
                         turns = TURNS, mode = "testing", incltrainloss = true)
     push!(val_loss, valmetrics["l2"])
     push!(val_rmse, valmetrics["RMSE"])
@@ -224,7 +227,7 @@ endtime = time()
 # training time in minutes
 println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 # Assess on testing set
-testmetrics = myloss(activemodel, gpu_Xtest, gpu_Ytest, mask_mat, gt; 
+testmetrics = myloss(activemodel, gpu_Xtest, gpu_Ytest, mask_mat; 
                      turns = TURNS, mode = "testing", incltrainloss = true)
 println("Test RMSE: $(testmetrics["RMSE"])")
 println("Test loss: $(testmetrics["l2"])")

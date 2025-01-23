@@ -11,8 +11,9 @@ using Zygote
 using LinearAlgebra
 using SparseArrays: sparse
 
-MSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = abs(mean((A .- B).^2))
-RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = abs(sqrt(MSE(A, B)))
+MSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs.((A .- B).^2), dims=1)
+RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = sqrt.(MSE(A, B))
+mat_MSE
 
 spectdist(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = norm(abs.(svdvals(A)) - abs.(svdvals(B))) / length(svdvals(A))
 nuclearnorm(A::AbstractArray{Float32}) = sum(abs.(svdvals(A))) 
@@ -29,7 +30,22 @@ nuclearnorm(A::AbstractArray{Float32}) = sum(abs.(svdvals(A)))
     For vector-state models (type Chain), it uses Zygote buffers and is autodifferentiable with Zygote.
     For matrix-state models (type matnet), it uses the GPU if available, in which case it requires Enzyme for autodiff.
 """
-function predict_through_time(m::Chain, 
+# write function predict_through_time(args;kwargs) which dispatches to either cpu or gpu version depending on whether GPU is available
+function predict_through_time(m, xs, turns)
+    if isa(m, Chain)
+        return cpu_predict_through_time(m, xs, turns)
+    elseif isa(m, matnet)
+        if CUDA.functional()
+            return gpu_predict_through_time(m, xs, turns)
+        else
+            return cpu_predict_through_time(m, xs, turns)
+        end
+    else
+        error("Invalid model type")
+    end
+end
+
+function cpu_predict_through_time(m::Chain, 
                               xs::AbstractArray{Float32}, 
                               turns::Int)
     @assert ndims(xs) == 2
@@ -61,7 +77,7 @@ function predict_through_time(m::Chain,
     return copy(preds)
 end
 
-function predict_through_time(m::matnet, 
+function cpu_predict_through_time(m::matnet, 
                               xs::Vector, 
                               turns::Int)
     trial_output = m(xs[1])
@@ -286,28 +302,28 @@ function gpu_l2nnm_nogt_loss(m::matnet,
     totN = sum(vec(mask_mat))
 
     ys = reshape(ys_mat, l * n, nb_examples) 
-    ys_hat = gpu_predict_through_time(m, xs, turns) 
+    ys_hat = predict_through_time(m, xs, turns) 
     @assert size(ys_hat) == size(ys) 
 
-    errors = CuArray(zeros(Float32, 1, nb_examples))
+    # Compute the nuclear norm for each matrix in ys_hat
+    sq_ys_hat = reshape(ys_hat, l, n, nb_examples)
+    @inbounds nnm = [sum(abs.(svdvals(sq_ys_hat[:,:,i]))) for i in 1:nb_examples]
+
+    # Create diff matrix, n2 x nb_examples;
+    # Multiply by mask vector len n2 broadcasted to hide entries in each example
+    hidden_diff = vec(mask_mat) .* (ys .- ys_hat)
+    # Compute the L2 norm squared for each column of hidden_diff
+    l2normsq = CuArray(sum(hidden_diff.^2, dims=1) / datascale)
+    
+    errors = theta * (l2normsq' / totN) .+ (1f0 - theta) * nnm / datascale
     if mode == "testing"
-        RMSerrors = CuArray(zeros(Float32, 1, nb_examples))
+        RMSerrors = RMSE(ys, ys_hat) / datascale
     end
-    for i in 1:nb_examples
-        @inbounds diff = vec(mask_mat) .* (ys[:,i] .- ys_hat[:,i])
-        l2normsq = norm(diff, 2)^2 / datascale
-        @inbounds nnm = nuclearnorm(ys_hat[:,i]) / l
-        @inbounds errors[i] = (theta * (l2normsq / totN) + (1f0 - theta) * nnm) / datascale
-        if mode == "testing"
-            @inbounds RMSerrors[i] = RMSE(ys[:,i], ys_hat[:,i]) / datascale
-        end
-    end
-    res = mean(errors)
     if mode == "testing"
-        return Dict("l2" => res, 
+        return Dict("l2" => mean(errors), 
                     "RMSE" => mean(RMSerrors))
     else
-        return res
+        return mean(errors)
     end
 end
 
