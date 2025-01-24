@@ -306,7 +306,7 @@ function gpu_l2nnm_nogt_loss(m::matnet,
 
     # Compute the nuclear norm for each matrix in ys_hat
     sq_ys_hat = reshape(ys_hat, l, n, nb_examples)
-    @inbounds nnm = [sum(abs.(svdvals(sq_ys_hat[:,:,i]))) for i in 1:nb_examples]
+    @inbounds nnm = CuArray([sum(abs.(svdvals(sq_ys_hat[:,:,i]))) for i in 1:nb_examples])
 
     # Create diff matrix, n2 x nb_examples;
     # Multiply by mask vector len n2 broadcasted to hide entries in each example

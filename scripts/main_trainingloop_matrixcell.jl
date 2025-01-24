@@ -91,10 +91,15 @@ cpu_activemodel = matnet(
 
 @info("Testing untrained model...")
 cpu_activemodel() 
-cpu_activemodel(Matrix(Xtrain[1]))
+cpu_activemodel(Xtrain[1])
 reset!(cpu_activemodel)
 
+recon_losses(activemodel, Xtrain[1:n_loss], Ytrain[:, :, 1:n_loss], mask_mat; 
+                           turns = TURNS, mode = "testing")
+
 activemodel = cpu_activemodel |> device
+activemodel() 
+# activemodel(gpu_Xtrain[1])
 Flux.get_device(; verbose=true)
 @info("Model initialized and moved to device.")
 
