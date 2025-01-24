@@ -13,7 +13,6 @@ using SparseArrays: sparse
 
 MSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs.((A .- B).^2), dims=1)
 RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = sqrt.(MSE(A, B))
-mat_MSE
 
 spectdist(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = norm(abs.(svdvals(A)) - abs.(svdvals(B))) / length(svdvals(A))
 nuclearnorm(A::AbstractArray{Float32}) = sum(abs.(svdvals(A))) 
