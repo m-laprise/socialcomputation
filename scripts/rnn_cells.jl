@@ -299,16 +299,11 @@ function(m::bfl_cell)(state, I=nothing)
 end
 
 function(m::matrnn_cell_b)(state::AbstractArray{Float32}, 
-                           I::Union{Nothing, AbstractArray{Float32}}=nothing;
-                           selfreset::Bool=false)
+                           I::Union{Nothing, AbstractArray{Float32}}=nothing)
     Wx_in, Wx_out, bx_in, bx_out = m.Wx_in, m.Wx_out, m.bx_in, m.bx_out
     Whh, bh = m.Whh, m.bh
     @assert ndims(state) == 2
-    if selfreset
-        h = m.init
-    else
-        h = state[:,:]
-    end
+    h = state[:,:]
     net_width = size(h, 1)
     distribinput_capacity = size(h, 2)
     if isnothing(I)
@@ -425,6 +420,18 @@ function (m::Recur)(xs...)
   m.state = h
   return y
 end
+
+function (m::Recur)(xs...; selfreset::Bool)
+    if selfreset
+        h, y = m.cell(m.init, xs...)
+        m.state = h
+    else
+        h, y = m.cell(m.state, xs...)
+        m.state = h
+    end
+    return y
+end
+
 state(m::Recur{ <:rnn_cell_b} ) = m.state
 state(m::Recur{ <:rnn_cell_xb} ) = m.state
 #state(m::Recur{ <:rnn_cell_b_dual} ) = m.state
@@ -501,7 +508,11 @@ mutable struct matnet
     #dec = x -> mean(x, dims = 1)
 end
 (m::matnet)() = (m.dec ∘ m.rnn)()
-(m::matnet)(x::Any) = (m.dec ∘ m.rnn)(x)
+(m::matnet)(x) = (m.dec ∘ m.rnn)(x)
+function(m::matnet)(x; selfreset::Bool)
+    out = m.rnn(x; selfreset = selfreset)
+    return m.dec(out)
+end
 
 reset!(m::matnet) = reset!(m.rnn)
 state(m::matnet) = state(m.rnn)
