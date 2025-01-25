@@ -515,6 +515,10 @@ function(m::matnet)(x; selfreset::Bool=false)
     out = m.rnn(x; selfreset = selfreset)
     return m.dec(out)
 end
+function(m::matnet)(; selfreset::Bool=false)
+    out = m.rnn(; selfreset = selfreset)
+    return m.dec(out)
+end
 
 reset!(m::matnet) = reset!(m.rnn)
 state(m::matnet) = state(m.rnn)
