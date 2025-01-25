@@ -152,10 +152,6 @@ function gpu_predict_through_time(m::matnet,
     return preds
 end
 
-@benchmark gpu_predict_through_time(activemodel, Xtrain[1:2], 0)
-@benchmark gpu_predict_through_time(activemodel, Xtrain[1:10], 1)
-
-
 function binary_classif_losses(m, 
                 xs::AbstractArray{Float32}, 
                 ys::AbstractArray{Float32}; 
@@ -322,13 +318,13 @@ function gpu_l2nnm_nogt_loss(m::matnet,
 
     # Compute the nuclear norm for each matrix in ys_hat
     sq_ys_hat = reshape(ys_hat, l, n, nb_examples)
-    @inbounds nnm = CuArray([sum(abs.(svdvals(sq_ys_hat[:,:,i]))) for i in 1:nb_examples])
+    @inbounds nnm = device([sum(abs.(svdvals(sq_ys_hat[:,:,i]))) for i in 1:nb_examples])
 
     # Create diff matrix, n2 x nb_examples;
     # Multiply by mask vector len n2 broadcasted to hide entries in each example
     hidden_diff = vec(mask_mat) .* (ys .- ys_hat)
     # Compute the L2 norm squared for each column of hidden_diff
-    l2normsq = CuArray(sum(hidden_diff.^2, dims=1) / datascale)
+    l2normsq = device(sum(hidden_diff.^2, dims=1) / datascale)
     
     errors = theta * (l2normsq' / totN) .+ (1f0 - theta) * nnm / datascale
     if mode == "testing"

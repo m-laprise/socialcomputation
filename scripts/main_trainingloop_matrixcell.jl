@@ -167,6 +167,10 @@ x, y = a[1]
 x = device(x[1:2])
 y = device(y[:,:,1:2])
 reset!(activemodel)
+
+fwdloss1 = myloss(activemodel, x, y, device(mask_mat); mode = "training")
+fwdloss2 = myloss(activemodel, x, y, device(mask_mat); mode = "testing")
+
 ref_loss, ref_grads = Flux.withgradient(myloss, activemodel, x, y, device(mask_mat))
 reset!(activemodel)
 z, back = Zygote.pullback(myloss, activemodel, x, y, mask_mat)
