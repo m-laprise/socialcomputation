@@ -299,11 +299,16 @@ function(m::bfl_cell)(state, I=nothing)
 end
 
 function(m::matrnn_cell_b)(state::AbstractArray{Float32}, 
-                           I::Union{Nothing, AbstractArray{Float32}}=nothing)
+                           I::Union{Nothing, AbstractArray{Float32}}=nothing;
+                           selfreset::Bool=false)
     Wx_in, Wx_out, bx_in, bx_out = m.Wx_in, m.Wx_out, m.bx_in, m.bx_out
     Whh, bh = m.Whh, m.bh
     @assert ndims(state) == 2
-    h = state[:,:]
+    if selfreset
+        h = m.init
+    else
+        h = state[:,:]
+    end
     net_width = size(h, 1)
     distribinput_capacity = size(h, 2)
     if isnothing(I)
