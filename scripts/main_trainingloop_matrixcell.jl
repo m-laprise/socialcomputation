@@ -9,6 +9,7 @@ using Random
 using Distributions
 using Flux
 using Zygote, Enzyme
+#Enzyme.Compiler.VERBOSE_ERRORS[] = true
 using CairoMakie
 using LinearAlgebra
 using ParameterSchedulers
@@ -89,25 +90,33 @@ cpu_activemodel = matnet(
     WMeanRecon(net_width)
 )
 
-@info("Testing untrained model...")
+@info("Testing untrained model on cpu...")
 cpu_activemodel() 
 cpu_activemodel(Xtrain[1])
 reset!(cpu_activemodel)
 
-recon_losses(activemodel, Xtrain[1:n_loss], Ytrain[:, :, 1:n_loss], mask_mat; 
-                           turns = TURNS, mode = "testing")
+recon_losses(cpu_activemodel, Xtrain[1:n_loss], Ytrain[:, :, 1:n_loss], mask_mat; 
+             turns = TURNS, mode = "testing")
 
 activemodel = cpu_activemodel |> device
-activemodel() 
-# activemodel(gpu_Xtrain[1])
+activemodel()
+
 Flux.get_device(; verbose=true)
 @info("Model initialized and moved to device.")
+
+if CUDA.functional()
+    @info("Testing untrained model on gpu...")
+    activemodel()
+    activemodel(device(Xtrain[1]))
+    activemodel(device(Xtrain[1]); selfreset = true)
+    reset!(activemodel)
+end
 
 ##### DEFINE LOSS FUNCTIONS
 if CUDA.functional()
     myloss = gpu_l2nnm_nogt_loss
 else
-    myloss = recon_losses
+    myloss = cpu_l2nnm_nogt_loss
 end
 ##### TRAINING
 
@@ -158,7 +167,7 @@ x, y = a[1]
 x = device(x[1:2])
 y = device(y[:,:,1:2])
 reset!(activemodel)
-ref_loss, ref_grads = Flux.withgradient(myloss, activemodel, x, y, mask_mat)
+ref_loss, ref_grads = Flux.withgradient(myloss, activemodel, x, y, device(mask_mat))
 reset!(activemodel)
 z, back = Zygote.pullback(myloss, activemodel, x, y, mask_mat)
 grads = getindex(back(one(z))[1])

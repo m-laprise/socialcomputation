@@ -30,19 +30,24 @@ nuclearnorm(A::AbstractArray{Float32}) = sum(abs.(svdvals(A)))
     For matrix-state models (type matnet), it uses the GPU if available, in which case it requires Enzyme for autodiff.
 """
 # write function predict_through_time(args;kwargs) which dispatches to either cpu or gpu version depending on whether GPU is available
-function predict_through_time(m, xs, turns)
-    if isa(m, Chain)
-        return cpu_predict_through_time(m, xs, turns)
-    elseif isa(m, matnet)
-        if CUDA.functional()
-            return gpu_predict_through_time(m, xs, turns)
-        else
-            return cpu_predict_through_time(m, xs, turns)
-        end
+function predict_through_time(m::Chain, xs::Vector, turns::Int)
+    return cpu_predict_through_time(m, xs, turns)
+end
+
+function predict_through_time(m::matnet, 
+                              xs::Vector{CUDA.CUSPARSE.CuSparseMatrixCSC}, 
+                              turns::Int)
+    if CUDA.functional()
+        return gpu_predict_through_time(m, xs, turns::Int)
     else
-        error("Invalid model type")
+        return cpu_predict_through_time(m, xs, turns::Int)
     end
 end
+
+function predict_through_time(m::matnet, xs::Vector, turns::Int)
+    return cpu_predict_through_time(m, xs, turns)
+end
+
 
 function cpu_predict_through_time(m::Chain, 
                               xs::AbstractArray{Float32}, 
@@ -83,7 +88,7 @@ function cpu_predict_through_time(m::matnet,
     output_size = length(trial_output)
     nb_examples = length(xs)
     # Pre-allocate the output array
-    preds = Zygote.Buffer(randn(Float32, output_size, nb_examples)) 
+    preds = Zygote.Buffer(zeros(Float32, output_size, nb_examples)) 
     # For each example, read in the input, recur for `turns` steps, 
     # predict the label, then reset the state
     for (i, example) in enumerate(xs)
@@ -93,7 +98,7 @@ function cpu_predict_through_time(m::matnet,
                 m(example)
             end
         end
-        pred = m(example) #|> cpu
+        pred = m(example)
         # If any predicted entry is NaN or infinity, replace with 0
         Zygote.ignore() do
             if any(isnan.(pred)) || any(isinf.(pred))
@@ -111,34 +116,45 @@ function cpu_predict_through_time(m::matnet,
     return copy(preds)
 end
 
+
+
 function gpu_predict_through_time(m::matnet, 
                               xs::Vector, 
                               turns::Int)
-    trial_output = m(xs[1])
-    output_size = length(trial_output)
-    @assert output_size > 1
-    nb_examples = length(xs)
-    # Pre-allocate the output array
-    preds = CuArray(zeros(Float32, output_size, nb_examples)) 
-    # For each example, read in the input, recur for `turns` steps, 
-    # predict the label, then reset the state
-    for (i, example) in enumerate(xs)
+    # For each example, reset the state, recur for `turns` steps, 
+    # predict the label, store it
+    if turns == 0
         reset!(m)
-        if turns > 0
-            for _ in 1:turns
-                m(example)
-            end
+        preds = stack(m.(xs; selfreset = true))
+    elseif turns > 0    
+        trial_output = m(xs[1])
+        output_size = length(trial_output)
+        @assert output_size > 1
+        nb_examples = length(xs)
+        # This loop can run in parallel; order does not matter
+        preds = device(zeros(Float32, output_size, nb_examples))
+        @inbounds for (i, example) in enumerate(xs)
+            reset!(m)
+            repeatedexample = [example for _ in 1:turns+1]
+            successive_answers = stack(m.(repeatedexample; selfreset = false))
+            pred = successive_answers[:,end]
+            #CUDA.unsafe_free!(repeatedexample)
+            #CUDA.unsafe_free!(successive_answers)
+            preds[:,i] .+= pred
         end
-        pred = m(example) 
-        # If any predicted entry is NaN or infinity, warn
-        if any(isnan.(pred)) || any(isinf.(pred))
-            @warn("NaN or Inf detected in prediction during computation of loss at turn $i.")
-        end
-        @inbounds preds[:,i] = pred
+    else
+        error("Invalid number of turns specified.")
+    end
+    if any(isnan.(preds)) || any(isinf.(preds))
+        @warn("NaN or Inf detected in prediction during computation of loss at turn $i.")
     end
     reset!(m)
     return preds
 end
+
+@benchmark gpu_predict_through_time(activemodel, Xtrain[1:2], 0)
+@benchmark gpu_predict_through_time(activemodel, Xtrain[1:10], 1)
+
 
 function binary_classif_losses(m, 
                 xs::AbstractArray{Float32}, 
@@ -326,6 +342,48 @@ function gpu_l2nnm_nogt_loss(m::matnet,
     end
 end
 
+function cpu_l2nnm_nogt_loss(m::matnet, 
+                            xs::Vector, 
+                            ys_mat::AbstractArray{Float32},
+                            mask_mat::AbstractArray{Float32}; 
+                            turns::Int = TURNS, 
+                            mode::String = "training", 
+                            theta::Float32 = 0.8f0,
+                            datascale::Float32 = 0.1f0)
+    @assert ndims(ys_mat) == 3
+    l, n, nb_examples = size(ys_mat)
+    totN = sum(vec(mask_mat))
+
+    ys = reshape(ys_mat, l * n, nb_examples) 
+    ys_hat = predict_through_time(m, xs, turns) 
+    @assert size(ys_hat) == size(ys) 
+
+    # Compute the nuclear norm for each matrix in ys_hat
+    #sq_ys_hat = reshape(ys_hat, l, n, nb_examples)
+    @inbounds nnm = [sum(abs.(svdvals(ys_hat[:,i]))) for i in 1:nb_examples]
+
+    # Create diff matrix, n2 x nb_examples;
+    # Multiply by mask vector len n2 broadcasted to hide entries in each example
+    hidden_diff = vec(mask_mat) .* (ys .- ys_hat)
+    # Compute the L2 norm squared for each column of hidden_diff
+    l2normsq = sum(hidden_diff.^2, dims=1) / datascale
+    
+    errors = theta * (l2normsq' / totN) .+ (1f0 - theta) * nnm / datascale
+    if mode == "testing"
+        RMSerrors = RMSE(ys, ys_hat) / datascale
+    end
+    if mode == "testing"
+        return Dict("l2" => mean(errors), 
+                    "RMSE" => mean(RMSerrors))
+    else
+        return mean(errors)
+    end
+end
+
+#using BenchmarkTools
+#@benchmark cpu_l2nnm_nogt_loss(activemodel, x, y, mask_mat; turns = 0)
+#@benchmark recon_losses(activemodel, x, y, mask_mat; turns = 0)
+
 function recon_losses(m::matnet, 
                     xs::Vector, 
                     ys_mat::AbstractArray{Float32},
@@ -334,78 +392,59 @@ function recon_losses(m::matnet,
                     turns::Int = TURNS, 
                     mode::String = "training", 
                     incltrainloss::Bool = false, 
-                    type::String = "l2nnm")
-    if !groundtruth
-        @assert !isnothing(mask_mat)
-    end
+                    type::String = "l2nnm", 
+                    theta::Float32 = 0.8f0,
+                    datascale::Float32 = 0.1f0)
+    @assert !isnothing(mask_mat)
     @assert ndims(ys_mat) == 3
     l, n, nb_examples = size(ys_mat)
 
     @assert isa(xs[1], SparseMatrixCSC) #|| isa(xs[1], CUDA.CUSPARSE.CuSparseMatrixCSC)
 
-    ys = reshape(ys_mat, l * n, nb_examples)  #|> cpu
-    ys_hat = predict_through_time(m, xs, turns)  #|> cpu
+    ys = reshape(ys_mat, l * n, nb_examples) 
+    ys_hat = predict_through_time(m, xs, turns)  
 
-    if !groundtruth
-        totN = sum(vec(mask_mat))
-    else
-        totN = l * n
-    end
+    totN = sum(vec(mask_mat))
+    
     # If the ground truth is given, compare y (full ground truth matrix) to y_hat (full estimated matrix)
     # If not, compare x (masked ground truth matrix) to x_hat (masked estimated matrix)
-    if mode == "training"
-        # When training, return only the training loss for gradient computation
-        errors = Zygote.Buffer(randn(Float32, 1, nb_examples))
-        for i in 1:nb_examples
-            if !groundtruth
-                diff = vec(mask_mat) .* (ys[:,i] .- ys_hat[:,i])
-            else
-                diff = ys[:,i] .- ys_hat[:,i]
-            end
-            l2normsq = norm(diff, 2)^2 /0.1
-            if type == "l2l1"
-                l1norm = norm(diff, 1)
-                errors[i] = (l2normsq + l1norm) / totN
-            elseif type == "l2"
-                errors[i] = l2normsq / totN
-            elseif type == "l2nnm"
-                theta = 0.8
-                nnm = nuclearnorm(ys_hat[:,i]) / l
-                errors[i] = (theta * (l2normsq / totN) + (1 - theta) * nnm) /0.1
-            else 
-                error("Invalid type of loss function declared in training branch.")
-            end
+    if CUDA.functional()
+        errors = zeros(Float32, 1, nb_examples)
+    else
+        errors = Zygote.Buffer(zeros(Float32, 1, nb_examples))
+    end
+    if mode == "testing"
+        if CUDA.functional()
+            RMSerrors_all = zeros(Float32, 1, nb_examples)
+        else
+            RMSerrors_all = Zygote.Buffer(zeros(Float32, 1, nb_examples))
         end
+    end
+    for i in 1:nb_examples
+        diff = vec(mask_mat) .* (ys[:,i] .- ys_hat[:,i])
+        
+        l2normsq = norm(diff, 2)^2 /datascale
+
+        if type == "l2l1"
+            l1norm = norm(diff, 1)
+            @inbounds errors[i] = (l2normsq + l1norm) / totN
+        elseif type == "l2"
+            @inbounds errors[i] = l2normsq / totN
+        elseif type == "l2nnm"
+            nnm = Float32.(nuclearnorm(ys_hat[:,i]) / l)
+            @inbounds errors[i] = (theta * (l2normsq / totN) + (1f0 - theta) * nnm) /datascale
+        else 
+            error("Invalid type of loss function declared.")
+        end
+        if mode == "testing"
+            @inbounds RMSerrors_all[i] = RMSE(ys[:,i], ys_hat[:,i]) /datascale
+        end
+    end
+    # When training, return only the training loss for gradient computation
+    if mode == "training"
         return mean(copy(errors))
     elseif mode == "testing"
         # When testing or validating, return all relevant metrics
-        l2errors = Zygote.Buffer(zeros(Float32, 1, nb_examples))
-        RMSerrors_all = Zygote.Buffer(zeros(Float32, 1, nb_examples))
-        for i in 1:nb_examples
-            # Include training loss with or without ground truth
-            if incltrainloss
-                if !groundtruth
-                    diff = vec(mask_mat) .* (ys[:,i] .- ys_hat[:,i])
-                else
-                    diff = ys[:,i] .- ys_hat[:,i]
-                end
-                l2normsq = norm(diff, 2)^2 /0.1
-                if type == "l2l1"
-                    l1norm = norm(diff, 1)
-                    l2errors[i] = (l2normsq + l1norm) / totN
-                elseif type == "l2"
-                    l2errors[i] = l2normsq / totN
-                elseif type == "l2nnm"
-                    theta = 0.8
-                    nnm = nuclearnorm(ys_hat[:,i]) / l
-                    l2errors[i] = (theta * (l2normsq / totN) + (1 - theta) * nnm) /0.1
-                else 
-                    error("Invalid type of loss function declared in testing branch.")
-                end
-            end
-            # Include RMSE over all entries (in all cases)
-            RMSerrors_all[i] = RMSE(ys[:,i], ys_hat[:,i]) /0.1
-        end
         return Dict("l2" => mean(copy(l2errors)), 
                     "RMSE" => mean(copy(RMSerrors_all)))
     end
