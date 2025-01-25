@@ -298,38 +298,45 @@ function(m::bfl_cell)(state, I=nothing)
     return h_new, h_new
 end
 
-function(m::matrnn_cell_b)(state::AbstractArray{Float32}, 
-                           I::Union{Nothing, AbstractArray{Float32}}=nothing)
+function(m::matrnn_cell_b)(state::AbstractArray{Float32})
     Wx_in, Wx_out, bx_in, bx_out = m.Wx_in, m.Wx_out, m.bx_in, m.bx_out
     Whh, bh = m.Whh, m.bh
     @assert ndims(state) == 2
     h = state[:,:]
     net_width = size(h, 1)
     distribinput_capacity = size(h, 2)
-    if isnothing(I)
-        bias = bh
-        if Sys.CPU_NAME == "apple_m1"
-            h_new = tanhvf0(Whh * h .+ bias)
-        else
-            h_new = tanh.(Whh * h .+ bias)
-        end
+    if CUDA.functional()
+        h_new = tanh.(Whh * h .+ bh)
     else
-        @assert size(I, 1) == net_width && size(I, 2) <= distribinput_capacity
-        if Sys.CPU_NAME == "apple_m1"
-            I_buf = Zygote.Buffer(zeros(Float32, size(I)))
-            for i in 1:net_width
-                I_buf[i, :] = Wx_out' * tanhvf0(Wx_in * I[i,:] .+ bx_in[i, :]) .+ bx_out[i, :]
-            end
-            procI = copy(I_buf)
-            bias = bh .+ procI
-            h_new = tanhvf0(Whh * h .+ bias)
-        else
-            # NOTE -- equation needs double checked
-            M_in = tanh.(Wx_in * I' .+ bx_in')
-            procI = (Wx_out' * M_in .+ bx_out')'
-            bias = bh .+ procI
-            h_new = tanh.(Whh * h .+ bias)
+        h_new = tanhvf0(Whh * h .+ bh) 
+    end
+    m.h = h_new
+    return h_new, h_new
+end
+
+function(m::matrnn_cell_b)(state::AbstractArray{Float32}, 
+                           I::AbstractArray{Float32})
+    Wx_in, Wx_out, bx_in, bx_out = m.Wx_in, m.Wx_out, m.bx_in, m.bx_out
+    Whh, bh = m.Whh, m.bh
+    @assert ndims(state) == 2
+    h = state[:,:]
+    net_width = size(h, 1)
+    distribinput_capacity = size(h, 2)
+    @assert size(I, 1) == net_width && size(I, 2) <= distribinput_capacity
+    if isa(I, CUDA.CUSPARSE.CuSparseMatrixCSC)
+        # NOTE -- equation needs double checked
+        M_in = tanh.(Wx_in * I' .+ bx_in')
+        procI = (Wx_out' * M_in .+ bx_out')'
+        bias = bh .+ procI
+        h_new = tanh.(Whh * h .+ bias)
+    else
+        I_buf = Zygote.Buffer(zeros(Float32, size(I)))
+        for i in 1:net_width
+            I_buf[i, :] = Wx_out' * tanhvf0(Wx_in * I[i,:] .+ bx_in[i, :]) .+ bx_out[i, :]
         end
+        procI = copy(I_buf)
+        bias = bh .+ procI
+        h_new = tanhvf0(Whh * h .+ bias)
     end
     m.h = h_new
     return h_new, h_new
@@ -415,13 +422,7 @@ end
 
 Recur(m, h = state(m)) = Recur(m, h, h)
 
-function (m::Recur)(xs...)
-  h, y = m.cell(m.state, xs...)
-  m.state = h
-  return y
-end
-
-function (m::Recur)(xs...; selfreset::Bool)
+function (m::Recur)(xs...; selfreset::Bool=false)
     if selfreset
         h, y = m.cell(m.init, xs...)
         m.state = h
@@ -494,6 +495,7 @@ end
 Flux.@layer WMeanRecon
 (a::WMeanRecon)(X::Matrix) = X' * sigmoid(a.weight) / sum(sigmoid(a.weight))
 (a::WMeanRecon)(X::CuArray) = X' * sigmoid(a.weight) / sum(sigmoid(a.weight))
+(a::WMeanRecon)(X::AbstractArray) = X' * sigmoid(a.weight) / sum(sigmoid(a.weight))
 
 function Base.show(io::IO, l::WMeanRecon)
     print(io, "WMeanRecon(", size(l.weight, 1), ")")
@@ -509,7 +511,7 @@ mutable struct matnet
 end
 (m::matnet)() = (m.dec ∘ m.rnn)()
 (m::matnet)(x) = (m.dec ∘ m.rnn)(x)
-function(m::matnet)(x; selfreset::Bool)
+function(m::matnet)(x; selfreset::Bool=false)
     out = m.rnn(x; selfreset = selfreset)
     return m.dec(out)
 end
@@ -518,7 +520,6 @@ reset!(m::matnet) = reset!(m.rnn)
 state(m::matnet) = state(m.rnn)
 Flux.Functors.children(m::matnet) = merge(Flux.Functors.children(m.rnn), Flux.Functors.children(m.dec))
 Flux.@layer :expand matnet trainable=(rnn, dec)
-
 
 Flux.@non_differentiable reset!(m::matnet)
 Flux.@non_differentiable reset!(m::Recur)
