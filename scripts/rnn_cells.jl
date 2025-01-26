@@ -167,10 +167,10 @@ function rnn_cell(input_size::Int,
 end
 
 function matrnn_cell(distribinput_capacity::Int, 
-                  net_width::Int,
-                  unit_hidim::Int;
-                  h_init::String = "randn", 
-                  Whh_init = nothing)
+                     net_width::Int,
+                     unit_hidim::Int;
+                     h_init::String = "randn", 
+                     Whh_init = nothing)::matrnn_cell_b
     @assert distribinput_capacity > 0
     @assert net_width > 0
     @assert unit_hidim >= distribinput_capacity
@@ -206,7 +206,6 @@ end
 
 tanhvf0(x::Vector{Float32}) = tanh.(x)
 tanhvf0(x::Matrix{Float32}) = tanh.(x)
-tanhvf0(x::CuArray{Float32}) = tanh.(x)
 
 function(m::rnn_cell_xb)(state, x, I=nothing)
     Wxh, Whh, b, h = m.Wxh, m.Whh, m.b, state
@@ -298,28 +297,53 @@ function(m::bfl_cell)(state, I=nothing)
     return h_new, h_new
 end
 
-function(m::matrnn_cell_b)(state::AbstractArray{Float32})
-    Wx_in, Wx_out, bx_in, bx_out = m.Wx_in, m.Wx_out, m.bx_in, m.bx_out
+function(m::matrnn_cell_b)(state::Array{Float32}; 
+                           selfreset::Bool=false)::Array{Float32}
     Whh, bh = m.Whh, m.bh
     @assert ndims(state) == 2
-    h = state[:,:]
-    net_width = size(h, 1)
-    distribinput_capacity = size(h, 2)
+    if selfreset
+        h = m.init
+    else
+        h = state
+    end
     if CUDA.functional()
         h_new = tanh.(Whh * h .+ bh)
     else
         h_new = tanhvf0(Whh * h .+ bh) 
     end
     m.h = h_new
-    return h_new, h_new
+    return h_new #, h_new
 end
 
-function(m::matrnn_cell_b)(state::AbstractArray{Float32}, 
-                           I::AbstractArray{Float32})
+function(m::matrnn_cell_b)(state::CuArray{Float32}; 
+                           selfreset::Bool=false)::CuArray{Float32}
+    Whh, bh = m.Whh, m.bh
+    @assert ndims(state) == 2
+    if selfreset
+        h = m.init
+    else
+        h = state
+    end
+    if CUDA.functional()
+        h_new = tanh.(Whh * h .+ bh)
+    else
+        h_new = tanhvf0(Whh * h .+ bh) 
+    end
+    m.h = h_new
+    return h_new #, h_new
+end
+
+function(m::matrnn_cell_b)(state::Array{Float32}, 
+                           I::AbstractArray{Float32}; 
+                           selfreset::Bool=false)::Array{Float32}
     Wx_in, Wx_out, bx_in, bx_out = m.Wx_in, m.Wx_out, m.bx_in, m.bx_out
     Whh, bh = m.Whh, m.bh
     @assert ndims(state) == 2
-    h = state[:,:]
+    if selfreset
+        h = m.init
+    else
+        h = state
+    end
     net_width = size(h, 1)
     distribinput_capacity = size(h, 2)
     @assert size(I, 1) == net_width && size(I, 2) <= distribinput_capacity
@@ -341,7 +365,42 @@ function(m::matrnn_cell_b)(state::AbstractArray{Float32},
         h_new = tanhvf0(Whh * h .+ bias)
     end
     m.h = h_new
-    return h_new, h_new
+    return h_new #, h_new
+end
+
+function(m::matrnn_cell_b)(state::CuArray{Float32}, 
+                           I::CuArray{Float32}; 
+                           selfreset::Bool=false)::CuArray{Float32}
+    Wx_in, Wx_out, bx_in, bx_out = m.Wx_in, m.Wx_out, m.bx_in, m.bx_out
+    Whh, bh = m.Whh, m.bh
+    @assert ndims(state) == 2
+    if selfreset
+        h = m.init
+    else
+        h = state
+    end
+    net_width = size(h, 1)
+    distribinput_capacity = size(h, 2)
+    @assert size(I, 1) == net_width && size(I, 2) <= distribinput_capacity
+    # On GPU, do matrix operations
+    if CUDA.functional() #isa(I, CUDA.CUSPARSE.CuSparseMatrixCSC)
+        # NOTE -- equation needs double checked
+        M_in = tanh.(Wx_in * I' .+ bx_in')
+        procI = (Wx_out' * M_in .+ bx_out')'
+        bias = bh .+ procI
+        h_new = tanh.(Whh * h .+ bias)
+    # On CPU, do Zygote friendly elementwise operations
+    else
+        I_buf = Zygote.Buffer(zeros(Float32, size(I)))
+        for i in 1:net_width
+            I_buf[i, :] = Wx_out' * tanhvf0(Wx_in * I[i,:] .+ bx_in[i, :]) .+ bx_out[i, :]
+        end
+        procI = copy(I_buf)
+        bias = bh .+ procI
+        h_new = tanhvf0(Whh * h .+ bias)
+    end
+    m.h = h_new
+    return h_new #, h_new
 end
 
 function pad_input(x::Vector, net_width::Int)
@@ -390,6 +449,10 @@ state(m::customgru_cell) = m.h
 state(m::bfl_cell) = m.h
 state(m::matrnn_cell_b) = m.h
 
+# Matrnn already stateful so no need for Recur
+matrnn(args...;kwargs...) = matrnn_cell(args...;kwargs...)
+
+# Display functions
 Base.show(io::IO, l::rnn_cell_xb) = print(
     io, "rnn_cell_xb(", size(l.Wxh), ", ", size(l.Whh), ")")
 
@@ -407,6 +470,7 @@ Base.show(io::IO, l::bfl_cell) = print(
 
 Base.show(io::IO, l::matrnn_cell_b) = print(
     io, "matrnn_cell_b(", size(l.Wx_in), ", ", size(l.Whh), ")")
+
 
 ###### RECURRENCE
 
@@ -432,54 +496,7 @@ function (m::Recur)(xs...; selfreset::Bool=false)
         h, y = m.cell(m.state, xs...)
         m.state = h
     end
-    return y
-end
-
-function (m::Recur{ <:matrnn_cell_b})(I::AbstractArray{Float32}; 
-                                     selfreset::Bool=false)::AbstractArray{Float32}
-    if selfreset
-        h, y = m.cell(m.init, I::AbstractArray{Float32})
-        m.state = h
-    else
-        h, y = m.cell(m.state, I::AbstractArray{Float32})
-        m.state = h
-    end
-    return y
-end
-
-function (m::Recur{ <:matrnn_cell_b})(I::Array{Float32}; 
-                                     selfreset::Bool=false)::Vector{Float32}
-    if selfreset
-        h, y = m.cell(m.init, I::Array{Float32})
-        m.state = h
-    else
-        h, y = m.cell(m.state, I::Array{Float32})
-        m.state = h
-    end
-    return y
-end
-
-function (m::Recur{ <:matrnn_cell_b})(I::CuArray{Float32}; 
-                                     selfreset::Bool=false)::CuArray{Float32}
-    if selfreset
-        h, y = m.cell(m.init, I::CuArray{Float32})
-        m.state = h
-    else
-        h, y = m.cell(m.state, I::CuArray{Float32})
-        m.state = h
-    end
-    return y
-end
-
-function (m::Recur{ <:matrnn_cell_b})(I::Nothing; selfreset::Bool=false)::AbstractArray{Float32}
-    if selfreset
-        h, y = m.cell(m.init)
-        m.state = h
-    else
-        h, y = m.cell(m.state)
-        m.state = h
-    end
-    return y
+    return 
 end
 
 state(m::Recur{ <:rnn_cell_b} ) = m.state
@@ -487,12 +504,12 @@ state(m::Recur{ <:rnn_cell_xb} ) = m.state
 #state(m::Recur{ <:rnn_cell_b_dual} ) = m.state
 state(m::Recur{ <:customgru_cell} ) = m.state
 state(m::Recur{ <:bfl_cell} ) = m.state
-state(m::Recur{ <:matrnn_cell_b} ) = m.state
 
 Flux.@layer Recur trainable=(cell,) 
 Base.show(io::IO, m::Recur) = print(io, "Recur(", m.cell, ")")
+
 rnn(args...;kwargs...) = Recur(rnn_cell(args...;kwargs...))
-matrnn(args...;kwargs...) = Recur(matrnn_cell(args...;kwargs...))
+#matrnn(args...;kwargs...) = Recur(matrnn_cell(args...;kwargs...))
 """
     reset!(rnn)
 Reset the hidden state of a recurrent layer back to its original value. 
@@ -554,32 +571,52 @@ end
 #####
 # Replace Chain for matrix-valued nets
 mutable struct matnet
-    rnn::Recur
+    rnn::matrnn_cell_b
     dec::WMeanRecon
     #dec = x -> mean(x, dims = 1)
 end
-(m::matnet)() = (m.dec ∘ m.rnn)()
-(m::matnet)(x) = (m.dec ∘ m.rnn)(x)
-function(m::matnet)(x; selfreset::Bool=false)
-    out = m.rnn(x; selfreset = selfreset)
-    return m.dec(out)
-end
-function(m::matnet)(x::Array{Float32}; selfreset::Bool=false)::Vector{Float32}
-    out = m.rnn(x; selfreset = selfreset)
-    return m.dec(out)
-end
-function(m::matnet)(x::CuArray{Float32}; selfreset::Bool=false)::CuArray{Float32}
-    out = m.rnn(x; selfreset = selfreset)
-    return m.dec(out)
-end
-function(m::matnet)(; selfreset::Bool=false)
-    out = m.rnn(nothing; selfreset = selfreset)
-    return m.dec(out)
-end
-
 reset!(m::matnet) = reset!(m.rnn)
 state(m::matnet) = state(m.rnn)
-Flux.Functors.children(m::matnet) = merge(Flux.Functors.children(m.rnn), Flux.Functors.children(m.dec))
+#=
+Recur(m, h = state(m)) = Recur(m, h, h)
+function (m::Recur)(xs...; selfreset::Bool=false)
+    if selfreset
+        h, y = m.cell(m.init, xs...)
+        m.state = h
+    else
+        h, y = m.cell(m.state, xs...)
+        m.state = h
+    end
+    return 
+end
+=#
+
+# Empty input; CPU and GPU (type unstable but not needed for autodiff)
+(m::matnet)(; 
+            selfreset::Bool = false)::AbstractArray{Float32} = (m.dec ∘ m.rnn)(
+                state(m); 
+                selfreset = selfreset)
+# Nothing input; CPU and GPU (type unstable but not needed for autodiff)
+(m::matnet)(x::Nothing; 
+            selfreset::Bool = false)::AbstractArray{Float32} = (m.dec ∘ m.rnn)(
+                state(m); 
+                selfreset = selfreset)
+# Data input; CPU and GPU (type stable)
+(m::matnet)(x::AbstractArray{Float32}; 
+            selfreset::Bool = false)::Vector{Float32} = (m.dec ∘ m.rnn)(
+                state(m), x; 
+                selfreset = selfreset)
+(m::matnet)(x::CuArray{Float32}; 
+            selfreset::Bool = false)::CuArray{Float32} = (m.dec ∘ m.rnn)(
+                state(m), x; 
+                selfreset = selfreset)
+
+#=function(m::matnet)(h = state(m), x; selfreset::Bool=false)
+    out = m.rnn(h, x; selfreset = selfreset)
+    return m.dec(out)
+end=#
+
+#Flux.Functors.children(m::matnet) = merge(Flux.Functors.children(m.rnn), Flux.Functors.children(m.dec))
 Flux.@layer :expand matnet trainable=(rnn, dec)
 
 Flux.@non_differentiable reset!(m::matnet)

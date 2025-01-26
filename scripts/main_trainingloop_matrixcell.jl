@@ -91,8 +91,10 @@ cpu_activemodel = matnet(
 )
 
 @info("Testing untrained model on cpu...")
-cpu_activemodel() 
+cpu_activemodel()
 cpu_activemodel(Xtrain[1])
+cpu_activemodel(; selfreset = true)
+cpu_activemodel(Xtrain[1]; selfreset = true)
 reset!(cpu_activemodel)
 
 #recon_losses(cpu_activemodel, Xtrain[1:2], Ytrain[:, :, 1:2], mask_mat; 
@@ -160,13 +162,13 @@ push!(Whh_spectra, eigvals(activemodel.rnn.cell.Whh |> cpu))
 
 #gt = false
 # Compute the initial training and validation loss with forward passes on GPU and store it back to CPU
-initloss_train = myloss(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:, :, 1:n_loss], device(mask_mat); 
+initloss_train = myloss(activemodel, gpu_Xtrain[:, :, 1:n_loss], gpu_Ytrain[:, :, 1:n_loss], gpu_mask_mat; 
                         turns = TURNS)
-initRMSE_train = allentriesRMSE(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:, :, 1:n_loss], device(mask_mat); 
+initRMSE_train = allentriesRMSE(activemodel, gpu_Xtrain[:, :, 1:n_loss], gpu_Ytrain[:, :, 1:n_loss], gpu_mask_mat; 
                                 turns = TURNS)
-initloss_val = myloss(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:, :, 1:n_loss], device(mask_mat); 
+initloss_val = myloss(activemodel, gpu_Xval[:, :, 1:n_loss], gpu_Yval[:, :, 1:n_loss], gpu_mask_mat; 
                          turns = TURNS)
-initRMSE_val = allentriesRMSE(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:, :, 1:n_loss], device(mask_mat); 
+initRMSE_val = allentriesRMSE(activemodel, gpu_Xval[:, :, 1:n_loss], gpu_Yval[:, :, 1:n_loss], gpu_mask_mat; 
                               turns = TURNS)
 push!(train_loss, initloss_train)
 push!(train_rmse, initRMSE_train)
@@ -181,20 +183,23 @@ x = x[:,:,1:2]
 y = y[:,:,1:2]
 reset!(activemodel)
 
-# Precompile loss function
-fwdloss = myloss(activemodel, x, y, device(mask_mat))
-
 ref_loss, ref_grads = Flux.withgradient(myloss, activemodel, x, y, device(mask_mat))
 
+InteractiveUtils.@code_warntype activemodel(x)
+# Some union types could not be removed
+Enzyme.API.strictAliasing!(false)
 # Precompile gradient calculation
 #=To test on CPU that Enzyme will work, 
 ensure that InteractiveUtils.@code_warntype reports no type instability =#
+
+@info("Starting to precompile reverse mode autodiff...")
+starttime = time()
 grads = autodiff(set_runtime_activity(Enzyme.Reverse), 
     myloss, Duplicated(activemodel), 
     Const(x), Const(y), Const(gpu_mask_mat))
+endtime = time()
+@info("Precompiled in $(round((endtime - starttime) / 60, digits=2)) minutes")
 
-
-InteractiveUtils.@code_warntype activemodel(x)
 
 #*NOTE*: Must modify training loop to reflect training loss and other loss coming from different functions.
 starttime = time()
