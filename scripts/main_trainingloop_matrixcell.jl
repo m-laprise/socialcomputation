@@ -25,7 +25,6 @@ include("train_setup.jl")
 device = Flux.gpu
 try
     device = Flux.gpu_device()
-    @info("GPU device detected.")
 catch
     @info("No GPU device detected. Using CPU.")
 end
@@ -70,7 +69,10 @@ fixedmask = sensingmasks(M, N; k=knownentries, seed=9632)
 mask_mat = Float32.(masktuple2array(fixedmask))
 @assert size(mask_mat) == (M, N)
 
-X = matinput_setup(Y, net_width, M, N, dataset_size, knownentries, fixedmask)
+isbitstype(eltype(X))
+
+X::Vector{SparseMatrixCSC{Float32, Int64}} = matinput_setup(
+    Y, net_width, M, N, dataset_size, knownentries, fixedmask)
 @info("Memory usage after data generation: ", Base.gc_live_bytes() / 1024^3)
 
 Xtrain, Xval, Xtest = train_val_test_split(X, train_prop, val_prop, test_prop)
@@ -95,7 +97,7 @@ cpu_activemodel()
 cpu_activemodel(Xtrain[1])
 reset!(cpu_activemodel)
 
-recon_losses(cpu_activemodel, Xtrain[1:n_loss], Ytrain[:, :, 1:n_loss], mask_mat; 
+recon_losses(cpu_activemodel, Xtrain[1:2], Ytrain[:, :, 1:2], mask_mat; 
              turns = TURNS, mode = "testing")
 
 activemodel = cpu_activemodel |> device
@@ -137,10 +139,19 @@ traindataloader = Flux.DataLoader(
     (data=Xtrain, label=Ytrain), 
     batchsize=MINIBATCH_SIZE, 
     shuffle=true)
-gpu_traindataloader = device(traindataloader)
-gpu_Xtrain, gpu_Ytrain = device(Xtrain), device(Ytrain)
-gpu_Xval, gpu_Yval = device(Xval), device(Yval)
-gpu_Xtest, gpu_Ytest = device(Xtest), device(Ytest)
+
+if CUDA.functional()
+    # For X, use stack to convert Vector{SparseMatrixCSC} (which is not bitstypes) 
+    # to a 3D tensor of type Array{Float32, 3} that can be stored contiguously on GPU
+    gpu_Xtrain, gpu_Ytrain = device(stack(Xtrain)), device(Ytrain)
+    isbitstype(eltype(gpu_Xtrain))
+    gpu_Xval, gpu_Yval = device(stack(Xval)), device(Yval)
+    gpu_Xtest, gpu_Ytest = device(stack(Xtest)), device(Ytest)
+    gpu_traindataloader = Flux.DataLoader(
+        (data=gpu_Xtrain, label=gpu_Ytrain),
+        batchsize=MINIBATCH_SIZE,
+        shuffle=true)
+end
 @info("Data loaded and moved to device.")
 
 # STORE INITIAL METRICS
@@ -168,10 +179,21 @@ x = device(x[1:2])
 y = device(y[:,:,1:2])
 reset!(activemodel)
 
+f(x::AbstractArray{Float32}; selfreset = false) = vec(x' * randn(Float32, size(x, 1), 1)) #.+ randn(Float32, size(x, 2), 1)*0.1f0)
+f(Xtrain[1])
+@CUDA f(x)
+
+trivialloss1 = gpu_l2nnm_nogt_loss(f, x, y, device(mask_mat); mode = "training")
+trivialloss2 = gpu_l2nnm_nogt_loss(f, x, y, device(mask_mat); mode = "testing")
+
+trivial_enz_loss, trivial_enz_grads = Flux.withgradient(myloss, Duplicated(f), x, y, device(mask_mat))
+
 fwdloss1 = myloss(activemodel, x, y, device(mask_mat); mode = "training")
 fwdloss2 = myloss(activemodel, x, y, device(mask_mat); mode = "testing")
 
 ref_loss, ref_grads = Flux.withgradient(myloss, activemodel, x, y, device(mask_mat))
+
+enz_loss, enz_grads = Flux.withgradient(myloss, Duplicated(activemodel), x, y, device(mask_mat))
 reset!(activemodel)
 z, back = Zygote.pullback(myloss, activemodel, x, y, mask_mat)
 grads = getindex(back(one(z))[1])
@@ -223,12 +245,12 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     # Compute training metrics -- this is a very expensive operation because it involves a forward pass over the entire training set
     # so I take a subset of the training set to compute the metrics
     trainmetrics = myloss(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:,:,1:n_loss], mask_mat; 
-                          turns = TURNS, mode = "testing", incltrainloss = true)
+                          turns = TURNS, mode = "testing")
     push!(train_loss, trainmetrics["l2"])
     push!(train_rmse, trainmetrics["RMSE"])
     # Compute validation metrics
     valmetrics = myloss(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:,:,1:n_loss], mask_mat; 
-                        turns = TURNS, mode = "testing", incltrainloss = true)
+                        turns = TURNS, mode = "testing")
     push!(val_loss, valmetrics["l2"])
     push!(val_rmse, valmetrics["RMSE"])
     println("Epoch $epoch: Train loss: $(train_loss[end]); train RMSE: $(train_rmse[end])")
@@ -246,7 +268,7 @@ endtime = time()
 println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 # Assess on testing set
 testmetrics = myloss(activemodel, gpu_Xtest, gpu_Ytest, mask_mat; 
-                     turns = TURNS, mode = "testing", incltrainloss = true)
+                     turns = TURNS, mode = "testing")
 println("Test RMSE: $(testmetrics["RMSE"])")
 println("Test loss: $(testmetrics["l2"])")
 

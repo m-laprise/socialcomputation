@@ -30,24 +30,16 @@ nuclearnorm(A::AbstractArray{Float32}) = sum(abs.(svdvals(A)))
     For matrix-state models (type matnet), it uses the GPU if available, in which case it requires Enzyme for autodiff.
 """
 # write function predict_through_time(args;kwargs) which dispatches to either cpu or gpu version depending on whether GPU is available
-function predict_through_time(m::Chain, xs::Vector, turns::Int)
-    return cpu_predict_through_time(m, xs, turns)
-end
-
-function predict_through_time(m::matnet, 
-                              xs::Vector{CUDA.CUSPARSE.CuSparseMatrixCSC}, 
-                              turns::Int)
-    if CUDA.functional()
-        return gpu_predict_through_time(m, xs, turns::Int)
+predict_through_time(m::Chain, xs::Vector, turns::Int) = cpu_predict_through_time(m, xs, turns)
+predict_through_time(m::matnet, xs::Vector{SparseMatrixCSC}, turns::Int) = cpu_predict_through_time(m, xs, turns::Int)
+predict_through_time(m::matnet, xs::Vector{CUDA.CUSPARSE.CuSparseMatrixCSC}, turns::Int) = gpu_predict_through_time(m, xs, turns::Int)
+function predict_through_time(m::matnet, xs::AbstractArray{Float32}, turns::Int)
+    if CUDA.functional() && isa(xs, CuArray)
+        return gpu_predict_through_time(m, xs, turns)
     else
-        return cpu_predict_through_time(m, xs, turns::Int)
+        return cpu_predict_through_time(m, xs, turns)
     end
 end
-
-function predict_through_time(m::matnet, xs::Vector, turns::Int)
-    return cpu_predict_through_time(m, xs, turns)
-end
-
 
 function cpu_predict_through_time(m::Chain, 
                               xs::AbstractArray{Float32}, 
@@ -116,10 +108,42 @@ function cpu_predict_through_time(m::matnet,
     return copy(preds)
 end
 
-
-
 function gpu_predict_through_time(m::matnet, 
-                              xs::Vector, 
+                              xs::AbstractArray{Float32}, 
+                              turns::Int)
+    examples = eachslice(xs; dims=3)
+    # For each example, reset the state, recur for `turns` steps, 
+    # predict the label, store it
+    if turns == 0
+        reset!(m)
+        preds = stack(m.(examples; selfreset = true))
+    elseif turns > 0    
+        trial_output = m(examples[1])
+        output_size = length(trial_output)
+        @assert output_size > 1
+        nb_examples = length(examples)
+        # This loop can run in parallel; order does not matter
+        preds = device(zeros(Float32, output_size, nb_examples))
+        @inbounds for (i, example) in enumerate(examples)
+            reset!(m)
+            repeatedexample = [example for _ in 1:turns+1]
+            successive_answers = stack(m.(repeatedexample; selfreset = false))
+            pred = successive_answers[:,end]
+            #CUDA.unsafe_free!(repeatedexample)
+            #CUDA.unsafe_free!(successive_answers)
+            preds[:,i] .+= pred
+        end
+    else
+        error("Invalid number of turns specified.")
+    end
+    if any(isnan.(preds)) || any(isinf.(preds))
+        @warn("NaN or Inf detected in prediction during computation of loss at turn $i.")
+    end
+    reset!(m)
+    return preds
+end
+
+function gpu_predict_through_time(m::matnet, xs::Vector{CUDA.CUSPARSE.CuSparseMatrixCSC}, 
                               turns::Int)
     # For each example, reset the state, recur for `turns` steps, 
     # predict the label, store it
@@ -299,15 +323,15 @@ function recon_losses(m::Chain,
 end
 
 function gpu_l2nnm_nogt_loss(m::matnet, 
-                            xs::Vector, 
+                            xs::AbstractArray{Float32}, 
                             ys_mat::AbstractArray{Float32},
                             mask_mat::AbstractArray{Float32}; 
                             turns::Int = TURNS, 
                             mode::String = "training", 
                             theta::Float32 = 0.8f0,
                             datascale::Float32 = 0.1f0)
-
-    @assert isa(xs[1], CUDA.CUSPARSE.CuSparseMatrixCSC)
+    @assert CUDA.functional()
+    #@assert isa(xs[1], CUDA.CUSPARSE.CuSparseMatrixCSC)
     @assert ndims(ys_mat) == 3
     l, n, nb_examples = size(ys_mat)
     totN = sum(vec(mask_mat))

@@ -323,12 +323,14 @@ function(m::matrnn_cell_b)(state::AbstractArray{Float32},
     net_width = size(h, 1)
     distribinput_capacity = size(h, 2)
     @assert size(I, 1) == net_width && size(I, 2) <= distribinput_capacity
-    if isa(I, CUDA.CUSPARSE.CuSparseMatrixCSC)
+    # On GPU, do matrix operations
+    if CUDA.functional() #isa(I, CUDA.CUSPARSE.CuSparseMatrixCSC)
         # NOTE -- equation needs double checked
         M_in = tanh.(Wx_in * I' .+ bx_in')
         procI = (Wx_out' * M_in .+ bx_out')'
         bias = bh .+ procI
         h_new = tanh.(Whh * h .+ bias)
+    # On CPU, do Zygote friendly elementwise operations
     else
         I_buf = Zygote.Buffer(zeros(Float32, size(I)))
         for i in 1:net_width
