@@ -9,7 +9,7 @@ using Random
 using Distributions
 using Flux
 using Zygote, Enzyme
-Enzyme.API.runtimeActivity!(true)
+#set_runtime_activity(Enzyme.Reverse, true)
 #Enzyme.Compiler.VERBOSE_ERRORS[] = true
 using CairoMakie
 using LinearAlgebra
@@ -146,6 +146,7 @@ if CUDA.functional()
         (data=gpu_Xtrain, label=gpu_Ytrain),
         batchsize=MINIBATCH_SIZE,
         shuffle=true)
+    gpu_mask_mat = device(mask_mat)
 end
 @info("Data loaded and moved to device.")
 
@@ -159,17 +160,20 @@ push!(Whh_spectra, eigvals(activemodel.rnn.cell.Whh |> cpu))
 
 #gt = false
 # Compute the initial training and validation loss with forward passes on GPU and store it back to CPU
-initmetrics_train = myloss(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:, :, 1:n_loss], device(mask_mat); 
-                           turns = TURNS, mode = "testing")
-initmetrics_val = myloss(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:, :, 1:n_loss], device(mask_mat); 
-                         turns = TURNS, mode = "testing")
-push!(train_loss, initmetrics_train["l2"])
-push!(train_rmse, initmetrics_train["RMSE"])
-push!(val_loss, initmetrics_val["l2"])
-push!(val_rmse, initmetrics_val["RMSE"])
+initloss_train = myloss(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:, :, 1:n_loss], device(mask_mat); 
+                        turns = TURNS)
+initRMSE_train = allentriesRMSE(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:, :, 1:n_loss], device(mask_mat); 
+                                turns = TURNS)
+initloss_val = myloss(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:, :, 1:n_loss], device(mask_mat); 
+                         turns = TURNS)
+initRMSE_val = allentriesRMSE(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:, :, 1:n_loss], device(mask_mat); 
+                              turns = TURNS)
+push!(train_loss, initloss_train)
+push!(train_rmse, initRMSE_train)
+push!(val_loss, initloss_val)
+push!(val_rmse, initRMSE_val)
 
-
-smallmodel = matrnn(mat_size, net_width, unit_hidim) |> device
+#smallmodel = matrnn(mat_size, net_width, unit_hidim) |> device
 
 a = [(x,y) for (x,y) in gpu_traindataloader]
 x, y = a[1]
@@ -177,19 +181,20 @@ x = x[:,:,1:2]
 y = y[:,:,1:2]
 reset!(activemodel)
 
-f(x::AbstractArray{Float32}; selfreset = false) = vec(x' * randn(Float32, size(x, 1), 1)) #.+ randn(Float32, size(x, 2), 1)*0.1f0)
-
-fwdloss1 = myloss(activemodel, x, y, device(mask_mat); mode = "training")
-fwdloss2 = myloss(activemodel, x, y, device(mask_mat); mode = "testing")
+# Precompile loss function
+fwdloss = myloss(activemodel, x, y, device(mask_mat))
 
 ref_loss, ref_grads = Flux.withgradient(myloss, activemodel, x, y, device(mask_mat))
 
-enz_loss, enz_grads = Flux.withgradient(myloss, Duplicated(activemodel), x, y, device(mask_mat))
-reset!(activemodel)
-z, back = Zygote.pullback(myloss, activemodel, x, y, mask_mat)
-grads = getindex(back(one(z))[1])
-reset!(activemodel)
-#enz_loss, enz_grads = Flux.withgradient(myloss, Duplicated(activemodel), x, y, mask_mat, false)
+# Precompile gradient calculation
+#=To test on CPU that Enzyme will work, 
+ensure that InteractiveUtils.@code_warntype reports no type instability =#
+grads = autodiff(set_runtime_activity(Enzyme.Reverse), 
+    myloss, Duplicated(activemodel), 
+    Const(x), Const(y), Const(gpu_mask_mat))
+
+
+InteractiveUtils.@code_warntype activemodel(x)
 
 #*NOTE*: Must modify training loop to reflect training loss and other loss coming from different functions.
 starttime = time()
@@ -236,15 +241,19 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     diagnose_gradients(n, v, e)
     # Compute training metrics -- this is a very expensive operation because it involves a forward pass over the entire training set
     # so I take a subset of the training set to compute the metrics
-    trainmetrics = myloss(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:,:,1:n_loss], mask_mat; 
+    trainloss = myloss(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:,:,1:n_loss], mask_mat; 
                           turns = TURNS, mode = "testing")
-    push!(train_loss, trainmetrics["l2"])
-    push!(train_rmse, trainmetrics["RMSE"])
+    trainRMSE = allentriesRMSE(activemodel, gpu_Xtrain[1:n_loss], gpu_Ytrain[:,:,1:n_loss], mask_mat; 
+                               turns = TURNS)
+    push!(train_loss, trainloss)
+    push!(train_rmse, trainRMSE)
     # Compute validation metrics
-    valmetrics = myloss(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:,:,1:n_loss], mask_mat; 
+    valloss = myloss(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:,:,1:n_loss], mask_mat; 
                         turns = TURNS, mode = "testing")
-    push!(val_loss, valmetrics["l2"])
-    push!(val_rmse, valmetrics["RMSE"])
+    valRMSE = allentriesRMSE(activemodel, gpu_Xval[1:n_loss], gpu_Yval[:,:,1:n_loss], mask_mat; 
+                             turns = TURNS)
+    push!(val_loss, valloss)
+    push!(val_rmse, valRMSE)
     println("Epoch $epoch: Train loss: $(train_loss[end]); train RMSE: $(train_rmse[end])")
     println("Epoch $epoch: Val loss: $(val_loss[end]); val RMSE: $(val_rmse[end])")
     # Check if validation loss has increased for 2 epochs in a row; if so, stop training
@@ -259,10 +268,12 @@ endtime = time()
 # training time in minutes
 println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 # Assess on testing set
-testmetrics = myloss(activemodel, gpu_Xtest, gpu_Ytest, mask_mat; 
+testloss = myloss(activemodel, gpu_Xtest, gpu_Ytest, mask_mat; 
                      turns = TURNS, mode = "testing")
-println("Test RMSE: $(testmetrics["RMSE"])")
-println("Test loss: $(testmetrics["l2"])")
+testRMSE = allentriesRMSE(activemodel, gpu_Xtest, gpu_Ytest, mask_mat; 
+                          turns = TURNS)
+println("Test RMSE: $(testRMSE)")
+println("Test loss: $(testloss)")
 
 lossname = "Mean nuclear-norm penalized l2 loss (known entries)"
 rmsename = "Root mean squared reconstr. error / std (all entries)"

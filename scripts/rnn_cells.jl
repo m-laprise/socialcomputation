@@ -435,6 +435,53 @@ function (m::Recur)(xs...; selfreset::Bool=false)
     return y
 end
 
+function (m::Recur{ <:matrnn_cell_b})(I::AbstractArray{Float32}; 
+                                     selfreset::Bool=false)::AbstractArray{Float32}
+    if selfreset
+        h, y = m.cell(m.init, I::AbstractArray{Float32})
+        m.state = h
+    else
+        h, y = m.cell(m.state, I::AbstractArray{Float32})
+        m.state = h
+    end
+    return y
+end
+
+function (m::Recur{ <:matrnn_cell_b})(I::Array{Float32}; 
+                                     selfreset::Bool=false)::Vector{Float32}
+    if selfreset
+        h, y = m.cell(m.init, I::Array{Float32})
+        m.state = h
+    else
+        h, y = m.cell(m.state, I::Array{Float32})
+        m.state = h
+    end
+    return y
+end
+
+function (m::Recur{ <:matrnn_cell_b})(I::CuArray{Float32}; 
+                                     selfreset::Bool=false)::CuArray{Float32}
+    if selfreset
+        h, y = m.cell(m.init, I::CuArray{Float32})
+        m.state = h
+    else
+        h, y = m.cell(m.state, I::CuArray{Float32})
+        m.state = h
+    end
+    return y
+end
+
+function (m::Recur{ <:matrnn_cell_b})(I::Nothing; selfreset::Bool=false)::AbstractArray{Float32}
+    if selfreset
+        h, y = m.cell(m.init)
+        m.state = h
+    else
+        h, y = m.cell(m.state)
+        m.state = h
+    end
+    return y
+end
+
 state(m::Recur{ <:rnn_cell_b} ) = m.state
 state(m::Recur{ <:rnn_cell_xb} ) = m.state
 #state(m::Recur{ <:rnn_cell_b_dual} ) = m.state
@@ -517,8 +564,16 @@ function(m::matnet)(x; selfreset::Bool=false)
     out = m.rnn(x; selfreset = selfreset)
     return m.dec(out)
 end
+function(m::matnet)(x::Array{Float32}; selfreset::Bool=false)::Vector{Float32}
+    out = m.rnn(x; selfreset = selfreset)
+    return m.dec(out)
+end
+function(m::matnet)(x::CuArray{Float32}; selfreset::Bool=false)::CuArray{Float32}
+    out = m.rnn(x; selfreset = selfreset)
+    return m.dec(out)
+end
 function(m::matnet)(; selfreset::Bool=false)
-    out = m.rnn(; selfreset = selfreset)
+    out = m.rnn(nothing; selfreset = selfreset)
     return m.dec(out)
 end
 

@@ -327,7 +327,6 @@ function gpu_l2nnm_loss(m::matnet,
                             ys_mat::AbstractArray{Float32},
                             mask_mat::AbstractArray{Float32}; 
                             turns::Int = TURNS, 
-                            #mode::String = "training", 
                             theta::Float32 = 0.8f0,
                             datascale::Float32 = 0.1f0)::Float32
     @assert CUDA.functional()
@@ -349,18 +348,27 @@ function gpu_l2nnm_loss(m::matnet,
     hidden_diff = vec(mask_mat) .* (ys .- ys_hat)
     # Compute the L2 norm squared for each column of hidden_diff
     l2normsq = device(sum(hidden_diff.^2, dims=1) / datascale)
-    
     errors = theta * (l2normsq' / totN) .+ (1f0 - theta) * nnm / datascale
-    #= if mode == "testing"
-        RMSerrors = RMSE(ys, ys_hat) / datascale
-    end
-    if mode == "testing"
-        return Dict("l2" => mean(errors), 
-                    "RMSE" => mean(RMSerrors))
-    else
-        return mean(errors)
-    end =#
+
     return mean(errors)
+end
+
+function allentriesRMSE(m::matnet, 
+                        xs::AbstractArray{Float32}, 
+                        ys_mat::AbstractArray{Float32},
+                        mask_mat::AbstractArray{Float32}; 
+                        turns::Int = TURNS,
+                        datascale::Float32 = 0.1f0)::Float32
+    @assert CUDA.functional()
+    @assert ndims(ys_mat) == 3
+    l, n, nb_examples = size(ys_mat)
+
+    ys = reshape(ys_mat, l * n, nb_examples) 
+    ys_hat = predict_through_time(m, xs, turns) 
+    @assert size(ys_hat) == size(ys) 
+
+    RMSerrors = RMSE(ys, ys_hat) / datascale
+    return mean(RMSerrors)
 end
 
 function cpu_l2nnm_loss(m::matnet, 
