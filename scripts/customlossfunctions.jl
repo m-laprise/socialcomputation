@@ -29,7 +29,7 @@ nuclearnorm(A::AbstractArray{Float32}) = sum(abs.(svdvals(A)))
     For vector-state models (type Chain), it uses Zygote buffers and is autodifferentiable with Zygote.
     For matrix-state models (type matnet), it uses the GPU if available, in which case it requires Enzyme for autodiff.
 """
-# write function predict_through_time(args;kwargs) which dispatches to either cpu or gpu version depending on whether GPU is available
+# dispatch to either cpu or gpu version
 predict_through_time(m::Chain, xs::Vector, turns::Int) = cpu_predict_through_time(m, xs, turns)
 predict_through_time(m::matnet, xs::Vector{SparseMatrixCSC}, turns::Int) = cpu_predict_through_time(m, xs, turns::Int)
 predict_through_time(m::matnet, xs::Vector{CUDA.CUSPARSE.CuSparseMatrixCSC}, turns::Int) = gpu_predict_through_time(m, xs, turns::Int)
@@ -143,7 +143,7 @@ function gpu_predict_through_time(m::matnet,
     return preds
 end
 
-function gpu_predict_through_time(m::matnet, xs::Vector{CUDA.CUSPARSE.CuSparseMatrixCSC}, 
+#= function gpu_predict_through_time(m::matnet, xs::Vector{CUDA.CUSPARSE.CuSparseMatrixCSC}, 
                               turns::Int)
     # For each example, reset the state, recur for `turns` steps, 
     # predict the label, store it
@@ -174,7 +174,7 @@ function gpu_predict_through_time(m::matnet, xs::Vector{CUDA.CUSPARSE.CuSparseMa
     end
     reset!(m)
     return preds
-end
+end =#
 
 function binary_classif_losses(m, 
                 xs::AbstractArray{Float32}, 
@@ -322,14 +322,14 @@ function recon_losses(m::Chain,
     end
 end
 
-function gpu_l2nnm_nogt_loss(m::matnet, 
+function gpu_l2nnm_loss(m::matnet, 
                             xs::AbstractArray{Float32}, 
                             ys_mat::AbstractArray{Float32},
                             mask_mat::AbstractArray{Float32}; 
                             turns::Int = TURNS, 
-                            mode::String = "training", 
+                            #mode::String = "training", 
                             theta::Float32 = 0.8f0,
-                            datascale::Float32 = 0.1f0)
+                            datascale::Float32 = 0.1f0)::Float32
     @assert CUDA.functional()
     #@assert isa(xs[1], CUDA.CUSPARSE.CuSparseMatrixCSC)
     @assert ndims(ys_mat) == 3
@@ -351,7 +351,7 @@ function gpu_l2nnm_nogt_loss(m::matnet,
     l2normsq = device(sum(hidden_diff.^2, dims=1) / datascale)
     
     errors = theta * (l2normsq' / totN) .+ (1f0 - theta) * nnm / datascale
-    if mode == "testing"
+    #= if mode == "testing"
         RMSerrors = RMSE(ys, ys_hat) / datascale
     end
     if mode == "testing"
@@ -359,10 +359,11 @@ function gpu_l2nnm_nogt_loss(m::matnet,
                     "RMSE" => mean(RMSerrors))
     else
         return mean(errors)
-    end
+    end =#
+    return mean(errors)
 end
 
-function cpu_l2nnm_nogt_loss(m::matnet, 
+function cpu_l2nnm_loss(m::matnet, 
                             xs::Vector, 
                             ys_mat::AbstractArray{Float32},
                             mask_mat::AbstractArray{Float32}; 

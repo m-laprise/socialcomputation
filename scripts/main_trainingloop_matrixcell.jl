@@ -9,6 +9,7 @@ using Random
 using Distributions
 using Flux
 using Zygote, Enzyme
+Enzyme.API.runtimeActivity!(true)
 #Enzyme.Compiler.VERBOSE_ERRORS[] = true
 using CairoMakie
 using LinearAlgebra
@@ -68,10 +69,7 @@ end
 fixedmask = sensingmasks(M, N; k=knownentries, seed=9632)
 mask_mat = Float32.(masktuple2array(fixedmask))
 @assert size(mask_mat) == (M, N)
-
-isbitstype(eltype(X))
-
-X::Vector{SparseMatrixCSC{Float32, Int64}} = matinput_setup(
+X = matinput_setup(
     Y, net_width, M, N, dataset_size, knownentries, fixedmask)
 @info("Memory usage after data generation: ", Base.gc_live_bytes() / 1024^3)
 
@@ -97,28 +95,25 @@ cpu_activemodel()
 cpu_activemodel(Xtrain[1])
 reset!(cpu_activemodel)
 
-recon_losses(cpu_activemodel, Xtrain[1:2], Ytrain[:, :, 1:2], mask_mat; 
-             turns = TURNS, mode = "testing")
+#recon_losses(cpu_activemodel, Xtrain[1:2], Ytrain[:, :, 1:2], mask_mat; 
+#             turns = TURNS, mode = "testing")
 
 activemodel = cpu_activemodel |> device
-activemodel()
-
-Flux.get_device(; verbose=true)
 @info("Model initialized and moved to device.")
 
 if CUDA.functional()
     @info("Testing untrained model on gpu...")
-    activemodel()
-    activemodel(device(Xtrain[1]))
-    activemodel(device(Xtrain[1]); selfreset = true)
+    sum(activemodel())
+    sum(activemodel(device(Xtrain[1])))
+    sum(activemodel(device(Xtrain[1]); selfreset = true))
     reset!(activemodel)
 end
 
 ##### DEFINE LOSS FUNCTIONS
 if CUDA.functional()
-    myloss = gpu_l2nnm_nogt_loss
+    myloss = gpu_l2nnm_loss
 else
-    myloss = cpu_l2nnm_nogt_loss
+    myloss = cpu_l2nnm_loss
 end
 ##### TRAINING
 
@@ -173,20 +168,16 @@ push!(train_rmse, initmetrics_train["RMSE"])
 push!(val_loss, initmetrics_val["l2"])
 push!(val_rmse, initmetrics_val["RMSE"])
 
-a = [(x,y) for (x,y) in traindataloader]
+
+smallmodel = matrnn(mat_size, net_width, unit_hidim) |> device
+
+a = [(x,y) for (x,y) in gpu_traindataloader]
 x, y = a[1]
-x = device(x[1:2])
-y = device(y[:,:,1:2])
+x = x[:,:,1:2]
+y = y[:,:,1:2]
 reset!(activemodel)
 
 f(x::AbstractArray{Float32}; selfreset = false) = vec(x' * randn(Float32, size(x, 1), 1)) #.+ randn(Float32, size(x, 2), 1)*0.1f0)
-f(Xtrain[1])
-@CUDA f(x)
-
-trivialloss1 = gpu_l2nnm_nogt_loss(f, x, y, device(mask_mat); mode = "training")
-trivialloss2 = gpu_l2nnm_nogt_loss(f, x, y, device(mask_mat); mode = "testing")
-
-trivial_enz_loss, trivial_enz_grads = Flux.withgradient(myloss, Duplicated(f), x, y, device(mask_mat))
 
 fwdloss1 = myloss(activemodel, x, y, device(mask_mat); mode = "training")
 fwdloss2 = myloss(activemodel, x, y, device(mask_mat); mode = "testing")
@@ -200,6 +191,7 @@ grads = getindex(back(one(z))[1])
 reset!(activemodel)
 #enz_loss, enz_grads = Flux.withgradient(myloss, Duplicated(activemodel), x, y, mask_mat, false)
 
+#*NOTE*: Must modify training loop to reflect training loss and other loss coming from different functions.
 starttime = time()
 println("===================")
 for (eta, epoch) in zip(s, 1:EPOCHS)
