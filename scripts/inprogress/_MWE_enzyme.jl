@@ -112,7 +112,7 @@ function spectrum_penalized_l2(m::MatrixRNN,
                           ys::AbstractArray{Float32, 3}, 
                           turns::Int = 0;
                           theta::Float32 = 0.8f0,
-                          scaling::Float32 = 0.1f0)::Float32
+                          scaling::Float32 = 1f0)::Float32
     l, n, nb_examples = size(ys)
 
     ys_2d = reshape(ys, l*n, nb_examples) 

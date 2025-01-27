@@ -350,7 +350,7 @@ function spectrum_penalized_l2(m::matnet,
     ys_hat_3d = reshape(ys_hat, l, n, nb_examples)
     penalties = [approxspectralnorm(ys_hat_3d[:,:,i]) for i in 1:nb_examples] #|> device
     
-    errors = theta * (sql2' / l*n) .+ (1f0 - theta) * -penalties / scaling
+    errors = theta * (sql2' / l*n) .+ (1f0 - theta) * -penalties 
 
     return mean(errors)
 end
