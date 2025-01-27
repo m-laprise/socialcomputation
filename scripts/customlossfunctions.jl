@@ -17,6 +17,20 @@ RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = sqrt.(MSE(A, B))
 spectdist(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = norm(abs.(svdvals(A)) - abs.(svdvals(B))) / length(svdvals(A))
 nuclearnorm(A::AbstractArray{Float32}) = sum(abs.(svdvals(A))) 
 
+function power_iter(A::AbstractArray{Float32, 2}; num_iterations::Int = 100)::Float32
+    b_k = rand(Float32, size(A, 2))::AbstractArray{Float32, 1}
+    b_k /= norm(b_k)
+    for _ in 1:num_iterations
+        b_k1 = A * b_k
+        b_k .= b_k1 / norm(b_k1)
+    end
+    largest_eig = b_k' * (A * b_k)
+    return largest_eig
+end
+
+approxspectralnorm(A::AbstractArray{Float32, 2})::Float32 = sqrt(power_iter(A' * A))
+
+
 # Use Flux.logitbinarycrossentropy instead, same operation but more numerically stable
 # mylogitbinarycrossentropy(ŷ, y) = mean(@.((1 - y) * ŷ - logσ(ŷ)))
 
@@ -109,8 +123,8 @@ function cpu_predict_through_time(m::matnet,
 end
 
 function gpu_predict_through_time(m::matnet, 
-                              xs::AbstractArray{Float32}, 
-                              turns::Int)
+                              xs::AbstractArray{Float32, 3}, 
+                              turns::Int)::AbstractArray{Float32, 2}
     examples = eachslice(xs; dims=3)
     # For each example, reset the state, recur for `turns` steps, 
     # predict the label, store it
@@ -123,18 +137,14 @@ function gpu_predict_through_time(m::matnet,
         @assert output_size > 1
         nb_examples = length(examples)
         # This loop can run in parallel; order does not matter
-        preds = device(zeros(Float32, output_size, nb_examples))
+        preds = CuArray{Float32}(undef, output_size, nb_examples) 
         @inbounds for (i, example) in enumerate(examples)
             reset!(m)
             repeatedexample = [example for _ in 1:turns+1]
             successive_answers = stack(m.(repeatedexample; selfreset = false))
             pred = successive_answers[:,end]
-            #CUDA.unsafe_free!(repeatedexample)
-            #CUDA.unsafe_free!(successive_answers)
             preds[:,i] .+= pred
         end
-    else
-        error("Invalid number of turns specified.")
     end
     if any(isnan.(preds)) || any(isinf.(preds))
         @warn("NaN or Inf detected in prediction during computation of loss at turn $i.")
@@ -322,7 +332,30 @@ function recon_losses(m::Chain,
     end
 end
 
-function gpu_l2nnm_loss(m::matnet, 
+function spectrum_penalized_l2(m::matnet, 
+                          xs::AbstractArray{Float32, 3}, 
+                          ys::AbstractArray{Float32, 3}, 
+                          turns::Int = 0;
+                          theta::Float32 = 0.8f0,
+                          scaling::Float32 = 0.1f0)::Float32
+    l, n, nb_examples = size(ys)
+
+    ys_2d = reshape(ys, l*n, nb_examples) 
+    ys_hat = predict_through_time(m, xs, turns) 
+    @assert size(ys_hat) == size(ys_2d)
+
+    diff = ys_2d .- ys_hat
+    sql2 = sum(diff.^2, dims=1) / scaling #|> device
+
+    ys_hat_3d = reshape(ys_hat, l, n, nb_examples)
+    penalties = [approxspectralnorm(ys_hat_3d[:,:,i]) for i in 1:nb_examples] #|> device
+    
+    errors = theta * (sql2' / l*n) .+ (1f0 - theta) * -penalties / scaling
+
+    return mean(errors)
+end
+
+#=function gpu_l2nnm_loss(m::matnet, 
                             xs::AbstractArray{Float32}, 
                             ys_mat::AbstractArray{Float32},
                             mask_mat::AbstractArray{Float32}; 
@@ -351,7 +384,7 @@ function gpu_l2nnm_loss(m::matnet,
     errors = theta * (l2normsq' / totN) .+ (1f0 - theta) * nnm / datascale
 
     return mean(errors)
-end
+end=#
 
 function allentriesRMSE(m::matnet, 
                         xs::AbstractArray{Float32}, 
@@ -370,48 +403,6 @@ function allentriesRMSE(m::matnet,
     RMSerrors = RMSE(ys, ys_hat) / datascale
     return mean(RMSerrors)
 end
-
-function cpu_l2nnm_loss(m::matnet, 
-                            xs::Vector, 
-                            ys_mat::AbstractArray{Float32},
-                            mask_mat::AbstractArray{Float32}; 
-                            turns::Int = TURNS, 
-                            mode::String = "training", 
-                            theta::Float32 = 0.8f0,
-                            datascale::Float32 = 0.1f0)
-    @assert ndims(ys_mat) == 3
-    l, n, nb_examples = size(ys_mat)
-    totN = sum(vec(mask_mat))
-
-    ys = reshape(ys_mat, l * n, nb_examples) 
-    ys_hat = predict_through_time(m, xs, turns) 
-    @assert size(ys_hat) == size(ys) 
-
-    # Compute the nuclear norm for each matrix in ys_hat
-    #sq_ys_hat = reshape(ys_hat, l, n, nb_examples)
-    @inbounds nnm = [sum(abs.(svdvals(ys_hat[:,i]))) for i in 1:nb_examples]
-
-    # Create diff matrix, n2 x nb_examples;
-    # Multiply by mask vector len n2 broadcasted to hide entries in each example
-    hidden_diff = vec(mask_mat) .* (ys .- ys_hat)
-    # Compute the L2 norm squared for each column of hidden_diff
-    l2normsq = sum(hidden_diff.^2, dims=1) / datascale
-    
-    errors = theta * (l2normsq' / totN) .+ (1f0 - theta) * nnm / datascale
-    if mode == "testing"
-        RMSerrors = RMSE(ys, ys_hat) / datascale
-    end
-    if mode == "testing"
-        return Dict("l2" => mean(errors), 
-                    "RMSE" => mean(RMSerrors))
-    else
-        return mean(errors)
-    end
-end
-
-#using BenchmarkTools
-#@benchmark cpu_l2nnm_nogt_loss(activemodel, x, y, mask_mat; turns = 0)
-#@benchmark recon_losses(activemodel, x, y, mask_mat; turns = 0)
 
 function recon_losses(m::matnet, 
                     xs::Vector, 

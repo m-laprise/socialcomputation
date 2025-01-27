@@ -1,24 +1,22 @@
 using LinearAlgebra
 using Random
 
-function power_iter(A, num_simulations; eigvec = false)
+function power_iter(A, num_iterations; eigvec = false)
     # Randomly initialize a vector
     b_k = rand(size(A, 2))
     b_k /= norm(b_k)
-    for _ in 1:num_simulations
+    for _ in 1:num_iterations
         # Calculate the matrix-by-vector product Ab
         b_k1 = A * b_k
-        # Calculate the norm
-        b_k1_norm = norm(b_k1)
         # Re normalize the vector
-        b_k = b_k1 / b_k1_norm
+        b_k = b_k1 / norm(b_k1)
     end
     # Approximate the largest eigenvalue using the Rayleigh quotient
     largest_eig = b_k' * (A * b_k)
     if eigvec
-        return sqrt(largest_eig), b_k
+        return abs(largest_eig), b_k
     else
-        return sqrt(largest_eig)
+        return abs(largest_eig)
     end
 end
 
@@ -30,19 +28,48 @@ function setup(m, n, r, alpha, seed)
     return A, B, mask
 end
 
-m = 100
-n = 100
+m = 64
+n = 64
 r = 1
 
 A, M, mask = setup(m, n, r, 0.2, 1)
 
 rank(A)
 rank(M)
-sdvval1 = power_iter(A' * A, 1)
-svdval1m = power_iter(M' * M, 1)
+sdvval1 = sqrt(power_iter(A' * A, 1))
+svdval1m = sqrt(power_iter(M' * M, 1))
 
+eigvals(A' * A)
 svdvals(A)
+eigvals(M' * M)
 svdvals(M)
+
+# All equivalent (spectral norm or largest singular value):
+sqrt(power_iter(A' * A, 100))
+sqrt(eigvals(A' * A)[end])
+svdvals(A)[1]
+
+# Frobenius norm (for rank-1, equality; otherwise, larger than spectral norm)
+sqrt(sum(svdvals(A).^2))
+sqrt(sum(diag(A' * A)))
+
+# Nuclear norm aka trace norm aka Schatten 1-norm
+sum(svdvals(A))
+norm(svdvals(A), 1)
+sum(diag(sqrt(A' * A))) # requires a matrix square root
+
+# Spectral radius
+maximum(abs.(eigvals(A)))
+power_iter(A, 100)
+
+#=
+As rank increases,
+Spectral norm decreases
+Frobenius norm fluctuates
+Nuclear norm increases
+Spectral radius fluctuates
+=#
+
 
 function trim(A::AbstractMatrix)
     m, n = size(A)

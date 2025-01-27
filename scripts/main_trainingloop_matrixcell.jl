@@ -112,11 +112,8 @@ if CUDA.functional()
 end
 
 ##### DEFINE LOSS FUNCTIONS
-if CUDA.functional()
-    myloss = gpu_l2nnm_loss
-else
-    myloss = cpu_l2nnm_loss
-end
+myloss = spectrum_penalized_l2
+
 ##### TRAINING
 
 # State optimizing rule

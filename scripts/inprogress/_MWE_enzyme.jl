@@ -5,12 +5,13 @@ end
 
 using CUDA, Adapt
 #using Random
-#using Distributions
+using Distributions
 using Flux
 using Enzyme
 using LinearAlgebra
 @assert CUDA.functional() 
 
+# CREATE STATEFUL, MATRIX-VALUED RNN LAYER
 mutable struct MatrixRnnCell{A<:AbstractArray{Float32,2}}
     Wx_in::A
     Wx_out::A
@@ -39,18 +40,17 @@ function matrnn_constructor(n::Int,
     )
 end
 
-function(m::MatrixRnnCell)(state::CuArray{Float32, 2}, 
-                           I::CuArray{Float32, 2}; 
-                           selfreset::Bool=false)::CuArray{Float32}
+function(m::MatrixRnnCell)(state::AbstractArray{Float32, 2}, 
+                           I::AbstractArray{Float32, 2}; 
+                           selfreset::Bool=false)::AbstractArray{Float32}
     if selfreset
-        h = m.init::CuArray{Float32, 2}
+        h = m.init::AbstractArray{Float32, 2}
     else
         h = state
     end
-    @assert size(I, 1) == size(h, 1) && size(I, 2) <= size(h, 2)
-    M_in = tanh.(m.Wx_in * I' .+ m.bx_in')
-    newI = (m.Wx_out' * M_in .+ m.bx_out')'
-    h_new = tanh.(m.Whh * h .+ m.bh .+ newI)
+    M_in = tanh.(m.Wx_in * I' .+ m.bx_in') 
+    newI = (m.Wx_out' * M_in .+ m.bx_out')' 
+    h_new = tanh.(m.Whh * h .+ m.bh .+ newI) 
     m.h = h_new
     return h_new 
 end
@@ -62,12 +62,12 @@ struct WeightedMeanLayer{V<:AbstractVector{Float32}}
     weight::V
 end
 function WeightedMeanLayer(num::Int;
-                    init = ones)
+                           init = ones)
     weight_init = init(Float32, num) * 5f0
     WeightedMeanLayer(weight_init)
 end
 
-(a::WeightedMeanLayer)(X::CuArray{Float32}) = X' * sigmoid(a.weight) / sum(sigmoid(a.weight))
+(a::WeightedMeanLayer)(X::AbstractArray{Float32}) = X' * sigmoid(a.weight) / sum(sigmoid(a.weight))
 
 struct MatrixRNN{M<:MatrixRnnCell, D<:WeightedMeanLayer}
     rnn::M
@@ -77,8 +77,8 @@ end
 reset!(m::MatrixRNN) = reset!(m.rnn)
 state(m::MatrixRNN) = state(m.rnn)
 
-(m::MatrixRNN)(x::CuArray{Float32}; 
-            selfreset::Bool = false)::CuArray{Float32} = (m.dec ∘ m.rnn)(
+(m::MatrixRNN)(x::AbstractArray{Float32}; 
+               selfreset::Bool = false)::AbstractArray{Float32} = (m.dec ∘ m.rnn)(
                 state(m), x; 
                 selfreset = selfreset)
 
@@ -93,7 +93,21 @@ Adapt.@adapt_structure MatrixRnnCell
 Adapt.@adapt_structure WeightedMeanLayer
 Adapt.@adapt_structure MatrixRNN
 
-function nnm_penalized_l2(m::MatrixRNN, 
+
+function power_iter(A::AbstractArray{Float32, 2}; num_iterations::Int = 100)::Float32
+    b_k = rand(Float32, size(A, 2))::AbstractArray{Float32, 1}
+    b_k /= norm(b_k)
+    for _ in 1:num_iterations
+        b_k1 = A * b_k
+        b_k .= b_k1 / norm(b_k1)
+    end
+    largest_eig = b_k' * (A * b_k)
+    return largest_eig
+end
+
+approxspectralnorm(A::AbstractArray{Float32, 2})::Float32 = sqrt(power_iter(A' * A))
+
+function spectrum_penalized_l2(m::MatrixRNN, 
                           xs::AbstractArray{Float32, 3}, 
                           ys::AbstractArray{Float32, 3}, 
                           turns::Int = 0;
@@ -106,19 +120,19 @@ function nnm_penalized_l2(m::MatrixRNN,
     @assert size(ys_hat) == size(ys_2d)
 
     diff = ys_2d .- ys_hat
-    sql2 = device(sum(diff.^2, dims=1) / scaling)
+    sql2 = sum(diff.^2, dims=1) / scaling #|> device
 
     ys_hat_3d = reshape(ys_hat, l, n, nb_examples)
-    nnm = device([sum(svdvals(ys_hat_3d[:,:,i])) for i in 1:nb_examples])
+    penalties = [approxspectralnorm(ys_hat_3d[:,:,i]) for i in 1:nb_examples] #|> device
     
-    errors = theta * (sql2' / l*n) .+ (1f0 - theta) * nnm / scaling
+    errors = theta * (sql2' / l*n) .+ (1f0 - theta) * -penalties / scaling
 
     return mean(errors)
 end
 
 function predict_through_time(m::MatrixRNN, 
                               xs::AbstractArray{Float32, 3}, 
-                              turns::Int)
+                              turns::Int)::AbstractArray{Float32, 2}
     examples = eachslice(xs; dims=3)
     # For each example, reset the state, recur for `turns` steps, 
     # predict the label, store it
@@ -128,9 +142,8 @@ function predict_through_time(m::MatrixRNN,
     elseif turns > 0    
         trial_output = m(examples[1])
         output_size = length(trial_output)
-        @assert output_size > 1
         nb_examples = length(examples)
-        preds = device(zeros(Float32, output_size, nb_examples))
+        preds = Array{Float32}(undef, output_size, nb_examples) 
         @inbounds for (i, example) in enumerate(examples)
             reset!(m)
             repeatedexample = [example for _ in 1:turns+1]
@@ -149,20 +162,18 @@ const K::Int = 400
 const N::Int = 64
 const DATASETSIZE::Int = 10
 
+dataY = randn(Float32, N, N, DATASETSIZE) |> device
+dataX = randn(Float32, K, N*N, DATASETSIZE) |> device
 
-
-dataY = randn(Float32, K, N^2, DATASETSIZE) |> device
-dataX = dataY .+ 0.1f0 * randn(Float32, K, N^2, DATASETSIZE) |> device
-
-activemodel = matnet(
+activemodel = MatrixRNN(
     matrnn_constructor(N^2, K, N^2), 
     WeightedMeanLayer(K)
 ) |> device
 
-activemodel(X[:,:,1])
-InteractiveUtils.@code_warntype activemodel(X[:,:,1])
-InteractiveUtils.@code_warntype activemodel.rnn(X[:,:,1])
-temp = activemodel.rnn(X[:,:,1])
+activemodel(dataX[:,:,1])
+InteractiveUtils.@code_warntype activemodel(dataX[:,:,1])
+InteractiveUtils.@code_warntype activemodel.rnn(state(activemodel), dataX[:,:,1])
+temp = activemodel.rnn(state(activemodel), dataX[:,:,1])
 InteractiveUtils.@code_warntype activemodel.dec(temp)
 
 predict_through_time(activemodel, dataX, 0)
@@ -170,23 +181,18 @@ predict_through_time(activemodel, dataX, 2)
 InteractiveUtils.@code_warntype predict_through_time(activemodel, dataX, 0)
 InteractiveUtils.@code_warntype predict_through_time(activemodel, dataX, 2)
 
-nnm_penalized_l2(activemodel, dataX, dataY, 0)
-nnm_penalized_l2(activemodel, dataX, dataY, 2)
-InteractiveUtils.@code_warntype nnm_penalized_l2(activemodel, dataX, dataY, 0)
-InteractiveUtils.@code_warntype nnm_penalized_l2(activemodel, dataX, dataY, 2)
-
+spectrum_penalized_l2(activemodel, dataX, dataY, 0)
+spectrum_penalized_l2(activemodel, dataX, dataY, 2)
+InteractiveUtils.@code_warntype spectrum_penalized_l2(activemodel, dataX, dataY, 0)
+InteractiveUtils.@code_warntype spectrum_penalized_l2(activemodel, dataX, dataY, 2)
 
 grads = autodiff(Enzyme.Reverse, 
-    myloss, Duplicated(activemodel), 
-    Const(x), Const(y))
+    spectrum_penalized_l2, Duplicated(activemodel), 
+    Const(dataX), Const(dataY))
 
 grads = autodiff(set_runtime_activity(Enzyme.Reverse), 
-    myloss, Duplicated(activemodel), 
-    Const(x), Const(y))
+    spectrum_penalized_l2, Duplicated(activemodel), 
+    Const(dataX), Const(dataY))
 
-Enzyme.API.strictAliasing!(false)
-
-grads = autodiff(set_runtime_activity(Enzyme.Reverse), 
-    myloss, Duplicated(activemodel), 
-    Const(x), Const(y))
+loss, grads = Flux.withgradient(spectrum_penalized_l2, Duplicated(activemodel), dataX, dataY)
 

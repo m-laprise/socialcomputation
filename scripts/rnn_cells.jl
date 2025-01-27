@@ -298,12 +298,11 @@ function(m::bfl_cell)(state, I=nothing)
     return h_new, h_new
 end
 
-function(m::matrnn_cell_b)(state::Array{Float32}; 
+function(m::matrnn_cell_b)(state::Array{Float32, 2}; 
                            selfreset::Bool=false)::Array{Float32}
     Whh, bh = m.Whh, m.bh
-    @assert ndims(state) == 2
     if selfreset
-        h = m.init
+        h = m.init::AbstractArray{Float32, 2}
     else
         h = state
     end
@@ -316,12 +315,11 @@ function(m::matrnn_cell_b)(state::Array{Float32};
     return h_new #, h_new
 end
 
-function(m::matrnn_cell_b)(state::CuArray{Float32}; 
+function(m::matrnn_cell_b)(state::CuArray{Float32, 2}; 
                            selfreset::Bool=false)::CuArray{Float32}
     Whh, bh = m.Whh, m.bh
-    @assert ndims(state) == 2
     if selfreset
-        h = m.init
+        h = m.init::CuArray{Float32, 2}
     else
         h = state
     end
@@ -334,14 +332,13 @@ function(m::matrnn_cell_b)(state::CuArray{Float32};
     return h_new #, h_new
 end
 
-function(m::matrnn_cell_b)(state::Array{Float32}, 
-                           I::AbstractArray{Float32}; 
+function(m::matrnn_cell_b)(state::Array{Float32, 2}, 
+                           I::AbstractArray{Float32, 2}; 
                            selfreset::Bool=false)::Array{Float32}
     Wx_in, Wx_out, bx_in, bx_out = m.Wx_in, m.Wx_out, m.bx_in, m.bx_out
     Whh, bh = m.Whh, m.bh
-    @assert ndims(state) == 2
     if selfreset
-        h = m.init
+        h = m.init::Array{Float32, 2}
     else
         h = state
     end
@@ -369,14 +366,13 @@ function(m::matrnn_cell_b)(state::Array{Float32},
     return h_new #, h_new
 end
 
-function(m::matrnn_cell_b)(state::CuArray{Float32}, 
-                           I::CuArray{Float32}; 
+function(m::matrnn_cell_b)(state::CuArray{Float32, 2}, 
+                           I::CuArray{Float32, 2}; 
                            selfreset::Bool=false)::CuArray{Float32}
     Wx_in, Wx_out, bx_in, bx_out = m.Wx_in, m.Wx_out, m.bx_in, m.bx_out
     Whh, bh = m.Whh, m.bh
-    @assert ndims(state) == 2
     if selfreset
-        h = m.init
+        h = m.init::CuArray{Float32, 2}
     else
         h = state
     end
