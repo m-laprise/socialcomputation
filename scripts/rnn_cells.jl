@@ -61,7 +61,7 @@ mutable struct bfl_cell{A,V}
     init::A # store initial state for reset
 end
 
-mutable struct matrnn_cell_b{A}
+mutable struct matrnn_cell_b{A<:AbstractArray{Float32,2}}
     Wx_in::A
     Wx_out::A
     bx_in::A
@@ -69,7 +69,7 @@ mutable struct matrnn_cell_b{A}
     Whh::A
     bh::A
     h::A
-    init::A # store initial state for reset
+    const init::A # store initial state for reset
 end
 
 function rnn_cell(input_size::Int, 
@@ -170,12 +170,13 @@ function matrnn_cell(distribinput_capacity::Int,
                      net_width::Int,
                      unit_hidim::Int;
                      h_init::String = "randn", 
-                     Whh_init = nothing)::matrnn_cell_b
+                     Whh_init::Array{Float32} = Array{Float32,2}(
+                        undef,net_width,net_width))::matrnn_cell_b
     @assert distribinput_capacity > 0
     @assert net_width > 0
     @assert unit_hidim >= distribinput_capacity
     # Initialize recurrent weight matrix
-    if isnothing(Whh_init)
+    if sum(Whh_init) == 0
         Whh = randn(Float32, net_width, net_width) / sqrt(Float32(net_width))
     else
         Whh = Float32.(Whh_init)
@@ -383,7 +384,7 @@ function(m::matrnn_cell_b)(state::CuArray{Float32},
     distribinput_capacity = size(h, 2)
     @assert size(I, 1) == net_width && size(I, 2) <= distribinput_capacity
     # On GPU, do matrix operations
-    if CUDA.functional() #isa(I, CUDA.CUSPARSE.CuSparseMatrixCSC)
+    if CUDA.functional() 
         # NOTE -- equation needs double checked
         M_in = tanh.(Wx_in * I' .+ bx_in')
         procI = (Wx_out' * M_in .+ bx_out')'
@@ -441,6 +442,8 @@ Flux.@layer rnn_cell_xb trainable=(Wxh, Whh, b)
 Flux.@layer customgru_cell trainable=(Whh, b, bz, g1, g2)
 Flux.@layer bfl_cell trainable=(Whh, b, gain)
 Flux.@layer matrnn_cell_b trainable=(Wx_in, Wx_out, bx_in, bx_out, Whh, bh)
+
+reset!(m::matrnn_cell_b) = (m.h = m.init)
 
 state(m::rnn_cell_b) = m.h
 state(m::rnn_cell_xb) = m.h
@@ -548,7 +551,7 @@ function Base.show(io::IO, l::BasisChange)
 end =#
 
 # Weighted mean decoding layer
-struct WMeanRecon{V}
+struct WMeanRecon{V<:AbstractVector{Float32}}
     weight::V
 end
 
@@ -570,9 +573,9 @@ end
 
 #####
 # Replace Chain for matrix-valued nets
-mutable struct matnet
-    rnn::matrnn_cell_b
-    dec::WMeanRecon
+struct matnet{M<:matrnn_cell_b, D<:WMeanRecon}
+    rnn::M
+    dec::D
     #dec = x -> mean(x, dims = 1)
 end
 reset!(m::matnet) = reset!(m.rnn)

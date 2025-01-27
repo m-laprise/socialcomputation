@@ -35,24 +35,24 @@ end
 TASKCAT = "reconstruction"
 TASK = "recon80"
 
-RANK::Int = 1
-M, N, dataset_size = 64, 64, 1000
-mat_size = M * N
+const RANK::Int = 1
+const M::Int, N::Int, dataset_size::Int = 64, 64, 1000
+const mat_size::Int = M * N
 
-knownentries = 1500
+knownentries::Int = 1500
 net_width::Int = 400
 
 TURNS::Int = 5
 EPOCHS = 1
-MINIBATCH_SIZE = 32
-n_loss = 10
+const MINIBATCH_SIZE::Int = 32
+n_loss::Int = 10
 
 ##########
 # Generate data and split between training, validation, and test sets
-train_prop::Float64 = 0.8
-val_prop::Float64 = 0.1
-test_prop::Float64 = 0.1
-ranks = [RANK]
+const train_prop::Float64 = 0.8
+const val_prop::Float64 = 0.1
+const test_prop::Float64 = 0.1
+const ranks = [RANK]
 
 function setup(M, N, r, seed; datatype=Float32)
     rng = Random.MersenneTwister(seed)
