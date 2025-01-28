@@ -170,8 +170,8 @@ function matrnn_cell(distribinput_capacity::Int,
                      net_width::Int,
                      unit_hidim::Int;
                      h_init::String = "randn", 
-                     Whh_init::Array{Float32} = Array{Float32,2}(
-                        undef,net_width,net_width))::matrnn_cell_b
+                     Whh_init::Array{Float32, 2} = zeros(Float32,
+                        net_width, net_width))::matrnn_cell_b
     @assert distribinput_capacity > 0
     @assert net_width > 0
     @assert unit_hidim >= distribinput_capacity
@@ -192,7 +192,7 @@ function matrnn_cell(distribinput_capacity::Int,
     if h_init == "zero"
         h = zeros(Float32, net_width, distribinput_capacity)
     elseif h_init == "randn"
-        h = randn(Float32, net_width, distribinput_capacity) * 0.01f0
+        h = randn(Float32, net_width, distribinput_capacity) / sqrt(Float32(net_width))
     else
         error("Invalid h_init value. Choose from 'zero' or 'randn'.")
     end
@@ -448,8 +448,8 @@ state(m::customgru_cell) = m.h
 state(m::bfl_cell) = m.h
 state(m::matrnn_cell_b) = m.h
 
-# Matrnn already stateful so no need for Recur
-matrnn(args...;kwargs...) = matrnn_cell(args...;kwargs...)
+# Matrnn already stateful so no need for Recur.
+#matrnn(args...;kwargs...) = matrnn_cell(args...;kwargs...)
 
 # Display functions
 Base.show(io::IO, l::rnn_cell_xb) = print(

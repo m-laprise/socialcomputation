@@ -86,7 +86,7 @@ size(Xtrain), size(Ytrain)
 unit_hidim = mat_size
 
 cpu_activemodel = matnet(
-    matrnn(mat_size, net_width, unit_hidim), 
+    matrnn_cell(mat_size, net_width, unit_hidim), 
     WMeanRecon(net_width)
 )
 
