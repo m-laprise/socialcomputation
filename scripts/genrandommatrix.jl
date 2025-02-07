@@ -346,6 +346,14 @@ function sensingmasks(m::Int, n::Int; k::Int = 0, seed::Int = Int(round(time()))
     return maskij[1:k]
 end
 
+function masktuple2array(fixedmask::Vector{Tuple{Int, Int}})
+    k = length(fixedmask)    
+    is = [x[1] for x in fixedmask]
+    js = [x[2] for x in fixedmask]
+    sparsemat = sparse(is, js, ones(k))
+    return Matrix(sparsemat)
+end
+
 
 """
     generate_matrix_set(m::Int, n::Int, dataset_size::Int, rankset::Vector{Int};

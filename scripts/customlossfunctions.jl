@@ -236,14 +236,6 @@ Flux.crossentropy(y_model, y_smooth)
 multiclass_classif_losses(m_vanilla, randn(Float32, 100, 5), y_label; turns=1)
 =#
 
-function masktuple2array(fixedmask::Vector{Tuple{Int, Int}})
-    k = length(fixedmask)    
-    is = [x[1] for x in fixedmask]
-    js = [x[2] for x in fixedmask]
-    sparsemat = sparse(is, js, ones(k))
-    return Matrix(sparsemat)
-end
-
 function recon_losses(m::Chain, 
                     xs::AbstractArray{Float32}, 
                     ys_mat::AbstractArray{Float32},
@@ -388,9 +380,8 @@ end=#
 
 function allentriesRMSE(m::matnet, 
                         xs::AbstractArray{Float32}, 
-                        ys_mat::AbstractArray{Float32},
-                        mask_mat::AbstractArray{Float32}; 
-                        turns::Int = TURNS,
+                        ys_mat::AbstractArray{Float32}, 
+                        turns::Int = TURNS;
                         datascale::Float32 = 0.1f0)::Float32
     @assert CUDA.functional()
     @assert ndims(ys_mat) == 3

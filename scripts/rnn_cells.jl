@@ -346,7 +346,7 @@ function(m::matrnn_cell_b)(state::Array{Float32, 2},
     distribinput_capacity = size(h, 2)
     @assert size(I, 1) == net_width && size(I, 2) <= distribinput_capacity
     # On GPU, do matrix operations
-    if CUDA.functional() #isa(I, CUDA.CUSPARSE.CuSparseMatrixCSC)
+    if CUDA.functional() 
         # NOTE -- equation needs double checked
         M_in = tanh.(Wx_in * I' .+ bx_in')
         procI = (Wx_out' * M_in .+ bx_out')'

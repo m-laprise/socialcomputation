@@ -54,53 +54,54 @@ const val_prop::Float64 = 0.1
 const test_prop::Float64 = 0.1
 const ranks = [RANK]
 
-function setup(M, N, r, seed; datatype=Float32)
+function creatematrix(M, N, r, seed; datatype=Float32)
     rng = Random.MersenneTwister(seed)
     #v = randn(rng, datatype, M, r) ./ sqrt(sqrt(Float32(r)))
     #A = v * v'
     A = (randn(rng, datatype, M, r) ./ sqrt(sqrt(Float32(r)))) * (randn(rng, datatype, r, N) ./ sqrt(sqrt(Float32(r))))
     return A * 0.1f0
 end
-Y = Array{Float32, 3}(undef, M, N, dataset_size)
-for i in 1:dataset_size
-    Y[:, :, i] = setup(M, N, RANK, 1131+i)
+
+function datasetgeneration(M, N, RANK, dataset_size, knownentries)
+    Y = Array{Float32, 3}(undef, M, N, dataset_size)
+    for i in 1:dataset_size
+        Y[:, :, i] = creatematrix(M, N, RANK, 1131+i)
+    end
+    fixedmask = sensingmasks(M, N; k=knownentries, seed=9632)
+    mask_mat = Float32.(masktuple2array(fixedmask))
+    @assert size(mask_mat) == (M, N)
+    X = matinput_setup(Y, net_width, M, N, dataset_size, knownentries, fixedmask)
+    @info("Memory usage after data generation: ", Base.gc_live_bytes() / 1024^3)
+    return X, Y, fixedmask, mask_mat
 end
 
-fixedmask = sensingmasks(M, N; k=knownentries, seed=9632)
-mask_mat = Float32.(masktuple2array(fixedmask))
-@assert size(mask_mat) == (M, N)
-X = matinput_setup(
-    Y, net_width, M, N, dataset_size, knownentries, fixedmask)
-@info("Memory usage after data generation: ", Base.gc_live_bytes() / 1024^3)
+X, Y, fixedmask, mask_mat = datasetgeneration(M, N, RANK, dataset_size, knownentries)
 
 Xtrain, Xval, Xtest = train_val_test_split(X, train_prop, val_prop, test_prop)
 X = nothing
 Ytrain, Yval, Ytest = train_val_test_split(Y, train_prop, val_prop, test_prop)
 Y = nothing
-size(Xtrain), size(Ytrain)
 
-@info("Dataset created and split into training, validation, and test sets on cpu.")
+size(Xtrain), size(Ytrain)
+@info("Dataset created and split into training, validation, and test sets on host.")
 ##### INITIALIZE NETWORK
 
 # Initialize the RNN model
 unit_hidim = mat_size
 
-cpu_activemodel = matnet(
+host_activemodel = matnet(
     matrnn_cell(mat_size, net_width, unit_hidim), 
     WMeanRecon(net_width)
 )
 
 @info("Testing untrained model on cpu...")
-cpu_activemodel()
-cpu_activemodel(Xtrain[1])
-cpu_activemodel(; selfreset = true)
-cpu_activemodel(Xtrain[1]; selfreset = true)
-reset!(cpu_activemodel)
+host_activemodel()
+host_activemodel(Xtrain[1])
+host_activemodel(; selfreset = true)
+host_activemodel(Xtrain[1]; selfreset = true)
+reset!(host_activemodel)
 
-#recon_losses(cpu_activemodel, Xtrain[1:2], Ytrain[:, :, 1:2], mask_mat; 
-#             turns = TURNS, mode = "testing")
-
-activemodel = cpu_activemodel |> device
+activemodel = host_activemodel |> device
 @info("Model initialized and moved to device.")
 
 if CUDA.functional()
