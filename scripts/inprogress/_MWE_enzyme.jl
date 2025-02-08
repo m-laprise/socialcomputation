@@ -46,9 +46,54 @@ end
 
 function(m::MatrixRnnCell)(state::AbstractArray{Float32, 2}, 
                            I::AbstractArray{Float32, 2}; 
-                           selfreset::Bool=false)::AbstractArray{Float32}
+                           selfreset::Bool=false)::AbstractArray{Float32, 2}
     if selfreset
         h = m.init::AbstractArray{Float32, 2}
+    else
+        h = state
+    end
+    M_in = NNlib.tanh_fast.(m.Wx_in * I' .+ m.bx_in') 
+    newI = (m.Wx_out' * M_in .+ m.bx_out')' 
+    h_new = NNlib.tanh_fast.(m.Whh * h .+ m.bh .+ newI) 
+    m.h = h_new
+    return h_new 
+end
+
+function(m::MatrixRnnCell)(state::Matrix{Float32}, 
+                           I::SparseMatrixCSC; 
+                           selfreset::Bool=false)::Matrix{Float32}
+    if selfreset
+        h = m.init::Matrix{Float32}
+    else
+        h = state
+    end
+    M_in = NNlib.tanh_fast.(m.Wx_in * I' .+ m.bx_in') 
+    newI = (m.Wx_out' * M_in .+ m.bx_out')' 
+    h_new = NNlib.tanh_fast.(m.Whh * h .+ m.bh .+ newI) ::Matrix{Float32}
+    m.h = h_new
+    return h_new 
+end
+
+function(m::MatrixRnnCell)(state::Matrix{Float32}, 
+                           I::Matrix{Float32}; 
+                           selfreset::Bool=false)::Matrix{Float32}
+    if selfreset
+        h = m.init::Matrix{Float32}
+    else
+        h = state
+    end
+    M_in = NNlib.tanh_fast.(m.Wx_in * I' .+ m.bx_in') 
+    newI = (m.Wx_out' * M_in .+ m.bx_out')' 
+    h_new = NNlib.tanh_fast.(m.Whh * h .+ m.bh .+ newI) ::Matrix{Float32}
+    m.h = h_new
+    return h_new 
+end
+
+function(m::MatrixRnnCell)(state::CuArray{Float32, 2}, 
+                           I::CuArray{Float32, 2}; 
+                           selfreset::Bool=false)::CuArray{Float32, 2}
+    if selfreset
+        h = m.init::CuArray{Float32, 2}
     else
         h = state
     end
@@ -86,6 +131,16 @@ state(m::MatrixRNN) = state(m.rnn)
                 state(m), x; 
                 selfreset = selfreset)
 
+(m::MatrixRNN)(x::Matrix{Float32}; 
+               selfreset::Bool = false)::Vector{Float32} = (m.dec ∘ m.rnn)(
+                state(m), x; 
+                selfreset = selfreset)
+
+(m::MatrixRNN)(x::CuArray{Float32}; 
+               selfreset::Bool = false)::CuArray{Float32} = (m.dec ∘ m.rnn)(
+                state(m), x; 
+                selfreset = selfreset)
+
 Flux.@layer MatrixRnnCell trainable=(Wx_in, Wx_out, bx_in, bx_out, Whh, bh)
 Flux.@layer WeightedMeanLayer
 Flux.@layer :expand MatrixRNN trainable=(rnn, dec)
@@ -96,16 +151,16 @@ Adapt.@adapt_structure MatrixRnnCell
 Adapt.@adapt_structure WeightedMeanLayer
 Adapt.@adapt_structure MatrixRNN
 
-function power_iter(A::AbstractArray{Float32, 2}, b_k::AbstractArray{Float32, 1}; num_iterations::Int = 100)::Float32    
+function power_iter(A::AbstractArray{Float32, 2}, b_k::AbstractArray{Float32, 1}; num_iterations::Int = 50)::Float32    
     for _ in 1:num_iterations
         b_k1 = A * b_k
-        b_k .= b_k1 / norm(b_k1)
+        b_k = b_k1 / norm(b_k1)
     end
     largest_eig = b_k' * (A * b_k)
     return largest_eig
 end
 
-function power_iter(A::CuArray{Float32, 2}, b_k::CuArray{Float32, 1}; num_iterations::Int = 100)::Float32
+function power_iter(A::CuArray{Float32, 2}, b_k::CuArray{Float32, 1}; num_iterations::Int = 50)::Float32
     for _ in 1:num_iterations
         b_k1 = A * b_k
         b_k .= b_k1 / norm(b_k1)
@@ -166,9 +221,9 @@ function spectrum_penalized_l2(ys::CuArray{Float32, 3},
     return mean(errors)
 end
 
-MSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs.((A .- B).^2), dims=1)
+MSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs2.(A .- B), dims=1)
 RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = sqrt.(MSE(A, B))
-MSE(A::CuArray{Float32}, B::CuArray{Float32}) = mean(abs.((A .- B).^2), dims=1)
+MSE(A::CuArray{Float32}, B::CuArray{Float32}) = mean(abs2.(A .- B), dims=1)
 RMSE(A::CuArray{Float32}, B::CuArray{Float32}) = sqrt.(MSE(A, B))
 
 function allentriesRMSE(ys::AbstractArray{Float32, 3}, 
@@ -198,26 +253,28 @@ function predict_through_time(m::MatrixRNN,
     if turns == 0
         reset!(m)
         #preds = stack(m.(eachslice(xs; dims=3); selfreset = true))::AbstractArray{Float32, 2}
-        preds = Array{Float32}(undef, output_size, nb_examples)
+        # preds = Array{Float32}(undef, output_size, nb_examples)
+        preds = Zygote.Buffer(zeros(Float32, output_size, nb_examples)) 
         i = 1
         @inbounds for example in eachslice(xs; dims=3)
-            preds[:,i] .= m(example; selfreset = true)::AbstractVector{Float32}
+            preds[:,i] = m(example; selfreset = true)::AbstractVector{Float32}
             i += 1
         end
     elseif turns > 0 
-        preds = Array{Float32}(undef, output_size, nb_examples)
+        # preds = Array{Float32}(undef, output_size, nb_examples)
+        preds = Zygote.Buffer(zeros(Float32, output_size, nb_examples)) 
         i = 1
         @inbounds for example in eachslice(xs; dims=3)
             reset!(m)
             for _ in 1:turns
                 m(example; selfreset = false)
             end
-            preds[:,i] .= m(example; selfreset = false)::AbstractVector{Float32}
+            preds[:,i] = m(example; selfreset = false)::AbstractVector{Float32}
             i += 1
         end
     end
     reset!(m)
-    return preds
+    return copy(preds)
 end
 
 function predict_through_time(m::MatrixRNN, 
@@ -228,26 +285,28 @@ function predict_through_time(m::MatrixRNN,
     nb_examples = length(xs)::Int
     if turns == 0
         reset!(m)
-        preds = Array{Float32}(undef, output_size, nb_examples)
+        # preds = Array{Float32}(undef, output_size, nb_examples)
+        preds = Zygote.Buffer(zeros(Float32, output_size, nb_examples)) 
         i = 1
         @inbounds for example in xs
-            preds[:,i] .= m(example; selfreset = true)::AbstractVector{Float32}
+            preds[:,i] = m(example; selfreset = true)::AbstractVector{Float32}
             i += 1
         end
     elseif turns > 0 
-        preds = Array{Float32}(undef, output_size, nb_examples)
+        # preds = Array{Float32}(undef, output_size, nb_examples)
+        preds = Zygote.Buffer(zeros(Float32, output_size, nb_examples)) 
         i = 1
         @inbounds for example in xs
             reset!(m)
             for _ in 1:turns
                 m(example; selfreset = false)
             end
-            preds[:,i] .= m(example; selfreset = false)::AbstractVector{Float32}
+            preds[:,i] = m(example; selfreset = false)::AbstractVector{Float32}
             i += 1
         end
     end
     reset!(m)
-    return preds
+    return copy(preds)
 end
 
 function predict_through_time(m::MatrixRNN, 
@@ -508,7 +567,7 @@ push!(val_rmse, initRMSE_val)
 ##================##
 using BenchmarkTools
 @benchmark activemodel(dataX[1]) # CPU 62 ms
-@benchmark activemodel(dev_dataX[:,:,1]) # CPU 110 ms
+@benchmark activemodel(dev_dataX[:,:,1]) # CPU 100 ms
 @benchmark predict_through_time(activemodel, dataX, 0) # CPU 1s
 @benchmark predict_through_time(activemodel, dataX, 2) # CPU 2.6 s
 @benchmark predict_through_time(activemodel, dev_dataX, 0) # CPU 1.6 s 
@@ -523,21 +582,47 @@ test = autodiff(Enzyme.Reverse,
     trainingloss, Active, Duplicated(activemodel), 
     Const(stack(dataX)), Const(dataY), Const(mask_mat), Const(0))
 
+import Zygote
 trainingloss(activemodel, dataX, dataY, mask_mat, 0)
+loss, grads = Flux.withgradient(trainingloss, activemodel, stack(dataX), dataY, mask_mat, 0)
+# 109.833 s (384201 allocations: 68.00 GiB)
 loss, grads = Flux.withgradient(trainingloss, Duplicated(activemodel), stack(dataX), dataY, mask_mat, 0)
-loss, grads = Flux.withgradient(trainingloss, Duplicated(activemodel), dev_dataX, dev_dataY, dev_mask_mat, 0)
+# 61.174 s (58042 allocations: 10.44 GiB)
+
+#loss, grads = Flux.withgradient(trainingloss, Duplicated(activemodel), dev_dataX, dev_dataY, dev_mask_mat, 0)
 @btime Flux.withgradient(trainingloss, Duplicated($activemodel), $dev_dataX, $dev_dataY, $dev_mask_mat, 0)
 
 # 4-5 s (4109 allocations: 838 MiB)
 
-#= DiffInterface
+# DiffInterface
 using DifferentiationInterface
 import ReverseDiff, Enzyme, Zygote 
 # choose a backend
+
+
+
+g(x) = sum(tanh.(x' * x) - 2 * sigmoid.(x * x').^2)
+A = randn(Float32, 100, 100)
+
+backend = AutoZygote()
+@btime DifferentiationInterface.value_and_gradient(g, backend, A) 
+backend = AutoEnzyme()
+@btime DifferentiationInterface.value_and_gradient(g, backend, A)
 backend = AutoReverseDiff()
+@btime DifferentiationInterface.value_and_gradient(g, backend, A) 
+
+
 # test
+
+backend = AutoZygote()
 fclosure(m) = trainingloss(m, dev_dataX, dev_dataY, dev_mask_mat, 0)
-DifferentiationInterface.value_and_gradient(fclosure, backend, Duplicated(activemodel)) 
+@btime DifferentiationInterface.value_and_gradient(fclosure, backend, activemodel) 
+
+backend = AutoEnzyme()
+@btime DifferentiationInterface.value_and_gradient(fclosure, backend, Duplicated(activemodel)) 
+
+backend = AutoReverseDiff()
+@btime DifferentiationInterface.value_and_gradient(fclosure, backend, activemodel) 
 
 # prepare the gradient calculation
 #   preparation does not depend on the actual components of the vector x, just on its type and size
@@ -549,6 +634,7 @@ DifferentiationInterface.gradient!(f, grad, prep, backend, x)
 y, grad = DifferentiationInterface.value_and_gradient!(f, grad, prep, backend, x)
 
 # REVERSEDIFF 
+#=
 using ReverseDiff: GradientTape, GradientConfig, gradient, gradient!, compile, DiffResults
 trainingloss(activemodel, dev_dataX, dev_dataY, mask_mat, 0)
 inputs = (activemodel, dev_dataX, dev_dataY, dev_mask_mat, 0)
