@@ -252,14 +252,6 @@ function predict_through_time(m,
     populatepreds!(preds, m, xs, turns)
     return preds
 end
-#=
-predict_through_time(activemodel, dataX[:,:,1:2], 1)
-@benchmark predict_through_time($activemodel, $dataX[:,:,1])
-@benchmark predict_through_time($activemodel, $dataX[:,:,1], 2)
-# Forward pass, data points, no time steps
-@benchmark predict_through_time($activemodel, $dataX[:,:,1:2]) 
-# Forward pass, data points, 2 time steps
-@benchmark predict_through_time($activemodel, $dataX[:,:,1:2], 2) =#
 
 # Predict - Many data points in a vector of sparse matrices; no time step
 function predict_through_time(m, 
@@ -389,9 +381,9 @@ function datasetgeneration(m, n, rank, dataset_size, knownentries, net_width)
 end
 
 sparse_dataX, dataY, fixedmask, mask_mat = datasetgeneration(N, N, RANK, DATASETSIZE, KNOWNENTRIES, K)
+# (Initially tried with sparse arrays, but it made pullbacks slower
+# and I am not RAM constrained, so focusing on regular arrays for now)
 dataX = stack(sparse_dataX)
-# (Initially tried with sparse arrays, but that did not help for pullbacks, so focusing on regular arrays for now)
-
 size(dataX), size(dataY)
 
 #====INITIALIZE MODEL====#
@@ -403,7 +395,7 @@ activemodel = MatrixRNN(
 #====TEST FWD PASS AND LOSS====#
 
 using BenchmarkTools
-#=
+
 # Forward pass, one datum, no time step
 @benchmark activemodel($dataX[:,:,1]) 
 # Forward pass, one datum, no time steps
@@ -419,77 +411,82 @@ using BenchmarkTools
 ys_hat = predict_through_time(activemodel, dataX)
 @benchmark spectrum_penalized_l2($dataY[:,:,1:2], $ys_hat[:,1:2], $mask_mat)
 
-using InteractiveUtils
-@code_warntype predict_through_time(activemodel, dataX) 
-@code_warntype predict_through_time(activemodel, dataX, 2) 
-
-# Training loss
 @benchmark trainingloss($activemodel, $dataX, $dataY, $mask_mat)
-=#
+
 #====BEST GRADIENT COMPUTATION====#
 
 # Enzyme
-
+# MODEL ONLY
 @btime loss, grads = Flux.withgradient((m,x) -> sum(m(x)), 
                                 Duplicated(activemodel), 
                                 dataX[:,:,1])
-
+# 123.524 ms (117 allocations: 114.67 MiB)
 @btime loss, grads = Flux.withgradient((m,x) -> sum(predict_through_time(m, x)), 
                                 Duplicated(activemodel), 
                                 dataX)
+# 9.072 s (1277 allocations: 1.65 GiB)
 
+# TRAINING LOSS
 @btime loss, grads = Flux.withgradient($trainingloss, 
                                 $Duplicated(activemodel), 
                                 $dataX[:,:,1], $dataY[:,:,1], $mask_mat)
-# 279.431 ms (291 allocations: 241.41 MiB)
+# 122.946 ms (267 allocations: 114.87 MiB)
 
 @btime loss, grads = Flux.withgradient($trainingloss, 
                                 $Duplicated(activemodel), 
                                 $dataX[:,:,1:3], $dataY[:,:,1:3], $mask_mat)
-# 551.074 ms (570 allocations: 322.92 MiB)
+# 366.954 ms (666 allocations: 177.70 MiB)
 
 @btime loss, grads = Flux.withgradient($trainingloss, 
                                 $Duplicated(activemodel), 
                                 $dataX, $dataY, $mask_mat)
-# 23.378 s (9556 allocations: 4.86 GiB)
+# 8.564 s (8836 allocations: 1.65 GiB)
 
 @btime loss, grads = Flux.withgradient($trainingloss, 
                                 $Duplicated(activemodel), 
                                 $dataX[:,:,1], $dataY[:,:,1], $mask_mat, 2)
-# 855.062 ms (414 allocations: 391.53 MiB)
+# 364.710 ms (358 allocations: 164.96 MiB)
 
 @btime loss, grads = Flux.withgradient($trainingloss, 
                                 $Duplicated(activemodel), 
                                 $dataX[:,:,1:3], $dataY[:,:,1:3], $mask_mat, 2)
-# 1.700 s (819 allocations: 623.15 MiB)
+# 1.107 s (826 allocations: 327.97 MiB)
 
 @btime loss, grads = Flux.withgradient($trainingloss, 
                                 $Duplicated(activemodel), 
                                 $dataX, $dataY, $mask_mat, 2)
+# 27.567 s (11070 allocations: 4.79 GiB)
 
-
-#====TEST OTHER GRADIENT COMPUTATION====#
-
+#====TEST OTHER GRADIENT COMPUTATIONS====#
 using DifferentiationInterface
 fclosure(m) = trainingloss(m, dataX[:,:,1], dataY[:,:,1], mask_mat)
 backend = AutoEnzyme()
 @btime DifferentiationInterface.value_and_gradient($fclosure, $backend, $activemodel) 
-# 12.429 s (8214 allocations: 2.98 GiB)
+# 177.236 ms (185 allocations: 121.12 MiB)
 
 using Fluxperimental, Mooncake
 Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(genbk), Any}
 Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(reset!), Any}
 Mooncake.@mooncake_overlay norm(x) = sqrt(sum(abs2, x))
 dup_model = Moonduo(activemodel)
-fclosure(m) = trainingloss(m, dataX[:,:,1], dataY[:,:,1], mask_mat)
+
+# MODEL ONLY
+fclosure(m) = sum(m(dataX[:,:,1]))
 @btime loss, grads = Flux.withgradient($fclosure, $dup_model)
-# 1.281 s (1649063 allocations: 1.30 GiB)
-fclosure(m) = trainingloss(m, dataX[:,:,3], dataY[:,:,3], mask_mat)
+# 1.089 s (4922099 allocations: 1.49 GiB)
+fclosure(m) = sum(predict_through_time(m, dataX))
 @btime loss, grads = Flux.withgradient($fclosure, $dup_model)
 # 
+
+# TRAINING LOSS
+fclosure(m) = trainingloss(m, dataX[:,:,1], dataY[:,:,1], mask_mat)
+@btime loss, grads = Flux.withgradient($fclosure, $dup_model)
+
+fclosure(m) = trainingloss(m, dataX[:,:,1:3], dataY[:,:,1:3], mask_mat)
+@btime loss, grads = Flux.withgradient($fclosure, $dup_model)
+
 fclosure(m) = trainingloss(m, dataX[:,:,1], dataY[:,:,1], mask_mat, 2)
 @btime loss, grads = Flux.withgradient($fclosure, $dup_model)
-# 2.157 s (3009 allocations: 2.20 GiB)
-fclosure(m) = trainingloss(m, dataX[:,:,3], dataY[:,:,3], mask_mat, 2)
+
+fclosure(m) = trainingloss(m, dataX[:,:,1:3], dataY[:,:,1:3], mask_mat, 2)
 @btime loss, grads = Flux.withgradient($fclosure, $dup_model)
-#
