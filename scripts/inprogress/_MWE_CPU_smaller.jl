@@ -1,5 +1,5 @@
 #= Testing using: 
-Julia 1.10.5 (constrained to this version due to module availability on my HPC)
+Julia 1.10.5 
 Flux 0.16.3
 Enzyme 0.13.30
 =#
@@ -189,12 +189,7 @@ function populatepreds!(preds, m, xs::Array{Float32, 3})::Nothing
         preds[:,i] .= m(example; selfreset = false)
     end
 end
-function populatepreds!(preds, m, xs::Vector)::Nothing
-    for i in eachindex(xs)
-        reset!(m)
-        preds[:,i] .= m(xs[i]; selfreset = false)
-    end
-end
+
 # Many time steps, many examples
 function populatepreds!(preds, m, xs::Array{Float32, 3}, turns)::Nothing
     @inbounds for i in axes(xs, 3)
@@ -202,13 +197,6 @@ function populatepreds!(preds, m, xs::Array{Float32, 3}, turns)::Nothing
         example = @view xs[:,:,i]
         timemovement!(m, example, turns)
         preds[:,i] .= m(example; selfreset = false)
-    end
-end
-function populatepreds!(preds, m, xs::Vector, turns)::Nothing
-    for i in eachindex(xs)
-        reset!(m)
-        timemovement!(m, xs[i], turns)
-        preds[:,i] .= m(xs[i]; selfreset = false)
     end
 end
 
@@ -253,31 +241,12 @@ function predict_through_time(m,
     return preds
 end
 
-# Predict - Many data points in a vector of sparse matrices; no time step
-function predict_through_time(m, 
-                              xs::Vector)::Matrix{Float32}
-    output_size = size(xs[1], 2)
-    nb_examples = length(xs)
-    preds = Array{Float32}(undef, output_size, nb_examples)
-    populatepreds!(preds, m, xs)
-    return preds
-end
-# Predict - Many data points in a vector of sparse matrices; with time steps
-function predict_through_time(m, 
-                              xs::Vector, 
-                              turns::Int)::Matrix{Float32}
-    output_size = size(xs[1], 2)
-    nb_examples = length(xs)
-    preds = Array{Float32}(undef, output_size, nb_examples)
-    populatepreds!(preds, m, xs, turns)
-    return preds
-end
-
 # Wrapper for prediction and loss
 function trainingloss(m, xs, ys, mask_mat)
     ys_hat = predict_through_time(m, xs)
     return spectrum_penalized_l2(ys, ys_hat, mask_mat)
 end
+
 function trainingloss(m, xs, ys, mask_mat, turns)
     ys_hat = predict_through_time(m, xs, turns)
     return spectrum_penalized_l2(ys, ys_hat, mask_mat)
@@ -290,7 +259,7 @@ EnzymeRules.inactive(::typeof(genbk), args...) = nothing
 const K::Int = 400
 const N::Int = 64
 const RANK::Int = 1
-# Create only one mini-batch
+
 const DATASETSIZE::Int = 64
 const KNOWNENTRIES::Int = 1500
 
@@ -310,12 +279,12 @@ function sensingmasks(m::Int, n::Int; k::Int = 0, seed::Int = Int(round(time()))
     return maskij[1:k]
 end
 
-function masktuple2array(fixedmask::Vector{Tuple{Int, Int}})
-    k = length(fixedmask)    
-    is = [x[1] for x in fixedmask]
-    js = [x[2] for x in fixedmask]
-    sparsemat = sparse(is, js, ones(k))
-    return Matrix(sparsemat)
+function masktuple2array(fixedmask::Vector{Tuple{Int, Int}}, m::Int, n::Int)
+    mask_mat = zeros(Float32, m, n)
+    for (i, j) in fixedmask
+        mask_mat[i, j] = 1.0
+    end
+    return mask_mat
 end
 
 function matrixinput_setup(Y::AbstractArray{Float32}, 
@@ -350,9 +319,9 @@ function matrixinput_setup(Y::AbstractArray{Float32},
             knownentries_per_agent = max.(0, knownentries_per_agent)
         end
     end
-    X = []
+    X = zeros(Float32, k, M*N, dataset_size)
     for i in 1:dataset_size
-        inputmat = spzeros(Float32, k, M*N)
+        inputmat = zeros(Float32, k, M*N)
         entry_count = 1
         for agent in 1:k
             for l in 1:knownentries_per_agent[agent]
@@ -362,7 +331,7 @@ function matrixinput_setup(Y::AbstractArray{Float32},
                 entry_count += 1
             end
         end
-        push!(X, inputmat)
+        X[:, :, i] = inputmat
     end
     return X
 end
@@ -373,17 +342,17 @@ function datasetgeneration(m, n, rank, dataset_size, knownentries, net_width)
         Y[:, :, i] = creatematrix(m, n, rank, 1131+i)
     end
     fixedmask = sensingmasks(m, n; k=knownentries, seed=9632)
-    mask_mat = Float32.(masktuple2array(fixedmask))
+    mask_mat = masktuple2array(fixedmask, m, n)
     @assert size(mask_mat) == (m, n)
     X = matrixinput_setup(Y, net_width, m, n, dataset_size, knownentries, fixedmask)
     @info("Memory usage after data generation: ", Base.gc_live_bytes() / 1024^3)
     return X, Y, fixedmask, mask_mat
 end
 
-sparse_dataX, dataY, fixedmask, mask_mat = datasetgeneration(N, N, RANK, DATASETSIZE, KNOWNENTRIES, K)
-# (Initially tried with sparse arrays, but it made pullbacks slower
+dataX, dataY, fixedmask, mask_mat = datasetgeneration(N, N, RANK, DATASETSIZE, KNOWNENTRIES, K)
+# (Initially tried to create X with sparse arrays, but it made pullbacks slower
 # and I am not RAM constrained, so focusing on regular arrays for now)
-dataX = stack(sparse_dataX)
+
 size(dataX), size(dataY)
 
 #====INITIALIZE MODEL====#
@@ -490,3 +459,4 @@ fclosure(m) = trainingloss(m, dataX[:,:,1], dataY[:,:,1], mask_mat, 2)
 
 fclosure(m) = trainingloss(m, dataX[:,:,1:3], dataY[:,:,1:3], mask_mat, 2)
 @btime loss, grads = Flux.withgradient($fclosure, $dup_model)
+
