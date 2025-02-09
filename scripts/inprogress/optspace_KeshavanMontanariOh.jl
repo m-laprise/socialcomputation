@@ -221,3 +221,61 @@ res = cyclic_proximal_point(N, g, proxes_g, data2[1];
         return_state=true,
     );
 median = get_solver_result(res)
+
+
+#=======Explore spectral norm distribution of 64 x 64 matrix of various ranks========#
+
+ranks = collect(1f0:64f0)
+norms = []
+iters = 50
+for r in ranks
+    temp = []
+    for _ in 1:iters
+        A = (randn(Float32, 64, Int(r)) ./ sqrt(sqrt(r))) * (randn(Float32, Int(r), 64) ./ sqrt(sqrt(r)))
+        norm = approxspectralnorm(A)
+        push!(temp, norm)
+    end
+    push!(norms, mean(temp))
+end
+
+#= norms
+Max: 63.5
+Mean: 25
+Median: 22
+Mode: 20
+Min: 19.8
+
+Std: 7.7
+Var: 59.1
+
+64-element Vector{Any}:
+63.51573f0
+48.619022f0
+44.881737f0
+39.83799f0
+36.545746f0
+34.98267f0
+32.889782f0
+31.621088f0
+30.670378f0
+29.673145f0
+28.942661f0
+28.248281f0
+27.59863f0
+27.191269f0
+ ⋮
+20.426897f0
+20.449804f0
+20.224102f0
+20.432945f0
+20.224415f0
+20.307646f0
+19.819616f0
+19.913416f0
+19.906332f0
+20.026281f0
+19.959955f0
+19.844433f0
+19.839754f0
+19.755886f0
+=#
