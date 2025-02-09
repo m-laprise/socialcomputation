@@ -94,33 +94,8 @@ Flux.@non_differentiable reset!(m::MatrixRNN)
 
 #====DEFINE LOSS FUNCTIONS====#
 
-# Generate random vector for power iteration; must not get differentiated
-# (Probably not the best way to do this!)
-#=
-function genbk(A)::Vector{Float32}
-    b_k = rand(Float32, size(A, 1))
-    return b_k 
-end
-Flux.@non_differentiable genbk(A)
-
-# Do power iteration and return approximate value of largest eigenvalue
-function bkiter!(b_k::Vector{Float32}, A::AbstractArray{Float32, 2}, iterations::Int)
-    @inbounds for _ in 1:iterations
-        b_k .= A * b_k
-        b_k ./= norm(b_k)
-    end
-end
-function power_iter(A::AbstractArray{Float32, 2}, b_k::Vector{Float32}; iterations::Int = 50)::Float32    
-    bkiter!(b_k, A, iterations)
-    largest_eig = dot(b_k, A, b_k)
-    return largest_eig
-end
-# Approximate spectral norm of a matrix (largest singular value) using power iteration
-approxspectralnorm(A::AbstractArray{Float32, 2}, b_k::Vector{Float32} = genbk(A))::Float32 = sqrt(power_iter(A' * A, b_k / norm(b_k)))
-=#
-
 # Nuclear norm of a matrix
-nuclearnorm(A::AbstractArray{Float32, 2})::Float32 = sum(svdvals(A)) #sum(svd(A).S)
+nuclearnorm(A::AbstractArray{Float32, 2})::Float32 = sum(svdvals(A))
 
 # Training loss - Single datum
 function spectrum_penalized_l2(ys::Matrix{Float32}, 
@@ -135,7 +110,6 @@ function spectrum_penalized_l2(ys::Matrix{Float32},
     sql2_known = sum(diff.^2) / sum(mask_mat)
     # Spectral norm penalty
     ys_hat3 = reshape(ys_hat, l, n)
-    #penalty = approxspectralnorm(ys_hat3)
     penalty = nuclearnorm(ys_hat3) - 5f0
     # Training loss
     left = theta / datascale * sql2_known
@@ -144,15 +118,8 @@ function spectrum_penalized_l2(ys::Matrix{Float32},
     return error
 end
 
-# Spectral norm penalty:
-# For N = 64, our rank 1 matrices have an average spectral norm of 6 or 7, 
-# and full rank matrices, an average spectral norm of 0.1 to 0.2,
-# so we add the negative of the spectral norm to the loss.
-# We want rank 1 to be around zero so we add an offset. 
-# This will start around 5.8 (-0.2 + 6) and go down to 0 (-6 + 6).
 function populatepenalties!(penalties, ys_hat::Array{Float32, 3})::Nothing
     @inbounds for i in axes(ys_hat, 3)
-        #penalties[i] = -approxspectralnorm(@view ys_hat[:,:,i]) + 6f0
         penalties[i] = nuclearnorm(@view ys_hat[:,:,i]) - 5f0
     end
 end
@@ -258,7 +225,6 @@ function trainingloss(m, xs, ys, mask_mat, turns)
 end
 
 EnzymeRules.inactive(::typeof(reset!), args...) = nothing
-#EnzymeRules.inactive(::typeof(genbk), args...) = nothing
 using ChainRules
 Enzyme.@import_rrule typeof(svdvals) AbstractMatrix{<:Number}
 
@@ -266,7 +232,6 @@ Enzyme.@import_rrule typeof(svdvals) AbstractMatrix{<:Number}
 const K::Int = 400
 const N::Int = 64
 const RANK::Int = 1
-
 const DATASETSIZE::Int = 320
 const KNOWNENTRIES::Int = 1500
 
@@ -434,7 +399,6 @@ backend = AutoEnzyme()
 # 177.236 ms (185 allocations: 121.12 MiB)
 
 using Fluxperimental, Mooncake
-Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(genbk), Any}
 Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(reset!), Any}
 Mooncake.@mooncake_overlay norm(x) = sqrt(sum(abs2, x))
 Mooncake.@from_rrule Mooncake.DefaultCtx Tuple{typeof(svdvals), AbstractMatrix{<:Number}}
