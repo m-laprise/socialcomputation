@@ -15,6 +15,8 @@ import NNlib
 using LinearAlgebra
 using Distributions
 using Random
+using ChainRules
+using ParameterSchedulers
 
 #====CREATE CUSTOM RNN====#
 
@@ -95,13 +97,15 @@ Flux.@non_differentiable reset!(m::MatrixRNN)
 #====DEFINE LOSS FUNCTIONS====#
 
 # Nuclear norm of a matrix
-nuclearnorm(A::AbstractArray{Float32, 2})::Float32 = sum(svdvals(A))
-
+# But I need to avoid the solution going to zero simply by scaling the matrix,
+# so I scale the nuclear norm by the standard deviation of its entries
+# which means that scaling the matrix will not change the loss
+scalednuclearnorm(A::AbstractArray{Float32, 2})::Float32 = sum(svdvals(A)) / (size(A, 1) * std(A))
 # Training loss - Single datum
 function spectrum_penalized_l2(ys::Matrix{Float32}, 
                           ys_hat::Matrix{Float32}, 
                           mask_mat::Matrix{Float32};
-                          theta::Float32 = 0.8f0,
+                          theta::Float32 = 0.5f0,
                           datascale::Float32 = 0.01f0)::Float32
     l, n = size(ys)
     # L2 loss on known entries
@@ -110,7 +114,7 @@ function spectrum_penalized_l2(ys::Matrix{Float32},
     sql2_known = sum(diff.^2) / sum(mask_mat)
     # Spectral norm penalty
     ys_hat3 = reshape(ys_hat, l, n)
-    penalty = nuclearnorm(ys_hat3) - 5f0
+    penalty = scalednuclearnorm(ys_hat3)
     # Training loss
     left = theta / datascale * sql2_known
     right = (1f0 - theta) * penalty
@@ -120,7 +124,7 @@ end
 
 function populatepenalties!(penalties, ys_hat::Array{Float32, 3})::Nothing
     @inbounds for i in axes(ys_hat, 3)
-        penalties[i] = nuclearnorm(@view ys_hat[:,:,i]) - 5f0
+        penalties[i] = scalednuclearnorm(@view ys_hat[:,:,i])
     end
 end
 
@@ -128,7 +132,7 @@ end
 function spectrum_penalized_l2(ys::Array{Float32, 3}, 
                           ys_hat::Matrix{Float32}, 
                           mask_mat::Matrix{Float32};
-                          theta::Float32 = 0.8f0,
+                          theta::Float32 = 0.5f0,
                           datascale::Float32 = 0.01f0)::Float32
     l, n, nb_examples = size(ys)
     # L2 loss on known entries
@@ -141,7 +145,7 @@ function spectrum_penalized_l2(ys::Array{Float32, 3},
     populatepenalties!(penalties, ys_hat3)
     # Training loss
     left = theta / datascale * l2_known 
-    right = (1f0 - theta) * penalties # Scale to bring to the same order of magnitude as L2 loss?
+    right = (1f0 - theta) * penalties
     errors = left .+ right
     return mean(errors)
 end
@@ -225,14 +229,13 @@ function trainingloss(m, xs, ys, mask_mat, turns)
 end
 
 EnzymeRules.inactive(::typeof(reset!), args...) = nothing
-using ChainRules
 Enzyme.@import_rrule typeof(svdvals) AbstractMatrix{<:Number}
 
 #====CREATE DATA====#
 const K::Int = 400
 const N::Int = 64
 const RANK::Int = 1
-const DATASETSIZE::Int = 320
+const DATASETSIZE::Int = 640
 const KNOWNENTRIES::Int = 1500
 
 function creatematrix(m, n, r, seed; datatype=Float32)
@@ -334,7 +337,7 @@ activemodel = MatrixRNN(
 ) 
 
 #====TEST FWD PASS AND LOSS====#
-
+#=
 using BenchmarkTools
 
 # Forward pass, one datum, no time step
@@ -368,7 +371,7 @@ ys_hat = predict_through_time(activemodel, dataX)
 # TRAINING LOSS
 @btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
                                 $dataX[:,:,1], $dataY[:,:,1], $mask_mat)
-# 122.946 ms (267 allocations: 114.87 MiB)
+# 122.946 ms (182 allocations: 114.95 MiB)
 
 @btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
                                 $dataX[:,:,1:3], $dataY[:,:,1:3], $mask_mat)
@@ -389,7 +392,7 @@ ys_hat = predict_through_time(activemodel, dataX)
 @btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
                                 $dataX, $dataY, $mask_mat, 2)
 # 27.567 s (11070 allocations: 4.79 GiB)
-
+=#
 #====TEST OTHER GRADIENT COMPUTATIONS====#
 #=
 using DifferentiationInterface
@@ -482,10 +485,10 @@ dataloader = Flux.DataLoader(
 # State optimizing rule
 init_eta = 1e-4
 decay = 0.7
-EPOCHS::Int = 5
-TURNS::Int = 1
 
-using ParameterSchedulers
+EPOCHS::Int = 6
+TURNS::Int = 3
+
 s = Exp(start = init_eta, decay = decay)
 println("Learning rate schedule:")
 
@@ -564,38 +567,33 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     mb, n, v, e = 1, 0, 0, 0
     # Iterate over minibatches
     for (x, y) in dataloader
-        # Pass twice over each minibatch (extra gradient learning)
-        for _ in 1:2
-            # Forward pass (to compute the loss) and backward pass (to compute the gradients)
-            train_loss_value, grads = Flux.withgradient(trainingloss, Duplicated(activemodel), x, y, mask_mat, TURNS)
-            GC.gc()
-            # During training, use the backward pass to store the training loss after the previous epoch
-            push!(train_loss, train_loss_value)
-            # Diagnose the gradients
-            _n, _v, _e = inspect_gradients(grads[1])
-            n += _n
-            v += _v
-            e += _e
-            # Detect loss of Inf or NaN. Print a warning, and then skip update!
-            if !isfinite(train_loss_value)
-                @warn "Loss is $val on minibatch $(epoch)--$(mb)" 
-                mb += 1
-                continue
-            end
-            # Use the optimizer and grads to update the trainable parameters; update the optimizer states
-            Flux.update!(opt_state, activemodel, grads[1])
-            if mb == 1 || mb % 5 == 0
-                println("Minibatch $(epoch)--$(mb): loss of $(round(train_loss_value, digits=4))")
-                #@info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
-            end
+        # Forward pass (to compute the loss) and backward pass (to compute the gradients)
+        train_loss_value, grads = Flux.withgradient(trainingloss, Duplicated(activemodel), x, y, mask_mat, TURNS)
+        # During training, use the backward pass to store the training loss after the previous epoch
+        push!(train_loss, train_loss_value)
+        # Diagnose the gradients
+        _n, _v, _e = inspect_gradients(grads[1])
+        n += _n
+        v += _v
+        e += _e
+        # Detect loss of Inf or NaN. Print a warning, and then skip update!
+        if !isfinite(train_loss_value)
+            @warn "Loss is $val on minibatch $(epoch)--$(mb)" 
             mb += 1
+            continue
         end
+        # Use the optimizer and grads to update the trainable parameters; update the optimizer states
+        Flux.update!(opt_state, activemodel, grads[1])
+        if mb == 1 || mb % 5 == 0
+            println("Minibatch $(epoch)--$(mb): loss of $(round(train_loss_value, digits=4))")
+            #@info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
+        end
+        mb += 1
     end
     push!(Whh_spectra, eigvals(activemodel.rnn.Whh))
     # Print a summary of the gradient diagnostics for the epoch
     diagnose_gradients(n, v, e)
-    # Compute training metrics -- this is a very expensive operation because it involves a forward pass over the entire training set
-    # so I take a subset of the training set to compute the metrics
+    # Compute training metrics -- expensive operation with a forward pass over the entire training set
     dataYs_hat = predict_through_time(activemodel, dataX, TURNS)
     trainloss = spectrum_penalized_l2(dataY, dataYs_hat, mask_mat)
     trainRMSE = allentriesRMSE(dataY, dataYs_hat)
@@ -628,21 +626,21 @@ println("Test RMSE: $(testRMSE)")
 println("Test loss: $(testloss)")
 
 #=============#
-plot(svdvals(dataY[:,:,1]))
-plot(svdvals(reshape(testYs_hat[:,1], N, N)))
-
-nuclearnorm(dataY[:,:,19])
-nuclearnorm(reshape(testYs_hat[:,1], N, N))
-
-approxspectralnorm(dataY[:,:,10])
-approxspectralnorm(reshape(testYs_hat[:,10], N, N))
-
-plot(svdvals(rand(Float32, N, 5) * rand(Float32, 5, N) .+ 0.1f0 * rand(Float32, N, N)))
-
-
-#=============#
+var(dataY), var(testYs_hat)
 
 using CairoMakie
+plot(svdvals(dataY[:,:,15]))
+plot(svdvals(reshape(testYs_hat[:,15], N, N)))
+plot(svdvals(rand(Float32, N, 5) * rand(Float32, 5, N) .+ 0.1f0 * rand(Float32, N, N)))
+
+scalednuclearnorm(dataY[:,:,19])
+scalednuclearnorm(reshape(testYs_hat[:,19], N, N))
+mean(scalednuclearnorm.(eachslice(dataY, dims = 3)))
+mean(scalednuclearnorm.(eachslice(reshape(testYs_hat, N, N, MINIBATCH_SIZE), dims = 3)))
+
+include("../plot_utils.jl")
+ploteigvals(activemodel.rnn.Whh)
+#=============#
 lossname = "Mean nuclear-norm penalized l2 loss (known entries)"
 rmsename = "Root mean squared reconstr. error / std (all entries)"
 tasklab = "Reconstructing $(N)x$(N) rank-$(RANK) matrices from $(KNOWNENTRIES) of their entries"
