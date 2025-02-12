@@ -3,7 +3,6 @@ Julia 1.10.5
 Flux 0.16.3
 Enzyme 0.13.30
 =#
-
 if Sys.CPU_NAME != "apple-m1"
     import Pkg
     Pkg.activate("../")
@@ -120,7 +119,7 @@ end
 function (a::WeightedMeanLayer)(X::Matrix{Float32})
     # Ensure weights are positive, between 0 and 1, and normalized
     sig = NNlib.sigmoid_fast.(a.weight)
-    X' * (sig / sum(sig))
+    return X' * (sig / sum(sig))
 end
 
 # CHAIN RNN AND WEIGHTED MEAN LAYERS
@@ -152,30 +151,67 @@ _3Dslices(y) = eachslice(_3D(y), dims=3)
 l(f, y) = mean(f.(_3Dslices(y)))
 
 #====DEFINE LOSS FUNCTIONS====#
-
-# Nuclear norm of a matrix
-# But I need to avoid the solution going to zero simply by scaling the matrix,
-# so I scale the nuclear norm by the standard deviation of its entries
-# which means that scaling the matrix will not change the loss
+# Nuclear norm, but scaled to avoid the norm going to zero simply by scaling the matrix
 "Nuclear norm of a matrix (sum of singular values), scaled by the standard deviation of its entries"
 scalednuclearnorm(A::AbstractArray{Float32, 2})::Float32 = sum(svdvals(A)) / (size(A, 1) * std(A))
+
 "Spectral norm of a matrix (largest singular value)"
 spectralnorm(A::AbstractArray{Float32, 2})::Float32 = svdvals(A)[1]
+
+"Spectral gap of a matrix (largest singular value - second largest singular value)"
 function spectralgap(A::AbstractArray{Float32, 2})::Float32
     vals = svdvals(A)
     return vals[1] - vals[2] 
 end
+
+"Scaled spectral gap of a matrix (largest singular value - second largest singular value) / largest singular value"
 function scaledspectralgap(A::AbstractArray{Float32, 2})::Float32
     vals = svdvals(A)
     return (vals[1] - vals[2]) / vals[1]
 end
 
+"Populates a vector with the scaled spectral gap of each matrix in a 3D array"
+function populatepenalties!(penalties, ys_hat::Array{Float32, 3})::Nothing
+    @inbounds for i in axes(ys_hat, 3)
+        #penalties[i] = scalednuclearnorm(@view ys_hat[:,:,i])
+        penalties[i] = -scaledspectralgap(@view ys_hat[:,:,i])
+    end
+end
+
+# Training loss - Many data points
+""" 
+    Training loss given a 3D array of true matrices, a matrix where each row is a vectorized 
+    predicted matrix, and the mask matrix with information about which entries are known.
+    The loss is a weighted sum of the L1 loss on known entries and a scaled spectral gap penalty.
+"""
+function spectrum_penalized_l1(ys::Array{Float32, 3}, 
+                          ys_hat::Matrix{Float32}, 
+                          mask_mat::Matrix{Float32};
+                          theta::Float32 = 0.8f0)::Float32
+    nb_examples = size(ys, 3)
+    # L1 loss on known entries
+    diff = vec(mask_mat) .* (_2D(ys) .- ys_hat)
+    l1_known = vec(sum(abs, diff, dims = 1)) / sum(mask_mat)
+    # Spectral norm penalty
+    penalties = Array{Float32}(undef, nb_examples)
+    populatepenalties!(penalties, _3D(ys_hat))
+    # Training loss
+    left = theta * l1_known 
+    right = (1f0 - theta) * penalties
+    errors = left .+ right
+    return mean(errors)
+end
+
 # Training loss - Single datum
+""" 
+    Training loss for a single true matrix, a predicted matrix, and the mask matrix with information 
+    about which entries are known.
+    The loss is a weighted sum of the L1 loss on known entries and a scaled spectral gap penalty.
+"""
 function spectrum_penalized_l1(ys::Matrix{Float32}, 
                           ys_hat::Matrix{Float32}, 
                           mask_mat::Matrix{Float32};
-                          theta::Float32 = 0.8f0,
-                          datascale::Float32 = 0.01f0)::Float32
+                          theta::Float32 = 0.8f0)::Float32
     l, n = size(ys)
     # L1 loss on known entries
     ys2 = reshape(ys, l * n, 1)
@@ -192,44 +228,17 @@ function spectrum_penalized_l1(ys::Matrix{Float32},
     return error
 end
 
-function populatepenalties!(penalties, ys_hat::Array{Float32, 3})::Nothing
-    @inbounds for i in axes(ys_hat, 3)
-        #penalties[i] = scalednuclearnorm(@view ys_hat[:,:,i])
-        penalties[i] = -scaledspectralgap(@view ys_hat[:,:,i])
-    end
-end
+#== Helper functions for inference and backprop through time ==#
 
-# Training loss - Many data points
-function spectrum_penalized_l1(ys::Array{Float32, 3}, 
-                          ys_hat::Matrix{Float32}, 
-                          mask_mat::Matrix{Float32};
-                          theta::Float32 = 0.8f0,
-                          datascale::Float32 = 0.01f0)::Float32
-    l, n, nb_examples = size(ys)
-    # L1 loss on known entries
-    ys2 = reshape(ys, l * n, nb_examples)
-    diff = vec(mask_mat) .* (ys2 .- ys_hat)
-    l1_known = vec(sum(abs, diff, dims = 1)) / sum(mask_mat)
-    # Spectral norm penalty
-    ys_hat3 = reshape(ys_hat, l, n, nb_examples)
-    penalties = Array{Float32}(undef, nb_examples)
-    populatepenalties!(penalties, ys_hat3)
-    # Training loss
-    left = theta / datascale * l1_known 
-    right = (1f0 - theta) * penalties
-    errors = left .+ right
-    return mean(errors)
-    #return mean(l1_known)
-end
-
-#== Helper function for prediction loops ==#
+"Move the RNN through time for a given number of steps, repeating the input x each time."
 function timemovement!(m, x, turns)::Nothing
     @assert turns > 0
     @inbounds for _ in 1:turns
         m(x; selfreset = false)
     end
 end
-# No time steps, many examples
+
+"Populate a matrix with the predictions of the RNN for each example in a 3D array, with no time steps."
 function populatepreds!(preds, m, xs::Array{Float32, 3})::Nothing
     @inbounds for i in axes(xs, 3)
         reset!(m)
@@ -238,7 +247,7 @@ function populatepreds!(preds, m, xs::Array{Float32, 3})::Nothing
     end
 end
 
-# Many time steps, many examples
+"Populate a matrix with the predictions of the RNN for each example in a 3D array, with a given number of time steps."
 function populatepreds!(preds, m, xs::Array{Float32, 3}, turns)::Nothing
     @inbounds for i in axes(xs, 3)
         reset!(m)
@@ -248,7 +257,7 @@ function populatepreds!(preds, m, xs::Array{Float32, 3}, turns)::Nothing
     end
 end
 
-# Predict - Single datum; no time step
+"Predict the output for a single input matrix, with no time steps."
 function predict_through_time(m, 
                               x::Matrix{Float32})::Matrix{Float32}
     if m.rnn.h != m.rnn.init
@@ -257,7 +266,8 @@ function predict_through_time(m,
     preds = m(x; selfreset = false)
     return reshape(preds, :, 1)
 end
-# Predict - Single datum; with time steps
+
+"Predict the output for a single input matrix, with a given number of time steps."
 function predict_through_time(m, 
                               x::Matrix{Float32}, 
                               turns::Int)::Matrix{Float32}
@@ -269,7 +279,7 @@ function predict_through_time(m,
     return reshape(preds, :, 1)
 end
 
-# Predict - Many data points in an array; no time step
+"Predict the outputs for an array of input matrices, with no time steps."
 function predict_through_time(m, 
                               xs::Array{Float32, 3})::Matrix{Float32}
     output_size = size(xs, 2)
@@ -278,7 +288,8 @@ function predict_through_time(m,
     populatepreds!(preds, m, xs)
     return preds
 end
-# Predict - Many data points in an array; with time steps
+
+"Predict the outputs for an array of input matrices, with a given number of time steps."
 function predict_through_time(m, 
                               xs::Array{Float32, 3}, 
                               turns::Int)::Matrix{Float32}
@@ -290,16 +301,18 @@ function predict_through_time(m,
 end
 
 # Wrapper for prediction and loss
+"Compute predictions with no time steps, and use them to compute the training loss."
 function trainingloss(m, xs, ys, mask_mat)
     ys_hat = predict_through_time(m, xs)
     return spectrum_penalized_l1(ys, ys_hat, mask_mat)
 end
-
+"Compute predictions with a given number of time steps, and use them to compute the training loss."
 function trainingloss(m, xs, ys, mask_mat, turns)
     ys_hat = predict_through_time(m, xs, turns)
     return spectrum_penalized_l1(ys, ys_hat, mask_mat)
 end
 
+# Rules for autodiff backend
 EnzymeRules.inactive(::typeof(reset!), args...) = nothing
 Enzyme.@import_rrule typeof(svdvals) AbstractMatrix{<:Number}
 
@@ -404,7 +417,7 @@ size(dataX), size(dataY)
 
 #====INITIALIZE MODEL====#
 activemodel = MatrixRNN(
-    matrnn_constructor(N^2, K, N^2), 
+    MatrixVlaCell(N^2, K, N^2), 
     WeightedMeanLayer(K)
 ) 
 
@@ -513,10 +526,7 @@ RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = sqrt.(MSE(A, B))
 function allentriesRMSE(ys::AbstractArray{Float32, 3}, 
                         ys_hat::AbstractArray{Float32, 2};
                         datascale::Float32 = 0.1f0)::Float32
-    l, n, nb_examples = size(ys)
-    ys = reshape(ys, l * n, nb_examples) 
-    RMSerrors = RMSE(ys, ys_hat) / datascale
-    return mean(RMSerrors)
+    mean(RMSE(_2D(ys), ys_hat) / datascale)
 end
 
 const MINIBATCH_SIZE::Int = 32
@@ -554,13 +564,14 @@ dataloader = Flux.DataLoader(
     batchsize=MINIBATCH_SIZE, 
     shuffle=true)
 
-# State optimizing rule
+# Optimizer
 INIT_ETA = 5e-4
 DECAY = 0.7
 EPOCHS::Int = 6
 TURNS::Int = 5
 
 function prepareoptimizer(eta, decay, model)
+    # Learning rate schedule
     s = Exp(start = eta, decay = decay)
     # Optimizer
     opt = Adam()
@@ -591,7 +602,7 @@ val_variance = Float32[]
 Whh_spectra = []
 push!(Whh_spectra, eigvals(activemodel.rnn.Whh))
 
-# Compute the initial training and validation loss with forward passes
+# Compute the initial training and validation loss and other metrics with forward passes
 dataYs_hat = predict_through_time(activemodel, dataX, TURNS)
 initloss_train = spectrum_penalized_l1(dataY, dataYs_hat, mask_mat)
 initRMSE_train = allentriesRMSE(dataY, dataYs_hat)
@@ -707,9 +718,6 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     push!(val_spectralnorm, l(spectralnorm, valYs_hat))
     push!(val_spectralgap, l(spectralgap, valYs_hat))
     push!(val_variance, var(valYs_hat))
-    #mean(spectralnorm.(eachslice(reshape(dataYs_hat, N, N, size(dataYs_hat, 2)), dims = 3)))
-    #mean(scalednuclearnorm.(eachslice(reshape(testYs_hat, N, N, size(testYs_hat, 2)), dims = 3)))
-    #mean(spectralgap.(eachslice(reshape(testYs_hat, N, N, size(testYs_hat, 2)), dims = 3)))
     println("Epoch $epoch: Train loss: $(train_loss[end]); train RMSE: $(train_rmse[end])")
     println("Epoch $epoch: Val loss: $(val_loss[end]); val RMSE: $(val_rmse[end])")
     # Check if validation loss has increased for 2 epochs in a row; if so, stop training
@@ -727,15 +735,15 @@ println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 testYs_hat = predict_through_time(activemodel, testX, TURNS)
 testloss = spectrum_penalized_l1(testY, testYs_hat, mask_mat)
 testRMSE = allentriesRMSE(testY, testYs_hat)
-println("Test RMSE: $(testRMSE)")
 println("Test loss: $(testloss)")
+println("Test RMSE: $(testRMSE)")
 
 testspectralnorm = l(spectralnorm, testYs_hat)
 testspectralgap = l(spectralgap, testYs_hat)
 testnuclearnorm = l(scalednuclearnorm, testYs_hat)
 testvariance = var(testYs_hat)
 
-#=============#
+#======explore results=======#
 var(dataY), var(testYs_hat)
 
 using CairoMakie
@@ -752,7 +760,10 @@ mean(MSE(testYs_hat, _2D(testY)))
 
 include("../plot_utils.jl")
 ploteigvals(activemodel.rnn.Whh)
-#=============#
+
+#======generate training plots=======#
+using CairoMakie
+
 lossname = "Mean spectral-gap penalized L1 loss (known entries)"
 rmsename = "Root mean squared reconstr. error / std (all entries)"
 tasklab = "Reconstructing $(N)x$(N) rank-$(RANK) matrices from $(KNOWNENTRIES) of their entries"
@@ -826,4 +837,4 @@ Label(
 )
 fig
 
-#save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries.png", fig)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries.png", fig)
