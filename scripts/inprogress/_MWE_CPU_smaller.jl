@@ -18,34 +18,58 @@ using Random
 using ChainRules
 using ParameterSchedulers
 
+BLAS.set_num_threads(4)
+
 #====CREATE CUSTOM RNN====#
 
 # CREATE STATEFUL, MATRIX-VALUED RNN LAYER
-mutable struct MatrixRnnCell{A<:Matrix{Float32}}
-    Wx_in::A
-    bx_in::A
-    Whh::A # Recurrent weights
-    bh::A  # Recurrent bias
-    h::A   # Current state
+"Parametric type for Vanilla RNN cell with matrix-valued states"
+mutable struct MatrixVlaCell{A<:Matrix{Float32}}
+    # Parameters
+    Wx_in::A # Input weights n2 x n2
+    Whh::A # Recurrent weights k x k
+    bh::A  # Recurrent bias k x n2
+    # State 
+    h::A   # Current state k x n2
     const init::A # Store initial state h for reset
 end
 
-function matrnn_constructor(n::Int, 
-                     k::Int,
-                     m::Int)::MatrixRnnCell
+"Constructor for MatrixVlaCell"
+function MatrixVlaCell(n2::Int, k::Int, m::Int)::MatrixVlaCell
+    Wx_in = randn(Float32, m, n2) / sqrt(Float32(m))
     Whh = randn(Float32, k, k) / sqrt(Float32(k))
-    Wx_in = randn(Float32, m, n) / sqrt(Float32(m))
-    bh = randn(Float32, k, n) / sqrt(Float32(k))
-    bx_in = randn(Float32, k, m) / sqrt(Float32(k))
-    h = randn(Float32, k, n) * 0.01f0
-    return MatrixRnnCell(
-        Wx_in, bx_in, 
-        Whh, bh,
-        h, h
-    )
+    bh = randn(Float32, k, n2) / sqrt(Float32(k))
+    h = randn(Float32, k, n2) * 0.01f0
+    MatrixVlaCell(Wx_in, Whh, bh, h, h)
 end
 
-function(m::MatrixRnnCell)(state::Matrix{Float32}, 
+"Parametric type for Gated RNN cell with matrix-valued states and distributed inputs (incorrect implementation)"
+mutable struct MatrixGRUCell{A<:Matrix{Float32}, V<:Vector{Float32}}
+    # Parameters
+    Whh::A # Recurrent weights k x k
+    bh::A  # Recurrent bias k x n2
+    g1::V  # n2 x 1
+    g2::V  # n2 x 1
+    bz::A  # Update gate bias k x 1
+    # State
+    h::A   # Current state k x n2
+    z::V   # Update gate k x 1
+    const init::A # Store initial state h for reset 
+end
+"Constructor for MatrixGRUCell"
+function MatrixGRUCell(n::Int, k::Int)::MatrixGRUCell
+    Whh = randn(Float32, k, k) / sqrt(Float32(k))
+    bz = randn(Float32, k, 1) / sqrt(Float32(k))
+    bh = randn(Float32, k, n) / sqrt(Float32(k))
+    g1 = ones(Float32, n)
+    g2 = ones(Float32, n)
+    h = randn(Float32, k, n) * 0.01f0
+    z = rand(Float32, k) * 0.01f0
+    MatrixGRUCell(Whh, bh, g1, g2, bz, h, z, h)
+end
+
+"Stateful RNN cell forward pass for distributed inputs"
+function(m::MatrixVlaCell)(state::Matrix{Float32}, 
                            I::AbstractArray{Float32, 2}; 
                            selfreset::Bool=false)::Matrix{Float32}
     if selfreset
@@ -53,46 +77,79 @@ function(m::MatrixRnnCell)(state::Matrix{Float32},
     else
         h = state
     end
-    m.h .= NNlib.tanh_fast.(m.Whh * h .+ m.bh .+ I * m.Wx_in' .+ m.bx_in)
+    m.h .= NNlib.tanh_fast.(m.Whh * h .+ m.bh .+ I * m.Wx_in')
     return m.h 
 end
 
-state(m::MatrixRnnCell) = m.h
-reset!(m::MatrixRnnCell) = (m.h = m.init)
+"Stateful GRU cell forward pass for distributed inputs (incorrect implementation)"
+function(m::MatrixGRUCell)(state::Matrix{Float32}, 
+                           I::AbstractArray{Float32, 2}; 
+                           selfreset::Bool=false)::Matrix{Float32}
+    if selfreset
+        h_old = m.init
+    else
+        h_old = state
+    end
+    hmul = m.Whh * h_old    # k x n2
+    h_new = NNlib.tanh_fast.(hmul .+ m.bh .+ I)   # k x n2
+    m.z .= NNlib.sigmoid_fast.((hmul * m.g1) .+ ((m.Whh * I) * m.g2) .+ m.bz)  # k x 1
+    m.h .= ((1f0 .- m.z) .* h_new) .+ (m.z .* h_old)   # k x n2
+    return m.h
+end
+
+"Parent type for both types of RNN cells"
+MatrixCell = Union{MatrixVlaCell, MatrixGRUCell}
+
+state(m::MatrixCell) = m.h
+reset!(m::MatrixCell) = (m.h = m.init)
 
 # CREATE WEIGHTED MEAN LAYER WITH TRAINABLE WEIGHTS
+"Parametric type for weighted mean layer"
 struct WeightedMeanLayer{V<:Vector{Float32}}
     weight::V
 end
+
+"Constructor for WeightedMeanLayer"
 function WeightedMeanLayer(num::Int;
                            init = ones)
     weight_init = init(Float32, num) * 5f0
     WeightedMeanLayer(weight_init)
 end
 
+"Forward pass for weighted mean layer to create a linear combination of the guess of each agent"
 function (a::WeightedMeanLayer)(X::Matrix{Float32})
+    # Ensure weights are positive, between 0 and 1, and normalized
     sig = NNlib.sigmoid_fast.(a.weight)
     X' * (sig / sum(sig))
 end
 
 # CHAIN RNN AND WEIGHTED MEAN LAYERS
-struct MatrixRNN{M<:MatrixRnnCell, D<:WeightedMeanLayer}
+" Parametric type for RNN with a cell with matrix-valued states and a weighted mean layer"
+struct MatrixRNN{M<:MatrixCell, D<:WeightedMeanLayer}
     rnn::M
     dec::D
 end
 state(m::MatrixRNN) = state(m.rnn)
 reset!(m::MatrixRNN) = reset!(m.rnn)
 
+"Forward pass for the RNN means composing the cell and the weighted mean layer"
 (m::MatrixRNN)(x::AbstractArray{Float32,2}; 
                selfreset::Bool = false)::Vector{Float32} = (m.dec ∘ m.rnn)(
-                state(m), x; 
-                selfreset = selfreset)
-            
-Flux.@layer MatrixRnnCell trainable=(Wx_in, bx_in, Whh, bh)
+                state(m), x; selfreset = selfreset)
+
+# Tell Flux what parameters are trainable
+Flux.@layer MatrixVlaCell trainable=(Wx_in, Whh, bh)
+Flux.@layer MatrixGRUCell trainable=(Whh, bh, g1, g2, bz)
 Flux.@layer WeightedMeanLayer
 Flux.@layer :expand MatrixRNN trainable=(rnn, dec)
-Flux.@non_differentiable reset!(m::MatrixRnnCell)
+Flux.@non_differentiable reset!(m::MatrixCell)
 Flux.@non_differentiable reset!(m::MatrixRNN)
+
+# Helper functions for data 
+_3D(y) = reshape(y, N, N, size(y, 2))
+_2D(y) = reshape(y, N*N, size(y, 3))
+_3Dslices(y) = eachslice(_3D(y), dims=3)
+l(f, y) = mean(f.(_3Dslices(y)))
 
 #====DEFINE LOSS FUNCTIONS====#
 
@@ -100,23 +157,36 @@ Flux.@non_differentiable reset!(m::MatrixRNN)
 # But I need to avoid the solution going to zero simply by scaling the matrix,
 # so I scale the nuclear norm by the standard deviation of its entries
 # which means that scaling the matrix will not change the loss
+"Nuclear norm of a matrix (sum of singular values), scaled by the standard deviation of its entries"
 scalednuclearnorm(A::AbstractArray{Float32, 2})::Float32 = sum(svdvals(A)) / (size(A, 1) * std(A))
+"Spectral norm of a matrix (largest singular value)"
+spectralnorm(A::AbstractArray{Float32, 2})::Float32 = svdvals(A)[1]
+function spectralgap(A::AbstractArray{Float32, 2})::Float32
+    vals = svdvals(A)
+    return vals[1] - vals[2] 
+end
+function scaledspectralgap(A::AbstractArray{Float32, 2})::Float32
+    vals = svdvals(A)
+    return (vals[1] - vals[2]) / vals[1]
+end
+
 # Training loss - Single datum
-function spectrum_penalized_l2(ys::Matrix{Float32}, 
+function spectrum_penalized_l1(ys::Matrix{Float32}, 
                           ys_hat::Matrix{Float32}, 
                           mask_mat::Matrix{Float32};
-                          theta::Float32 = 0.5f0,
+                          theta::Float32 = 0.8f0,
                           datascale::Float32 = 0.01f0)::Float32
     l, n = size(ys)
-    # L2 loss on known entries
+    # L1 loss on known entries
     ys2 = reshape(ys, l * n, 1)
     diff = vec(mask_mat) .* (ys2 .- ys_hat)
-    sql2_known = sum(diff.^2) / sum(mask_mat)
+    l1_known = sum(abs, diff) / sum(mask_mat)
     # Spectral norm penalty
     ys_hat3 = reshape(ys_hat, l, n)
-    penalty = scalednuclearnorm(ys_hat3)
+    #penalty = scalednuclearnorm(ys_hat3)
+    penalty = -scaledspectralgap(ys_hat3)
     # Training loss
-    left = theta / datascale * sql2_known
+    left = theta * l1_known
     right = (1f0 - theta) * penalty
     error = left .+ right
     return error
@@ -124,30 +194,32 @@ end
 
 function populatepenalties!(penalties, ys_hat::Array{Float32, 3})::Nothing
     @inbounds for i in axes(ys_hat, 3)
-        penalties[i] = scalednuclearnorm(@view ys_hat[:,:,i])
+        #penalties[i] = scalednuclearnorm(@view ys_hat[:,:,i])
+        penalties[i] = -scaledspectralgap(@view ys_hat[:,:,i])
     end
 end
 
 # Training loss - Many data points
-function spectrum_penalized_l2(ys::Array{Float32, 3}, 
+function spectrum_penalized_l1(ys::Array{Float32, 3}, 
                           ys_hat::Matrix{Float32}, 
                           mask_mat::Matrix{Float32};
-                          theta::Float32 = 0.5f0,
+                          theta::Float32 = 0.8f0,
                           datascale::Float32 = 0.01f0)::Float32
     l, n, nb_examples = size(ys)
-    # L2 loss on known entries
+    # L1 loss on known entries
     ys2 = reshape(ys, l * n, nb_examples)
     diff = vec(mask_mat) .* (ys2 .- ys_hat)
-    l2_known = vec(sum(abs2, diff, dims = 1)) / sum(mask_mat)
+    l1_known = vec(sum(abs, diff, dims = 1)) / sum(mask_mat)
     # Spectral norm penalty
     ys_hat3 = reshape(ys_hat, l, n, nb_examples)
     penalties = Array{Float32}(undef, nb_examples)
     populatepenalties!(penalties, ys_hat3)
     # Training loss
-    left = theta / datascale * l2_known 
+    left = theta / datascale * l1_known 
     right = (1f0 - theta) * penalties
     errors = left .+ right
     return mean(errors)
+    #return mean(l1_known)
 end
 
 #== Helper function for prediction loops ==#
@@ -220,12 +292,12 @@ end
 # Wrapper for prediction and loss
 function trainingloss(m, xs, ys, mask_mat)
     ys_hat = predict_through_time(m, xs)
-    return spectrum_penalized_l2(ys, ys_hat, mask_mat)
+    return spectrum_penalized_l1(ys, ys_hat, mask_mat)
 end
 
 function trainingloss(m, xs, ys, mask_mat, turns)
     ys_hat = predict_through_time(m, xs, turns)
-    return spectrum_penalized_l2(ys, ys_hat, mask_mat)
+    return spectrum_penalized_l1(ys, ys_hat, mask_mat)
 end
 
 EnzymeRules.inactive(::typeof(reset!), args...) = nothing
@@ -235,8 +307,8 @@ Enzyme.@import_rrule typeof(svdvals) AbstractMatrix{<:Number}
 const K::Int = 400
 const N::Int = 64
 const RANK::Int = 1
-const DATASETSIZE::Int = 640
-const KNOWNENTRIES::Int = 1500
+const DATASETSIZE::Int = 800
+const KNOWNENTRIES::Int = 1600
 
 function creatematrix(m, n, r, seed; datatype=Float32)
     rng = Random.MersenneTwister(seed)
@@ -353,7 +425,7 @@ using BenchmarkTools
 @benchmark predict_through_time($activemodel, $dataX, 2) 
 
 ys_hat = predict_through_time(activemodel, dataX)
-@benchmark spectrum_penalized_l2($dataY[:,:,1:2], $ys_hat[:,1:2], $mask_mat)
+@benchmark spectrum_penalized_l1($dataY[:,:,1:2], $ys_hat[:,1:2], $mask_mat)
 
 @benchmark trainingloss($activemodel, $dataX, $dataY, $mask_mat)
 
@@ -454,7 +526,7 @@ const TEST_PROP::Float64 = 0.1
 
 function train_val_test_split(X::AbstractArray, 
                               train_prop::Real, val_prop::Real, test_prop::Real)
-    @assert train_prop + val_prop + test_prop == 1.0
+    @assert train_prop + val_prop + test_prop == 1
     dimsX = length(size(X))
     dataset_size = size(X, dimsX)
     train_nb = Int(train_prop * dataset_size)
@@ -483,42 +555,62 @@ dataloader = Flux.DataLoader(
     shuffle=true)
 
 # State optimizing rule
-init_eta = 1e-4
-decay = 0.7
-
+INIT_ETA = 5e-4
+DECAY = 0.7
 EPOCHS::Int = 6
-TURNS::Int = 3
+TURNS::Int = 5
 
-s = Exp(start = init_eta, decay = decay)
+function prepareoptimizer(eta, decay, model)
+    s = Exp(start = eta, decay = decay)
+    # Optimizer
+    opt = Adam()
+    # Tree of states
+    opt_state = Flux.setup(opt, model)
+    return s, opt, opt_state
+end
+s, opt, opt_state = prepareoptimizer(INIT_ETA, DECAY, activemodel)
+
 println("Learning rate schedule:")
-
 for (eta, epoch) in zip(s, 1:EPOCHS)
     println(" - Epoch $epoch: eta = $eta")
 end
-opt = Adam()
-# Tree of states
-opt_state = Flux.setup(opt, activemodel)
 
 # STORE INITIAL METRICS
 train_loss = Float32[]
-val_loss = Float32[]
 train_rmse = Float32[]
+train_nuclearnorm = Float32[]
+train_spectralnorm = Float32[]
+train_spectralgap = Float32[]
+train_variance = Float32[]
+val_loss = Float32[]
 val_rmse = Float32[]
+val_nuclearnorm = Float32[]
+val_spectralnorm = Float32[]
+val_spectralgap = Float32[]
+val_variance = Float32[]
 Whh_spectra = []
 push!(Whh_spectra, eigvals(activemodel.rnn.Whh))
 
 # Compute the initial training and validation loss with forward passes
 dataYs_hat = predict_through_time(activemodel, dataX, TURNS)
-initloss_train = spectrum_penalized_l2(dataY, dataYs_hat, mask_mat)
+initloss_train = spectrum_penalized_l1(dataY, dataYs_hat, mask_mat)
 initRMSE_train = allentriesRMSE(dataY, dataYs_hat)
-
-valYs_hat = predict_through_time(activemodel, valX, TURNS)
-initloss_val = spectrum_penalized_l2(valY, valYs_hat, mask_mat)
-initRMSE_val = allentriesRMSE(valY, valYs_hat)
 push!(train_loss, initloss_train)
 push!(train_rmse, initRMSE_train)
+push!(train_nuclearnorm, l(scalednuclearnorm, dataYs_hat))
+push!(train_spectralnorm, l(spectralnorm, dataYs_hat))
+push!(train_spectralgap, l(spectralgap, dataYs_hat))
+push!(train_variance, var(dataYs_hat))
+
+valYs_hat = predict_through_time(activemodel, valX, TURNS)
+initloss_val = spectrum_penalized_l1(valY, valYs_hat, mask_mat)
+initRMSE_val = allentriesRMSE(valY, valYs_hat)
 push!(val_loss, initloss_val)
 push!(val_rmse, initRMSE_val)
+push!(val_nuclearnorm, l(scalednuclearnorm, valYs_hat))
+push!(val_spectralnorm, l(spectralnorm, valYs_hat))
+push!(val_spectralgap, l(spectralgap, valYs_hat))
+push!(val_variance, var(valYs_hat))
 
 ##================##
 function inspect_gradients(grads)
@@ -558,10 +650,11 @@ end
 
 starttime = time()
 println("===================")
+println("Initial training loss: " , initloss_train, "; initial training RMSE: ", initRMSE_train)
+@info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
 for (eta, epoch) in zip(s, 1:EPOCHS)
     reset!(activemodel)
     println("Commencing epoch $epoch (eta = $(round(eta, digits=6)))")
-    @info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
     Flux.adjust!(opt_state, eta = eta)
     # Initialize counters for gradient diagnostics
     mb, n, v, e = 1, 0, 0, 0
@@ -569,6 +662,9 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     for (x, y) in dataloader
         # Forward pass (to compute the loss) and backward pass (to compute the gradients)
         train_loss_value, grads = Flux.withgradient(trainingloss, Duplicated(activemodel), x, y, mask_mat, TURNS)
+        if epoch == 1 && mb == 1
+            @info("Time to first gradient: ", round(time() - starttime, digits=2), " seconds")
+        end
         # During training, use the backward pass to store the training loss after the previous epoch
         push!(train_loss, train_loss_value)
         # Diagnose the gradients
@@ -585,7 +681,7 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
         # Use the optimizer and grads to update the trainable parameters; update the optimizer states
         Flux.update!(opt_state, activemodel, grads[1])
         if mb == 1 || mb % 5 == 0
-            println("Minibatch $(epoch)--$(mb): loss of $(round(train_loss_value, digits=4))")
+            println("Minibatch ", epoch, "--", mb, ": loss of ", round(train_loss_value, digits=4))
             #@info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
         end
         mb += 1
@@ -594,23 +690,32 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     # Print a summary of the gradient diagnostics for the epoch
     diagnose_gradients(n, v, e)
     # Compute training metrics -- expensive operation with a forward pass over the entire training set
-    dataYs_hat = predict_through_time(activemodel, dataX, TURNS)
-    trainloss = spectrum_penalized_l2(dataY, dataYs_hat, mask_mat)
-    trainRMSE = allentriesRMSE(dataY, dataYs_hat)
+    dataYs_hat = predict_through_time(activemodel, dataX[:,:,1:64], TURNS)
+    trainloss = spectrum_penalized_l1(dataY[:,:,1:64], dataYs_hat, mask_mat)
+    trainRMSE = allentriesRMSE(dataY[:,:,1:64], dataYs_hat)
     push!(train_loss, trainloss)
     push!(train_rmse, trainRMSE)
+    push!(train_nuclearnorm, l(scalednuclearnorm, dataYs_hat))
+    push!(train_spectralnorm, l(spectralnorm, dataYs_hat))
+    push!(train_spectralgap, l(spectralgap, dataYs_hat))
+    push!(train_variance, var(dataYs_hat))
     # Compute validation metrics
     valYs_hat = predict_through_time(activemodel, valX, TURNS)
-    valloss = spectrum_penalized_l2(valY, valYs_hat, mask_mat)
-    valRMSE = allentriesRMSE(valY, valYs_hat)
-    push!(val_loss, valloss)
-    push!(val_rmse, valRMSE)
+    push!(val_loss, spectrum_penalized_l1(valY, valYs_hat, mask_mat))
+    push!(val_rmse, allentriesRMSE(valY, valYs_hat))
+    push!(val_nuclearnorm, l(scalednuclearnorm, valYs_hat))
+    push!(val_spectralnorm, l(spectralnorm, valYs_hat))
+    push!(val_spectralgap, l(spectralgap, valYs_hat))
+    push!(val_variance, var(valYs_hat))
+    #mean(spectralnorm.(eachslice(reshape(dataYs_hat, N, N, size(dataYs_hat, 2)), dims = 3)))
+    #mean(scalednuclearnorm.(eachslice(reshape(testYs_hat, N, N, size(testYs_hat, 2)), dims = 3)))
+    #mean(spectralgap.(eachslice(reshape(testYs_hat, N, N, size(testYs_hat, 2)), dims = 3)))
     println("Epoch $epoch: Train loss: $(train_loss[end]); train RMSE: $(train_rmse[end])")
     println("Epoch $epoch: Val loss: $(val_loss[end]); val RMSE: $(val_rmse[end])")
     # Check if validation loss has increased for 2 epochs in a row; if so, stop training
     if length(val_loss) > 2
         if val_loss[end] > val_loss[end-1] && val_loss[end-1] > val_loss[end-2]
-            @warn("Early stopping at epoch $epoch")
+            @warn("Early stopping at epoch ", epoch)
             break
         end
     end
@@ -620,35 +725,42 @@ endtime = time()
 println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 # Assess on testing set
 testYs_hat = predict_through_time(activemodel, testX, TURNS)
-testloss = spectrum_penalized_l2(testY, testYs_hat, mask_mat)
+testloss = spectrum_penalized_l1(testY, testYs_hat, mask_mat)
 testRMSE = allentriesRMSE(testY, testYs_hat)
 println("Test RMSE: $(testRMSE)")
 println("Test loss: $(testloss)")
+
+testspectralnorm = l(spectralnorm, testYs_hat)
+testspectralgap = l(spectralgap, testYs_hat)
+testnuclearnorm = l(scalednuclearnorm, testYs_hat)
+testvariance = var(testYs_hat)
 
 #=============#
 var(dataY), var(testYs_hat)
 
 using CairoMakie
-plot(svdvals(dataY[:,:,15]))
-plot(svdvals(reshape(testYs_hat[:,15], N, N)))
+plot(svdvals(dataY[:,:,1]))
+plot(svdvals(reshape(testYs_hat[:,10], N, N)))
 plot(svdvals(rand(Float32, N, 5) * rand(Float32, 5, N) .+ 0.1f0 * rand(Float32, N, N)))
 
 scalednuclearnorm(dataY[:,:,19])
 scalednuclearnorm(reshape(testYs_hat[:,19], N, N))
 mean(scalednuclearnorm.(eachslice(dataY, dims = 3)))
-mean(scalednuclearnorm.(eachslice(reshape(testYs_hat, N, N, MINIBATCH_SIZE), dims = 3)))
+mean(scalednuclearnorm.(eachslice(reshape(testYs_hat, N, N, size(testYs_hat, 2)), dims = 3)))
+
+mean(MSE(testYs_hat, _2D(testY)))
 
 include("../plot_utils.jl")
 ploteigvals(activemodel.rnn.Whh)
 #=============#
-lossname = "Mean nuclear-norm penalized l2 loss (known entries)"
+lossname = "Mean spectral-gap penalized L1 loss (known entries)"
 rmsename = "Root mean squared reconstr. error / std (all entries)"
 tasklab = "Reconstructing $(N)x$(N) rank-$(RANK) matrices from $(KNOWNENTRIES) of their entries"
-taskfilename = "$(N)recon_rank$(RANK)"
+taskfilename = "matrix$(N)recon_rank$(RANK)"
 modlabel = "Matrix Vanilla"
 
 CairoMakie.activate!()
-fig = Figure(size = (820, 450))
+fig = Figure(size = (820, 1000))
 #epochs = length(train_loss) - 1
 train_l = train_loss#[126:end]
 val_l = val_loss#[2:end]
@@ -669,6 +781,31 @@ lines!(ax_rmse, 1:epochs, val_r, color = :red, label = "Validation")
 lines!(ax_rmse, 1:epochs, [testRMSE], color = :green, linestyle = :dash)
 scatter!(ax_rmse, epochs, testRMSE, color = :green, label = "Final Test")
 axislegend(ax_rmse, backgroundcolor = :transparent)
+# Also plot spectral norm, nuclear norm, spectral gap, and variance
+ax_3 = Axis(fig[2, 1], xlabel = "Epochs", ylabel = "Spectral norm", title = "Mean spectral gap / mean spectral norm")
+lines!(ax_3, 1:epochs, train_spectralgap ./ train_spectralnorm, color = :blue, label = "Training")
+lines!(ax_3, 1:epochs, val_spectralgap ./ val_spectralnorm, color = :red, label = "Validation")
+lines!(ax_3, 1:epochs, [testspectralgap / testspectralnorm], color = :green, linestyle = :dash)
+scatter!(ax_3, epochs, testspectralgap / testspectralnorm, color = :green, label = "Final Test")
+axislegend(ax_3, backgroundcolor = :transparent)
+ax_4 = Axis(fig[2, 2], xlabel = "Epochs", ylabel = "Spectral gap", title = "Mean spectral gap")
+lines!(ax_4, 1:epochs, train_spectralgap, color = :blue, label = "Training")
+lines!(ax_4, 1:epochs, val_spectralgap, color = :red, label = "Validation")
+lines!(ax_4, 1:epochs, [testspectralgap], color = :green, linestyle = :dash)
+scatter!(ax_4, epochs, testspectralgap, color = :green, label = "Final Test")
+axislegend(ax_4, backgroundcolor = :transparent)
+ax_5 = Axis(fig[3, 1], xlabel = "Epochs", ylabel = "Nuclear norm", title = "Mean nuclear norm")
+lines!(ax_5, 1:epochs, train_nuclearnorm, color = :blue, label = "Training")
+lines!(ax_5, 1:epochs, val_nuclearnorm, color = :red, label = "Validation")
+lines!(ax_5, 1:epochs, [testnuclearnorm], color = :green, linestyle = :dash)
+scatter!(ax_5, epochs, testnuclearnorm, color = :green, label = "Final Test")
+axislegend(ax_5, backgroundcolor = :transparent)
+ax_6 = Axis(fig[3, 2], xlabel = "Epochs", ylabel = "Variance", title = "Mean variance of matrix entries")
+lines!(ax_6, 1:epochs, train_variance, color = :blue, label = "Training")
+lines!(ax_6, 1:epochs, val_variance, color = :red, label = "Validation")
+lines!(ax_6, 1:epochs, [testvariance], color = :green, linestyle = :dash)
+scatter!(ax_6, epochs, testvariance, color = :green, label = "Final Test")
+axislegend(ax_6, backgroundcolor = :transparent)
 Label(
     fig[begin-1, 1:2],
     "$(tasklab)\n$(modlabel) RNN of $K units, $TURNS dynamic steps"*
@@ -679,7 +816,7 @@ Label(
 # Add notes to the bottom of the figure
 Label(
     fig[end+1, 1:2],
-    "Optimizer: Adam with schedule Exp(start = $(init_eta), decay = $(decay))\n"*
+    "Optimizer: Adam with schedule Exp(start = $(INIT_ETA), decay = $(DECAY))\n"*
     #"Training time: $(round((endtime - starttime) / 60, digits=2)) minutes; "*
     "Test loss: $(round(testloss,digits=4))."*
     "Test RMSE: $(round(testRMSE,digits=4)).",
@@ -689,4 +826,4 @@ Label(
 )
 fig
 
-save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries.png", fig)
+#save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries.png", fig)
