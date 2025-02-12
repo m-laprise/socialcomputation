@@ -23,7 +23,7 @@ BLAS.set_num_threads(4)
 
 # CREATE STATEFUL, MATRIX-VALUED RNN LAYER
 "Parametric type for Vanilla RNN cell with matrix-valued states"
-mutable struct MatrixVlaCell{A<:Matrix{Float32}}
+mutable struct MatrixVlaCell{A<:AbstractArray{Float32, 2}}
     # Parameters
     Wx_in::A # Input weights n2 x n2
     Whh::A # Recurrent weights k x k
@@ -43,7 +43,7 @@ function MatrixVlaCell(n2::Int, k::Int, m::Int)::MatrixVlaCell
 end
 
 "Parametric type for Gated RNN cell with matrix-valued states and distributed inputs (incorrect implementation)"
-mutable struct MatrixGRUCell{A<:Matrix{Float32}, V<:Vector{Float32}}
+mutable struct MatrixGRUCell{A<:AbstractArray{Float32, 2}, V<:AbstractArray{Float32, 1}}
     # Parameters
     Whh::A # Recurrent weights k x k
     bh::A  # Recurrent bias k x n2
@@ -68,9 +68,9 @@ function MatrixGRUCell(n::Int, k::Int)::MatrixGRUCell
 end
 
 "Stateful RNN cell forward pass for distributed inputs"
-function(m::MatrixVlaCell)(state::Matrix{Float32}, 
+function(m::MatrixVlaCell)(state::AbstractArray{Float32, 2}, 
                            I::AbstractArray{Float32, 2}; 
-                           selfreset::Bool=false)::Matrix{Float32}
+                           selfreset::Bool=false)::AbstractArray{Float32, 2}
     if selfreset
         h = m.init
     else
@@ -81,9 +81,9 @@ function(m::MatrixVlaCell)(state::Matrix{Float32},
 end
 
 "Stateful GRU cell forward pass for distributed inputs (incorrect implementation)"
-function(m::MatrixGRUCell)(state::Matrix{Float32}, 
+function(m::MatrixGRUCell)(state::AbstractArray{Float32, 2}, 
                            I::AbstractArray{Float32, 2}; 
-                           selfreset::Bool=false)::Matrix{Float32}
+                           selfreset::Bool=false)::AbstractArray{Float32, 2}
     if selfreset
         h_old = m.init
     else
@@ -104,7 +104,7 @@ reset!(m::MatrixCell) = (m.h = m.init)
 
 # CREATE WEIGHTED MEAN LAYER WITH TRAINABLE WEIGHTS
 "Parametric type for weighted mean layer"
-struct WeightedMeanLayer{V<:Vector{Float32}}
+struct WeightedMeanLayer{V<:AbstractArray{Float32, 1}}
     weight::V
 end
 
@@ -116,7 +116,7 @@ function WeightedMeanLayer(num::Int;
 end
 
 "Forward pass for weighted mean layer to create a linear combination of the guess of each agent"
-function (a::WeightedMeanLayer)(X::Matrix{Float32})
+function (a::WeightedMeanLayer)(X::AbstractArray{Float32, 2})
     # Ensure weights are positive, between 0 and 1, and normalized
     sig = NNlib.sigmoid_fast.(a.weight)
     return X' * (sig / sum(sig))
@@ -132,7 +132,7 @@ state(m::MatrixRNN) = state(m.rnn)
 reset!(m::MatrixRNN) = reset!(m.rnn)
 
 "Forward pass for the RNN means composing the cell and the weighted mean layer"
-(m::MatrixRNN)(x::AbstractArray{Float32,2}; 
+(m::MatrixRNN)(x::AbstractArray{Float32, 2}; 
                selfreset::Bool = false)::Vector{Float32} = (m.dec ∘ m.rnn)(
                 state(m), x; selfreset = selfreset)
 
@@ -171,7 +171,7 @@ function scaledspectralgap(A::AbstractArray{Float32, 2})::Float32
 end
 
 "Populates a vector with the scaled spectral gap of each matrix in a 3D array"
-function populatepenalties!(penalties, ys_hat::Array{Float32, 3})::Nothing
+function populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothing
     @inbounds for i in axes(ys_hat, 3)
         #penalties[i] = scalednuclearnorm(@view ys_hat[:,:,i])
         penalties[i] = -scaledspectralgap(@view ys_hat[:,:,i])
@@ -184,9 +184,9 @@ end
     predicted matrix, and the mask matrix with information about which entries are known.
     The loss is a weighted sum of the L1 loss on known entries and a scaled spectral gap penalty.
 """
-function spectrum_penalized_l1(ys::Array{Float32, 3}, 
-                          ys_hat::Matrix{Float32}, 
-                          mask_mat::Matrix{Float32};
+function spectrum_penalized_l1(ys::AbstractArray{Float32, 3}, 
+                          ys_hat::AbstractArray{Float32, 2}, 
+                          mask_mat::AbstractArray{Float32, 2};
                           theta::Float32 = 0.8f0)::Float32
     nb_examples = size(ys, 3)
     # L1 loss on known entries
@@ -208,9 +208,9 @@ end
     about which entries are known.
     The loss is a weighted sum of the L1 loss on known entries and a scaled spectral gap penalty.
 """
-function spectrum_penalized_l1(ys::Matrix{Float32}, 
-                          ys_hat::Matrix{Float32}, 
-                          mask_mat::Matrix{Float32};
+function spectrum_penalized_l1(ys::AbstractArray{Float32, 2}, 
+                          ys_hat::AbstractArray{Float32, 2}, 
+                          mask_mat::AbstractArray{Float32, 2};
                           theta::Float32 = 0.8f0)::Float32
     l, n = size(ys)
     # L1 loss on known entries
@@ -239,7 +239,7 @@ function timemovement!(m, x, turns)::Nothing
 end
 
 "Populate a matrix with the predictions of the RNN for each example in a 3D array, with no time steps."
-function populatepreds!(preds, m, xs::Array{Float32, 3})::Nothing
+function populatepreds!(preds, m, xs::AbstractArray{Float32, 3})::Nothing
     @inbounds for i in axes(xs, 3)
         reset!(m)
         example = @view xs[:,:,i]
@@ -248,7 +248,7 @@ function populatepreds!(preds, m, xs::Array{Float32, 3})::Nothing
 end
 
 "Populate a matrix with the predictions of the RNN for each example in a 3D array, with a given number of time steps."
-function populatepreds!(preds, m, xs::Array{Float32, 3}, turns)::Nothing
+function populatepreds!(preds, m, xs::AbstractArray{Float32, 3}, turns)::Nothing
     @inbounds for i in axes(xs, 3)
         reset!(m)
         example = @view xs[:,:,i]
@@ -259,7 +259,7 @@ end
 
 "Predict the output for a single input matrix, with no time steps."
 function predict_through_time(m, 
-                              x::Matrix{Float32})::Matrix{Float32}
+                              x::AbstractArray{Float32, 2})::AbstractArray{Float32, 2}
     if m.rnn.h != m.rnn.init
         reset!(m)
     end
@@ -269,8 +269,8 @@ end
 
 "Predict the output for a single input matrix, with a given number of time steps."
 function predict_through_time(m, 
-                              x::Matrix{Float32}, 
-                              turns::Int)::Matrix{Float32}
+                              x::AbstractArray{Float32, 2}, 
+                              turns::Int)::AbstractArray{Float32, 2}
     if m.rnn.h != m.rnn.init
         reset!(m)
     end
@@ -281,7 +281,7 @@ end
 
 "Predict the outputs for an array of input matrices, with no time steps."
 function predict_through_time(m, 
-                              xs::Array{Float32, 3})::Matrix{Float32}
+                              xs::AbstractArray{Float32, 3})::AbstractArray{Float32, 2}
     output_size = size(xs, 2)
     nb_examples = size(xs, 3)
     preds = Array{Float32}(undef, output_size, nb_examples)
@@ -291,8 +291,8 @@ end
 
 "Predict the outputs for an array of input matrices, with a given number of time steps."
 function predict_through_time(m, 
-                              xs::Array{Float32, 3}, 
-                              turns::Int)::Matrix{Float32}
+                              xs::AbstractArray{Float32, 3}, 
+                              turns::Int)::AbstractArray{Float32, 2}
     output_size = size(xs, 2)
     nb_examples = size(xs, 3)
     preds = Array{Float32}(undef, output_size, nb_examples)
