@@ -16,7 +16,6 @@ using Distributions
 using Random
 using ChainRules
 using ParameterSchedulers
-import Reactant
 
 BLAS.set_num_threads(4)
 
@@ -185,7 +184,7 @@ end
 function populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothing
     @inbounds for i in axes(ys_hat, 3)
         #penalties[i] = scalednuclearnorm(@view ys_hat[:,:,i])
-        penalties[i] = -scaledspectralgap(@view ys_hat[:,:,i])
+        penalties[i] = -scaledspectralgap(@view ys_hat[:,:,i]) + 1f0
     end
 end
 
@@ -198,7 +197,8 @@ end
 function spectrum_penalized_l1(ys::AbstractArray{Float32, 3}, 
                           ys_hat::AbstractArray{Float32, 2}, 
                           mask_mat::AbstractArray{Float32, 2};
-                          theta::Float32 = 0.8f0)::Float32
+                          theta::Float32 = 0.8f0,
+                          datascale::Float32 = 0.01f0)::Float32
     nb_examples = size(ys, 3)
     # L1 loss on known entries
     diff = vec(mask_mat) .* (_2D(ys) .- ys_hat)
@@ -207,7 +207,7 @@ function spectrum_penalized_l1(ys::AbstractArray{Float32, 3},
     penalties = Array{Float32}(undef, nb_examples)
     populatepenalties!(penalties, _3D(ys_hat))
     # Training loss
-    left = theta * l1_known 
+    left = theta * l1_known / datascale
     right = (1f0 - theta) * penalties
     errors = left .+ right
     return mean(errors)
@@ -222,7 +222,8 @@ end
 function spectrum_penalized_l1(ys::AbstractArray{Float32, 2}, 
                           ys_hat::AbstractArray{Float32, 2}, 
                           mask_mat::AbstractArray{Float32, 2};
-                          theta::Float32 = 0.8f0)::Float32
+                          theta::Float32 = 0.8f0,
+                          datascale::Float32 = 0.01f0)::Float32
     l, n = size(ys)
     # L1 loss on known entries
     ys2 = reshape(ys, l * n, 1)
@@ -233,7 +234,7 @@ function spectrum_penalized_l1(ys::AbstractArray{Float32, 2},
     #penalty = scalednuclearnorm(ys_hat3)
     penalty = -scaledspectralgap(ys_hat3)
     # Training loss
-    left = theta * l1_known
+    left = theta * l1_known / datascale
     right = (1f0 - theta) * penalty
     error = left .+ right
     return error
@@ -328,10 +329,10 @@ EnzymeRules.inactive(::typeof(reset!), args...) = nothing
 Enzyme.@import_rrule typeof(svdvals) AbstractMatrix{<:Number}
 
 #====CREATE DATA====#
-const K::Int = 400
+const K::Int = 300
 const N::Int = 64
 const RANK::Int = 1
-const DATASETSIZE::Int = 800
+const DATASETSIZE::Int = 1000
 const KNOWNENTRIES::Int = 1600
 
 function creatematrix(m, n, r, seed; datatype=Float32)
@@ -434,9 +435,8 @@ activemodel = MatrixRNN(
 )
 
 #====TEST FWD PASS AND LOSS====#
-
+#=
 using BenchmarkTools
-
 
 m_c = Reactant.@compile activemodel(dataX[:,:,1])
 # Forward pass, one datum, no time step
@@ -455,18 +455,17 @@ m_c = Reactant.@compile activemodel(dataX[:,:,1])
 
 ys_hat = predict_through_time(activemodel, dataX)
 @benchmark spectrum_penalized_l1($dataY[:,:,1:2], $ys_hat[:,1:2], $mask_mat)
-
 @benchmark trainingloss($activemodel, $dataX[:,:,1:32], $dataY[:,:,1:32], $mask_mat)
 
 starttime = time()
 trainingloss_c = Reactant.@compile trainingloss(activemodel, dataX[:,:,1:2], dataY[:,:,1:2], mask_mat)
 endtime = time()
 println("Compilation time: ", (endtime - starttime)/60, " minutes")
-
+trainingloss_c = Reactant.@compile trainingloss(activemodel, dataX[:,:,1:2], dataY[:,:,1:2], mask_mat, 2)
 @benchmark trainingloss_c($activemodel, $dataX[:,:,1:32], $dataY[:,:,1:32], $mask_mat)
-
+=#
 #====BEST GRADIENT COMPUTATION====#
-
+#=
 # Enzyme
 # MODEL ONLY
 @btime loss, grads = Flux.withgradient((m,x) -> sum(m(x)), 
@@ -501,21 +500,12 @@ println("Compilation time: ", (endtime - starttime)/60, " minutes")
                                 $dataX, $dataY, $mask_mat, 2)
 # 27.567 s (11070 allocations: 4.79 GiB)
 
-# Reactant
-
-Enzyme.gradient(Enzyme.Reverse, Const(trainingloss), activemodel, Const(dataX), Const(dataY), Const(mast_mat), Const(2))[2]
-
-function enzyme_gradient(model, x, y, z, t)
-    return Enzyme.gradient(Enzyme.Reverse, Const(trainingloss), model, Const(x), Const(y), Const(z), Const(t))[2]
-end
-
 #====TEST OTHER GRADIENT COMPUTATIONS====#
-#=
+
 using DifferentiationInterface
-fclosure(m) = trainingloss(m, dataX[:,:,1], dataY[:,:,1], mask_mat)
+fclosure(m) = trainingloss(m, dataX[:,:,1:3], dataY[:,:,1:3], mask_mat)
 backend = AutoEnzyme()
 @btime DifferentiationInterface.value_and_gradient($fclosure, $backend, $activemodel) 
-# 177.236 ms (185 allocations: 121.12 MiB)
 
 using Fluxperimental, Mooncake
 Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(reset!), Any}
@@ -598,7 +588,7 @@ dataloader = Flux.DataLoader(
 # Optimizer
 INIT_ETA = 5e-4
 DECAY = 0.7
-EPOCHS::Int = 6
+EPOCHS::Int = 10
 TURNS::Int = 5
 
 function prepareoptimizer(eta, decay, model)
