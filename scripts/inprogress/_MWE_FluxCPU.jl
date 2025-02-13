@@ -16,6 +16,7 @@ using Distributions
 using Random
 using ChainRules
 using ParameterSchedulers
+import Reactant
 
 BLAS.set_num_threads(4)
 
@@ -25,20 +26,20 @@ BLAS.set_num_threads(4)
 "Parametric type for Vanilla RNN cell with matrix-valued states"
 mutable struct MatrixVlaCell{A<:AbstractArray{Float32, 2}}
     # Parameters
-    Wx_in::A # Input weights n2 x n2
+    Wx_in::A # Input weights n2 x m
     Whh::A # Recurrent weights k x k
-    bh::A  # Recurrent bias k x n2
+    bh::A  # Recurrent bias k x m
     # State 
-    h::A   # Current state k x n2
+    h::A   # Current state k x m
     const init::A # Store initial state h for reset
 end
 
 "Constructor for MatrixVlaCell"
 function MatrixVlaCell(n2::Int, k::Int, m::Int)::MatrixVlaCell
-    Wx_in = randn(Float32, m, n2) / sqrt(Float32(m))
+    Wx_in = randn(Float32, n2, m) / sqrt(Float32(n2))
     Whh = randn(Float32, k, k) / sqrt(Float32(k))
-    bh = randn(Float32, k, n2) / sqrt(Float32(k))
-    h = randn(Float32, k, n2) * 0.01f0
+    bh = randn(Float32, k, m) / sqrt(Float32(k))
+    h = randn(Float32, k, m) * 0.01f0
     MatrixVlaCell(Wx_in, Whh, bh, h, h)
 end
 
@@ -76,9 +77,14 @@ function(m::MatrixVlaCell)(state::AbstractArray{Float32, 2},
     else
         h = state
     end
-    m.h .= NNlib.tanh_fast.(m.Whh * h .+ m.bh .+ I * m.Wx_in')
+    # Each agent takes a row of the k x n2 input matrix, 
+    # which is a sparse (1 x n2) vector, and projects it to a m x 1 vector, with m << n2
+    # (They all share the same projection matrix / compressed storage 
+    # stragegy Wx_in in R^{m x n2})
+    # Agents consult their compressed input, exchange compressed information, and update their state
+    m.h .= NNlib.tanh_fast.(m.Whh * h .+ m.bh .+ I * m.Wx_in)
     return m.h 
-end
+end 
 
 "Stateful GRU cell forward pass for distributed inputs (incorrect implementation)"
 function(m::MatrixGRUCell)(state::AbstractArray{Float32, 2}, 
@@ -95,31 +101,36 @@ function(m::MatrixGRUCell)(state::AbstractArray{Float32, 2},
     m.h .= ((1f0 .- m.z) .* h_new) .+ (m.z .* h_old)   # k x n2
     return m.h
 end
-
 "Parent type for both types of RNN cells"
 MatrixCell = Union{MatrixVlaCell, MatrixGRUCell}
 
 state(m::MatrixCell) = m.h
 reset!(m::MatrixCell) = (m.h = m.init)
 
-# CREATE WEIGHTED MEAN LAYER WITH TRAINABLE WEIGHTS
+# CREATE DECODING LAYER WITH TRAINABLE WEIGHTS
 "Parametric type for weighted mean layer"
-struct WeightedMeanLayer{V<:AbstractArray{Float32, 1}}
+struct WeightedMeanLayer{A<:AbstractArray{Float32, 2}, V<:AbstractArray{Float32, 1}}
+    Wx_out::A
     weight::V
 end
 
 "Constructor for WeightedMeanLayer"
-function WeightedMeanLayer(num::Int;
+function WeightedMeanLayer(n2::Int, k::Int, m::Int;
                            init = ones)
-    weight_init = init(Float32, num) * 5f0
-    WeightedMeanLayer(weight_init)
+    Wx_out = randn(Float32, n2, m) / sqrt(Float32(n2))
+    weight_init = init(Float32, k) * 5f0
+    WeightedMeanLayer(Wx_out, weight_init)
 end
 
-"Forward pass for weighted mean layer to create a linear combination of the guess of each agent"
-function (a::WeightedMeanLayer)(X::AbstractArray{Float32, 2})
+"""Forward pass for decoding layer to project each agent's guess back 
+to n2 and create a linear combination of the guess of each agent"""
+function (a::WeightedMeanLayer)(x::AbstractArray{Float32, 2})
     # Ensure weights are positive, between 0 and 1, and normalized
+    # Sig is a vector with one entry per agent, representing the importance of each agent's guess
     sig = NNlib.sigmoid_fast.(a.weight)
-    return X' * (sig / sum(sig))
+    # Agents project their guess (state) back to n2; then the guesses are combined by weighted mean
+    # All agents share the same projection matrix Wx_out in R^{n2 x m}
+    return a.Wx_out * x' * sig / sum(sig)
 end
 
 # CHAIN RNN AND WEIGHTED MEAN LAYERS
@@ -132,14 +143,14 @@ state(m::MatrixRNN) = state(m.rnn)
 reset!(m::MatrixRNN) = reset!(m.rnn)
 
 "Forward pass for the RNN means composing the cell and the weighted mean layer"
-(m::MatrixRNN)(x::AbstractArray{Float32, 2}; 
-               selfreset::Bool = false)::Vector{Float32} = (m.dec ∘ m.rnn)(
-                state(m), x; selfreset = selfreset)
+(m::MatrixRNN)(I::AbstractArray{Float32, 2}; 
+               selfreset::Bool = false)::AbstractArray{Float32, 1} = (m.dec ∘ m.rnn)(
+                state(m), I; selfreset = selfreset)
 
 # Tell Flux what parameters are trainable
 Flux.@layer MatrixVlaCell trainable=(Wx_in, Whh, bh)
 Flux.@layer MatrixGRUCell trainable=(Whh, bh, g1, g2, bz)
-Flux.@layer WeightedMeanLayer
+Flux.@layer WeightedMeanLayer trainable=(Wx_out, weight)
 Flux.@layer :expand MatrixRNN trainable=(rnn, dec)
 Flux.@non_differentiable reset!(m::MatrixCell)
 Flux.@non_differentiable reset!(m::MatrixRNN)
@@ -414,33 +425,45 @@ dataX, dataY, fixedmask, mask_mat = datasetgeneration(N, N, RANK, DATASETSIZE, K
 # and I am not RAM constrained, so focusing on regular arrays for now)
 
 size(dataX), size(dataY)
+#dataXt = NNlib.batched_adjoint(dataX)
 
 #====INITIALIZE MODEL====#
 activemodel = MatrixRNN(
-    MatrixVlaCell(N^2, K, N^2), 
-    WeightedMeanLayer(K)
-) 
+    MatrixVlaCell(N^2, K, 4*N), 
+    WeightedMeanLayer(N^2, K, 4*N)
+)
 
 #====TEST FWD PASS AND LOSS====#
-#=
+
 using BenchmarkTools
 
+
+m_c = Reactant.@compile activemodel(dataX[:,:,1])
 # Forward pass, one datum, no time step
 @benchmark activemodel($dataX[:,:,1]) 
+@benchmark m_c($dataX[:,:,1])
+
 # Forward pass, one datum, no time steps
 @benchmark predict_through_time($activemodel, $dataX[:,:,1]) 
 # Forward pass, one datum, 2 time steps
 @benchmark predict_through_time($activemodel, $dataX[:,:,1], 2) 
 
 # Forward pass, all data points, no time steps
-@benchmark predict_through_time($activemodel, $dataX) 
+@benchmark predict_through_time($activemodel, $dataX[:,:,1:32]) 
 # Forward pass, all data points, 2 time steps
-@benchmark predict_through_time($activemodel, $dataX, 2) 
+@benchmark predict_through_time($activemodel, $dataX[:,:,1:32], 2) 
 
 ys_hat = predict_through_time(activemodel, dataX)
 @benchmark spectrum_penalized_l1($dataY[:,:,1:2], $ys_hat[:,1:2], $mask_mat)
 
-@benchmark trainingloss($activemodel, $dataX, $dataY, $mask_mat)
+@benchmark trainingloss($activemodel, $dataX[:,:,1:32], $dataY[:,:,1:32], $mask_mat)
+
+starttime = time()
+trainingloss_c = Reactant.@compile trainingloss(activemodel, dataX[:,:,1:2], dataY[:,:,1:2], mask_mat)
+endtime = time()
+println("Compilation time: ", (endtime - starttime)/60, " minutes")
+
+@benchmark trainingloss_c($activemodel, $dataX[:,:,1:32], $dataY[:,:,1:32], $mask_mat)
 
 #====BEST GRADIENT COMPUTATION====#
 
@@ -477,7 +500,15 @@ ys_hat = predict_through_time(activemodel, dataX)
 @btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
                                 $dataX, $dataY, $mask_mat, 2)
 # 27.567 s (11070 allocations: 4.79 GiB)
-=#
+
+# Reactant
+
+Enzyme.gradient(Enzyme.Reverse, Const(trainingloss), activemodel, Const(dataX), Const(dataY), Const(mast_mat), Const(2))[2]
+
+function enzyme_gradient(model, x, y, z, t)
+    return Enzyme.gradient(Enzyme.Reverse, Const(trainingloss), model, Const(x), Const(y), Const(z), Const(t))[2]
+end
+
 #====TEST OTHER GRADIENT COMPUTATIONS====#
 #=
 using DifferentiationInterface
