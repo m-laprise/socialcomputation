@@ -8,151 +8,130 @@ if Sys.CPU_NAME != "apple-m1"
     Pkg.activate("../")
 end
 
-using Flux
+using Lux
 using Enzyme
-import NNlib
 using LinearAlgebra
-using Distributions
 using Random
 using ChainRules
-using ParameterSchedulers
+import NNlib
+import Distributions: Dirichlet, mean, std, var
+import ParameterSchedulers: Exp
+import WeightInitializers: glorot_uniform, zeros32
+import MLUtils: DataLoader
 
 BLAS.set_num_threads(4)
 
 #====CREATE CUSTOM RNN====#
 
-# CREATE STATEFUL, MATRIX-VALUED RNN LAYER
-"Parametric type for Vanilla RNN cell with matrix-valued states"
-mutable struct MatrixVlaCell{A<:AbstractArray{Float32, 2}}
-    # Parameters
-    Wx_in::A # Input weights n2 x m
-    Whh::A # Recurrent weights k x k
-    bh::A  # Recurrent bias k x m
-    # State 
-    h::A   # Current state k x m
-    const init::A # Store initial state h for reset
+struct MatrixVlaCell{F1, F2, F3} <: Lux.AbstractLuxLayer
+    k::Int
+    n2::Int
+    m::Int
+    init_params::F1 
+    init_states::F2
+    init_rep::F3
 end
 
-"Constructor for MatrixVlaCell"
-function MatrixVlaCell(n2::Int, k::Int, m::Int)::MatrixVlaCell
-    Wx_in = randn(Float32, n2, m) / sqrt(Float32(n2))
-    Whh = randn(Float32, k, k) / sqrt(Float32(k))
-    bh = randn(Float32, k, m) / sqrt(Float32(k))
-    h = randn(Float32, k, m) * 0.01f0
-    MatrixVlaCell(Wx_in, Whh, bh, h, h)
+struct DecodingLayer{F1} <: Lux.AbstractLuxLayer
+    k::Int
+    n2::Int
+    m::Int
+    init::F1
 end
 
-"Parametric type for Gated RNN cell with matrix-valued states and distributed inputs (incorrect implementation)"
-mutable struct MatrixGRUCell{A<:AbstractArray{Float32, 2}, V<:AbstractArray{Float32, 1}}
-    # Parameters
-    Whh::A # Recurrent weights k x k
-    bh::A  # Recurrent bias k x n2
-    g1::V  # n2 x 1
-    g2::V  # n2 x 1
-    bz::A  # Update gate bias k x 1
-    # State
-    h::A   # Current state k x n2
-    z::V   # Update gate k x 1
-    const init::A # Store initial state h for reset 
-end
-"Constructor for MatrixGRUCell"
-function MatrixGRUCell(n::Int, k::Int)::MatrixGRUCell
-    Whh = randn(Float32, k, k) / sqrt(Float32(k))
-    bz = randn(Float32, k, 1) / sqrt(Float32(k))
-    bh = randn(Float32, k, n) / sqrt(Float32(k))
-    g1 = ones(Float32, n)
-    g2 = ones(Float32, n)
-    h = randn(Float32, k, n) * 0.01f0
-    z = rand(Float32, k) * 0.01f0
-    MatrixGRUCell(Whh, bh, g1, g2, bz, h, z, h)
+# Custom chain
+struct ComposedRNN{L1, L2} <: Lux.AbstractLuxContainerLayer{(:cell, :dec)}
+    cell::L1
+    dec::L2
 end
 
-"Stateful RNN cell forward pass for distributed inputs"
-function(m::MatrixVlaCell)(state::AbstractArray{Float32, 2}, 
-                           I::AbstractArray{Float32, 2}; 
-                           selfreset::Bool=false)::AbstractArray{Float32, 2}
-    if selfreset
-        h = m.init
-    else
-        h = state
+#"Parent type for both types of RNN cells"
+#MatrixCell = Union{MatrixVlaCell, MatrixGRUCell}
+
+# LAYER INITIALIZERS
+function MatrixVlaCell(k::Int, n2::Int, m::Int; 
+                       init_params=glorot_uniform, init_states=glorot_uniform, init_rep=zeros32)
+    MatrixVlaCell{typeof(init_params), typeof(init_states), typeof(init_rep)}(
+        k, n2, m, init_params, init_states, init_rep
+    )
+end
+function Lux.initialparameters(rng::AbstractRNG, l::MatrixVlaCell)
+    (Wx_in=l.init_params(rng, l.m, l.n2),
+     Whh=l.init_params(rng, l.k, l.k),
+     Bh=l.init_params(rng, l.m, l.k))
+end
+function Lux.initialstates(rng::AbstractRNG, l::MatrixVlaCell)
+    h = l.init_states(rng, l.m, l.k)
+    (H=h,
+     Xproj=l.init_rep(l.m, l.k),
+     selfreset=[false],
+     turns=[1],
+     init=deepcopy(h)) 
+end
+
+function DecodingLayer(k::Int, n2::Int, m::Int; 
+                       init=glorot_uniform)
+    DecodingLayer{typeof(init)}(k, n2, m, init)
+end
+function Lux.initialparameters(rng::AbstractRNG, l::DecodingLayer)
+    (Wx_out=l.init(rng, l.n2, l.m),
+     β=ones(Float32, l.k))
+end
+Lux.initialstates(::AbstractRNG, ::DecodingLayer) = NamedTuple()
+
+# FORWARD PASSES
+function timemovement!(st, ps, turns)
+    # Each agent takes a col of the n2 x k input matrix, 
+    # which is a sparse (n2 x 1) vector, and projects it to a m x 1 vector, with m << n2
+    # (They all share the same projection / compression stragegy Wx_in in R^{m x n2})
+    # Agents consult their compressed input, exchange compressed information, and update their state.
+    # Repeat for a given number of time steps.
+    @inbounds for _ in 1:turns
+        st.H .= tanh.(st.H * ps.Whh .+ ps.Bh .+ st.Xproj)
     end
-    # Each agent takes a row of the k x n2 input matrix, 
-    # which is a sparse (1 x n2) vector, and projects it to a m x 1 vector, with m << n2
-    # (They all share the same projection matrix / compressed storage 
-    # stragegy Wx_in in R^{m x n2})
-    # Agents consult their compressed input, exchange compressed information, and update their state
-    m.h .= NNlib.tanh_fast.(m.Whh * h .+ m.bh .+ I * m.Wx_in)
-    return m.h 
-end 
+end
 
-"Stateful GRU cell forward pass for distributed inputs (incorrect implementation)"
-function(m::MatrixGRUCell)(state::AbstractArray{Float32, 2}, 
-                           I::AbstractArray{Float32, 2}; 
-                           selfreset::Bool=false)::AbstractArray{Float32, 2}
-    if selfreset
-        h_old = m.init
-    else
-        h_old = state
+function (l::MatrixVlaCell)(X, ps, st)
+    if st.selfreset[1]
+        st.H .= st.init
     end
-    hmul = m.Whh * h_old    # k x n2
-    h_new = NNlib.tanh_fast.(hmul .+ m.bh .+ I)   # k x n2
-    m.z .= NNlib.sigmoid_fast.((hmul * m.g1) .+ ((m.Whh * I) * m.g2) .+ m.bz)  # k x 1
-    m.h .= ((1f0 .- m.z) .* h_new) .+ (m.z .* h_old)   # k x n2
-    return m.h
-end
-"Parent type for both types of RNN cells"
-MatrixCell = Union{MatrixVlaCell, MatrixGRUCell}
-
-state(m::MatrixCell) = m.h
-reset!(m::MatrixCell) = (m.h = m.init)
-
-# CREATE DECODING LAYER WITH TRAINABLE WEIGHTS
-"Parametric type for weighted mean layer"
-struct WeightedMeanLayer{A<:AbstractArray{Float32, 2}, V<:AbstractArray{Float32, 1}}
-    Wx_out::A
-    weight::V
+    # To avoid recomputing the projection for each time step,
+    # store it as a hidden state
+    st.Xproj .= ps.Wx_in * X
+    timemovement!(st, ps, st.turns[1])
+    return st.H, st
 end
 
-"Constructor for WeightedMeanLayer"
-function WeightedMeanLayer(n2::Int, k::Int, m::Int;
-                           init = ones)
-    Wx_out = randn(Float32, n2, m) / sqrt(Float32(n2))
-    weight_init = init(Float32, k) * 5f0
-    WeightedMeanLayer(Wx_out, weight_init)
+function (l::DecodingLayer)(cellh, ps, st)
+    return ps.Wx_out * cellh * ps.β, st
 end
 
-"""Forward pass for decoding layer to project each agent's guess back 
-to n2 and create a linear combination of the guess of each agent"""
-function (a::WeightedMeanLayer)(x::AbstractArray{Float32, 2})
-    # Ensure weights are positive, between 0 and 1, and normalized
-    # Sig is a vector with one entry per agent, representing the importance of each agent's guess
-    sig = NNlib.sigmoid_fast.(a.weight)
-    # Agents project their guess (state) back to n2; then the guesses are combined by weighted mean
-    # All agents share the same projection matrix Wx_out in R^{n2 x m}
-    return a.Wx_out * x' * sig / sum(sig)
+function (c::ComposedRNN)(x::AbstractMatrix, ps, st::NamedTuple)
+    h, st_l1 = c.cell(x, ps.cell, st.cell)
+    y, st_l2 = c.dec(h, ps.dec, st.dec)
+    # Return the new state which has the same structure as `st`
+    return y, (cell = st_l1, dec = st_l2)
 end
 
-# CHAIN RNN AND WEIGHTED MEAN LAYERS
-" Parametric type for RNN with a cell with matrix-valued states and a weighted mean layer"
-struct MatrixRNN{M<:MatrixCell, D<:WeightedMeanLayer}
-    rnn::M
-    dec::D
+# Replace Lux.apply with Luxapply! to allow for custom state handling
+function setup!(st; selfreset, turns)
+    st.cell.selfreset .= selfreset
+    st.cell.turns .= turns
 end
-state(m::MatrixRNN) = state(m.rnn)
-reset!(m::MatrixRNN) = reset!(m.rnn)
 
-"Forward pass for the RNN means composing the cell and the weighted mean layer"
-(m::MatrixRNN)(I::AbstractArray{Float32, 2}; 
-               selfreset::Bool = false) = (m.dec ∘ m.rnn)(
-                state(m), I; selfreset = selfreset)
+function Luxapply!(st, ps, m::A, x; 
+                   selfreset::Bool = false, 
+                   turns::Int = 1) where A <: Lux.AbstractLuxContainerLayer
+    setup!(st; selfreset = selfreset, turns = turns)
+    Lux.apply(m, x, ps, st)[1]
+end
 
-# Tell Flux what parameters are trainable
-Flux.@layer MatrixVlaCell trainable=(Wx_in, Whh, bh)
-Flux.@layer MatrixGRUCell trainable=(Whh, bh, g1, g2, bz)
-Flux.@layer WeightedMeanLayer trainable=(Wx_out)
-Flux.@layer :expand MatrixRNN trainable=(rnn, dec)
-Flux.@non_differentiable reset!(m::MatrixCell)
-Flux.@non_differentiable reset!(m::MatrixRNN)
+# HELPER FUNCTIONS
+
+# *NOTE*: Careful with this; it grabs it from the globals
+state(m::ComposedRNN) = st.cell.H
+reset!(st, m::ComposedRNN) = (st.cell.H .= deepcopy(st.cell.init); st.cell.Xproj .= 0f0)
+reset!(st, m::MatrixVlaCell) = (st.H .= deepcopy(st.init); st.Xproj .= 0f0)
 
 # Helper functions for data 
 _3D(y) = reshape(y, N, N, size(y, 2))
@@ -161,6 +140,7 @@ _3Dslices(y) = eachslice(_3D(y), dims=3)
 l(f, y) = mean(f.(_3Dslices(y)))
 
 #====DEFINE LOSS FUNCTIONS====#
+
 # Nuclear norm, but scaled to avoid the norm going to zero simply by scaling the matrix
 "Nuclear norm of a matrix (sum of singular values), scaled by the standard deviation of its entries"
 scalednuclearnorm(A::AbstractArray{Float32, 2})::Float32 = sum(svdvals(A)) / (size(A, 1) * std(A))
@@ -196,13 +176,13 @@ end
 """
 function spectrum_penalized_l1(ys::AbstractArray{Float32, 3}, 
                           ys_hat::AbstractArray{Float32, 2}, 
-                          mask_mat::AbstractArray{Float32, 2};
+                          maskmatrix::AbstractArray{Float32, 2};
                           theta::Float32 = 0.8f0,
                           datascale::Float32 = 0.1f0)::Float32
     nb_examples = size(ys, 3)
     # L1 loss on known entries
-    diff = vec(mask_mat) .* (_2D(ys) .- ys_hat)
-    l1_known = vec(sum(abs, diff, dims = 1)) / sum(mask_mat)
+    diff = vec(maskmatrix) .* (_2D(ys) .- ys_hat)
+    l1_known = vec(sum(abs, diff, dims = 1)) / sum(maskmatrix)
     # Spectral norm penalty
     penalties = Array{Float32}(undef, nb_examples)
     populatepenalties!(penalties, _3D(ys_hat))
@@ -221,14 +201,14 @@ end
 """
 function spectrum_penalized_l1(ys::AbstractArray{Float32, 2}, 
                           ys_hat::AbstractArray{Float32, 2}, 
-                          mask_mat::AbstractArray{Float32, 2};
+                          maskmatrix::AbstractArray{Float32, 2};
                           theta::Float32 = 0.8f0,
                           datascale::Float32 = 0.1f0)::Float32
     l, n = size(ys)
     # L1 loss on known entries
     ys2 = reshape(ys, l * n, 1)
-    diff = vec(mask_mat) .* (ys2 .- ys_hat)
-    l1_known = sum(abs, diff) / sum(mask_mat)
+    diff = vec(maskmatrix) .* (ys2 .- ys_hat)
+    l1_known = sum(abs, diff) / sum(maskmatrix)
     # Spectral norm penalty
     ys_hat3 = reshape(ys_hat, l, n)
     #penalty = scalednuclearnorm(ys_hat3)
@@ -240,88 +220,82 @@ function spectrum_penalized_l1(ys::AbstractArray{Float32, 2},
     return error
 end
 
-#== Helper functions for inference and backprop through time ==#
+MSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs2, A .- B, dims=1)
+RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = sqrt.(MSE(A, B))
 
-"Move the RNN through time for a given number of steps, repeating the input x each time."
-function timemovement!(m, x, turns)::Nothing
-    @assert turns > 0
-    @inbounds for _ in 1:turns
-        m(x; selfreset = false)
-    end
+function allentriesRMSE(ys::AbstractArray{Float32, 3}, 
+                        ys_hat::AbstractArray{Float32, 2};
+                        datascale::Float32 = 0.1f0)::Float32
+    mean(RMSE(_2D(ys), ys_hat) / datascale)
 end
 
+#== Helper functions for inference ==#
+
 "Populate a matrix with the predictions of the RNN for each example in a 3D array, with no time steps."
-function populatepreds!(preds, m, xs::AbstractArray{Float32, 3})::Nothing
+function populatepreds!(preds, st, ps, m, xs::AbstractArray{Float32, 3})::Nothing
     @inbounds for i in axes(xs, 3)
-        reset!(m)
         example = @view xs[:,:,i]
-        preds[:,i] .= m(example; selfreset = false)
+        preds[:,i] .= Luxapply!(st, ps, m, example; selfreset = true)
     end
 end
 
 "Populate a matrix with the predictions of the RNN for each example in a 3D array, with a given number of time steps."
-function populatepreds!(preds, m, xs::AbstractArray{Float32, 3}, turns)::Nothing
+function populatepreds!(preds, st, ps, m, xs::AbstractArray{Float32, 3}, turns)::Nothing
     @inbounds for i in axes(xs, 3)
-        reset!(m)
+        reset!(st, m)
         example = @view xs[:,:,i]
-        timemovement!(m, example, turns)
-        preds[:,i] .= m(example; selfreset = false)
+        preds[:,i] .= Luxapply!(st, ps, m, example; selfreset = false, turns = turns)
     end
 end
 
 "Predict the output for a single input matrix, with no time steps."
-function predict_through_time(m, 
+function predict_through_time(st, ps, m, 
                               x::AbstractArray{Float32, 2})::AbstractArray{Float32, 2}
-    if m.rnn.h != m.rnn.init
-        reset!(m)
-    end
-    preds = m(x; selfreset = false)
+    preds = Luxapply!(st, ps, m, x; selfreset = true)
     return reshape(preds, :, 1)
 end
 
 "Predict the output for a single input matrix, with a given number of time steps."
-function predict_through_time(m, 
+function predict_through_time(st, ps, m, 
                               x::AbstractArray{Float32, 2}, 
                               turns::Int)::AbstractArray{Float32, 2}
-    if m.rnn.h != m.rnn.init
-        reset!(m)
+    if st.cell.H != st.cell.init
+        reset!(st, m)
     end
-    timemovement!(m, x, turns)
-    preds = m(x; selfreset = false)
+    preds = Luxapply!(st, ps, m, x; selfreset = false, turns = turns)
     return reshape(preds, :, 1)
 end
 
 "Predict the outputs for an array of input matrices, with no time steps."
-function predict_through_time(m, 
+function predict_through_time(st, ps, m::ComposedRNN, 
                               xs::AbstractArray{Float32, 3})::AbstractArray{Float32, 2}
-    output_size = size(xs, 2)
-    nb_examples = size(xs, 3)
-    preds = Array{Float32}(undef, output_size, nb_examples)
-    populatepreds!(preds, m, xs)
+    preds = Array{Float32}(undef, m.cell.n2, size(xs, 3))
+    populatepreds!(preds, st, ps, m, xs)
     return preds
 end
 
 "Predict the outputs for an array of input matrices, with a given number of time steps."
-function predict_through_time(m, 
+function predict_through_time(st, ps, m::ComposedRNN, 
                               xs::AbstractArray{Float32, 3}, 
                               turns::Int)::AbstractArray{Float32, 2}
-    output_size = size(xs, 2)
-    nb_examples = size(xs, 3)
-    preds = Array{Float32}(undef, output_size, nb_examples)
-    populatepreds!(preds, m, xs, turns)
+    preds = Array{Float32}(undef, m.cell.n2, size(xs, 3))
+    populatepreds!(preds, st, ps, m, xs, turns)
     return preds
 end
 
-# Wrapper for prediction and loss
+#= Wrapper for prediction and loss
+To use the Lux Training API, the loss function must take 4 inputs – model, parameters, states and data. 
+It must return 3 values – loss, updated_state, and any computed statistics. 
+=#
 "Compute predictions with no time steps, and use them to compute the training loss."
-function trainingloss(m, xs, ys, mask_mat)
-    ys_hat = predict_through_time(m, xs)
-    return spectrum_penalized_l1(ys, ys_hat, mask_mat)
+function trainingloss(m, ps, st, (xs, ys, maskmatrix))
+    ys_hat = predict_through_time(st, ps, m, xs)
+    return spectrum_penalized_l1(ys, ys_hat, maskmatrix)#, st, NamedTuple()
 end
 "Compute predictions with a given number of time steps, and use them to compute the training loss."
-function trainingloss(m, xs, ys, mask_mat, turns)
-    ys_hat = predict_through_time(m, xs, turns)
-    return spectrum_penalized_l1(ys, ys_hat, mask_mat)
+function trainingloss(m, ps, st, (xs, ys, maskmatrix, turns))
+    ys_hat = predict_through_time(st, ps, m, xs, turns)
+    return spectrum_penalized_l1(ys, ys_hat, maskmatrix)#, st, NamedTuple()
 end
 
 # Rules for autodiff backend
@@ -335,104 +309,119 @@ const RANK::Int = 1
 const DATASETSIZE::Int = 8000
 const KNOWNENTRIES::Int = 1600
 
-function creatematrix(m, n, r, seed; datatype=Float32)
-    rng = Random.MersenneTwister(seed)
-    A = (randn(rng, datatype, m, r) ./ sqrt(sqrt(Float32(r)))) * (randn(rng, datatype, r, n) ./ sqrt(sqrt(Float32(r))))
-    return A * 0.1f0
+function lowrankmatrix(m, n, r, rng; datatype=Float32, std::Float32=0.1f0)
+    std/sqrt(datatype(r)) * randn(rng, datatype, m, r) * randn(rng, datatype, r, n)
 end
 
-function sensingmasks(m::Int, n::Int; k::Int = 0, seed::Int = Int(round(time())))
-    if k == 0
-        k = m * n
+function sensingmasks(m::Int, n::Int, k::Int, rng)
+    @assert k <= m * n
+    maskij = Set{Tuple{Int, Int}}()
+    while length(maskij) < k
+        i = rand(rng, 1:m)
+        j = rand(rng, 1:n)
+        push!(maskij, (i, j))
     end
-    maskij = [(i, j) for i in 1:m for j in 1:n]
-    rng = MersenneTwister(seed)
-    shuffle!(rng, maskij)
-    return maskij[1:k]
+    return collect(maskij)
 end
 
-function masktuple2array(fixedmask::Vector{Tuple{Int, Int}}, m::Int, n::Int)
-    mask_mat = zeros(Float32, m, n)
-    for (i, j) in fixedmask
-        mask_mat[i, j] = 1.0
+function masktuple2array(masktuples::Vector{Tuple{Int, Int}}, m::Int, n::Int)
+    maskmatrix = zeros(Float32, m, n)
+    for (i, j) in masktuples
+        maskmatrix[i, j] = 1f0
     end
-    return mask_mat
+    return maskmatrix
 end
 
-function matrixinput_setup(Y::AbstractArray{Float32}, 
-                        k::Int,
-                        M::Int, 
-                        N::Int, 
-                        dataset_size::Int,
-                        knownentries::Int, 
-                        masks::Vector{Tuple{Int,Int}};
-                        alpha::Float32 = 50f0)
-    @assert knownentries == length(masks)
+"""Create a vector of length k with the number of known entries for each agent, based on the
+alpha concentration parameter. The vector should sum to the total number of known entries."""
+function allocateentries(k::Int, knownentries::Int, alpha::Float32, rng)
     @assert alpha >= 0 && alpha <= 50
-    knownentries_per_agent = zeros(Int, k)
-    # Create a vector of length k with the number of known entries for each agent,
-    # based on the alpha concentration parameter. The vector should sum to the total number of known entries.
     if alpha == 0
-        knownentries_per_agent[1] = knownentries
+        # One agent knows all entries; others know none
+        entries_per_agent = zeros(Int, k)
+        entries_per_agent[rand(rng, 1:k)] = knownentries
     else
-        dirichlet_dist = Dirichlet(alpha * ones(Float32, minimum([k, knownentries])))
-        proportions = rand(dirichlet_dist)
-        knownentries_per_agent = round.(Int, proportions * minimum([k, knownentries]))
-        # If knownentries < k, pad the vector with zeros
-        if knownentries < k
-            knownentries_per_agent = vcat(knownentries_per_agent, zeros(Int, k - knownentries))
-        end
-        # Adjust to ensure the sum is exactly knownentries
-        while sum(knownentries_per_agent) != knownentries
-            diff = knownentries - sum(knownentries_per_agent)
+        # Distribute entries among agents with concentration parameter alpha
+        @fastmath dirichlet_dist = Dirichlet(alpha * ones(Float32, k))
+        @fastmath proportions = rand(rng, dirichlet_dist)
+        @fastmath entries_per_agent = round.(Int, proportions * knownentries)
+        # Adjust to ensure the sum is exactly knownentries after rounding
+        while sum(entries_per_agent) != knownentries
+            diff = knownentries - sum(entries_per_agent)
             # If the difference is negative (positive), add (subtract) one to (from) a random agent
-            knownentries_per_agent[rand(1:k)] += 1 * sign(diff)
+            entries_per_agent[rand(rng, 1:k)] += 1 * sign(diff)
             # Check that no entry is negative, and if so, replace by zero
-            knownentries_per_agent = max.(0, knownentries_per_agent)
+            entries_per_agent = max.(0, entries_per_agent)
         end
     end
-    X = zeros(Float32, k, M*N, dataset_size)
-    for i in 1:dataset_size
-        inputmat = zeros(Float32, k, M*N)
-        entry_count = 1
-        for agent in 1:k
-            for l in 1:knownentries_per_agent[agent]
-                row, col = masks[entry_count]
-                flat_index = M * (col - 1) + row
-                inputmat[agent, flat_index] = Y[row, col, i]
-                entry_count += 1
+    return entries_per_agent
+end
+
+function populateY!(Y::AbstractArray{Float32, 3}, rank::Int, rng)
+    @inbounds for i in axes(Y, 3)
+        @fastmath Y[:, :, i] .= lowrankmatrix(size(Y,1), size(Y,2), rank, rng)
+    end
+end
+
+function populateX!(X::AbstractArray{Float32, 3}, 
+                    Y::AbstractArray{Float32}, 
+                    knowledgedistribution::Vector{Int}, 
+                    masktuples::Vector{Tuple{Int, Int}})
+    @inbounds for i in axes(X, 3)
+        globalcount = 1
+        @inbounds for agent in axes(X, 2)
+            @inbounds for _ in 1:knowledgedistribution[agent]
+                row, col = masktuples[globalcount]
+                flat_index = size(Y, 1) * (col - 1) + row
+                X[flat_index, agent, i] = Y[row, col, i]
+                globalcount += 1
             end
         end
-        X[:, :, i] = inputmat
     end
-    return X
 end
 
-function datasetgeneration(m, n, rank, dataset_size, knownentries, net_width)
+function datasetgeneration(m, n, rank, dataset_size, nbknownentries, k, rng;
+                           alpha::Float32 = 50f0)
     Y = Array{Float32, 3}(undef, m, n, dataset_size)
-    for i in 1:dataset_size
-        Y[:, :, i] = creatematrix(m, n, rank, 1131+i)
-    end
-    fixedmask = sensingmasks(m, n; k=knownentries, seed=9632)
-    mask_mat = masktuple2array(fixedmask, m, n)
-    @assert size(mask_mat) == (m, n)
-    X = matrixinput_setup(Y, net_width, m, n, dataset_size, knownentries, fixedmask)
-    @info("Memory usage after data generation: ", Base.gc_live_bytes() / 1024^3)
-    return X, Y, fixedmask, mask_mat
+    populateY!(Y, rank, rng)
+    masktuples = sensingmasks(m, n, nbknownentries, rng)
+    knowledgedistribution = allocateentries(k, nbknownentries, alpha, rng)
+    X = zeros(Float32, m*n, k, dataset_size)
+    populateX!(X, Y, knowledgedistribution, masktuples)
+    return X, Y, masktuples
 end
 
-dataX, dataY, fixedmask, mask_mat = datasetgeneration(N, N, RANK, DATASETSIZE, KNOWNENTRIES, K)
+myseed = Int(round(time()))
+rng = Random.MersenneTwister(myseed)
+
+dataX, dataY, masktuples = datasetgeneration(N, N, RANK, DATASETSIZE, KNOWNENTRIES, K, rng)
+maskmatrix = masktuple2array(masktuples, N, N)
+@info("Memory usage after data generation: ", Base.gc_live_bytes() / 1024^3)
 # (Initially tried to create X with sparse arrays, but it made pullbacks slower
 # and I am not RAM constrained, so focusing on regular arrays for now)
 
 size(dataX), size(dataY)
-#dataXt = NNlib.batched_adjoint(dataX)
 
 #====INITIALIZE MODEL====#
-activemodel = MatrixRNN(
-    MatrixVlaCell(N^2, K, 2*N), 
-    WeightedMeanLayer(N^2, K, 2*N)
+
+Random.seed!(rng, 0)
+
+activemodel = ComposedRNN(
+    MatrixVlaCell(K, N^2, 4*N), 
+    DecodingLayer(K, N^2, 4*N)
 )
+ps, st = Lux.setup(rng, activemodel)
+ps_ra = ps |> xdev
+st_ra = st |> xdev
+
+#display(activemodel)
+println("Parameter Length: ", LuxCore.parameterlength(activemodel), "; State Length: ",
+    LuxCore.statelength(activemodel))
+
+X = randn(rng, Float32, 64^2, 400)
+#y = activemodel(x, ps, st)[1]
+Y, H = Luxapply!(st, ps, activemodel, x; selfreset=false, turns=20)
+#gradient(ps -> sum(first(activemodel(x, ps, st))), ps)
 
 #====TEST FWD PASS AND LOSS====#
 #=
@@ -443,112 +432,47 @@ m_c = Reactant.@compile activemodel(dataX[:,:,1])
 @benchmark activemodel($dataX[:,:,1]) 
 @benchmark m_c($dataX[:,:,1])
 
-# Forward pass, one datum, no time steps
-@benchmark predict_through_time($activemodel, $dataX[:,:,1]) 
-# Forward pass, one datum, 2 time steps
-@benchmark predict_through_time($activemodel, $dataX[:,:,1], 2) 
-
-# Forward pass, all data points, no time steps
-@benchmark predict_through_time($activemodel, $dataX[:,:,1:32]) 
-# Forward pass, all data points, 2 time steps
-@benchmark predict_through_time($activemodel, $dataX[:,:,1:32], 2) 
-
-ys_hat = predict_through_time(activemodel, dataX)
-@benchmark spectrum_penalized_l1($dataY[:,:,1:2], $ys_hat[:,1:2], $mask_mat)
-@benchmark trainingloss($activemodel, $dataX[:,:,1:32], $dataY[:,:,1:32], $mask_mat)
-
 starttime = time()
-trainingloss_c = Reactant.@compile trainingloss(activemodel, dataX[:,:,1:2], dataY[:,:,1:2], mask_mat)
+trainingloss_c = Reactant.@compile trainingloss(activemodel, dataX[:,:,1:2], dataY[:,:,1:2], maskmatrix)
 endtime = time()
 println("Compilation time: ", (endtime - starttime)/60, " minutes")
-trainingloss_c = Reactant.@compile trainingloss(activemodel, dataX[:,:,1:2], dataY[:,:,1:2], mask_mat, 2)
-@benchmark trainingloss_c($activemodel, $dataX[:,:,1:32], $dataY[:,:,1:32], $mask_mat)
+trainingloss_c = Reactant.@compile trainingloss(activemodel, dataX[:,:,1:2], dataY[:,:,1:2], maskmatrix, 2)
+@benchmark trainingloss_c($activemodel, $dataX[:,:,1:32], $dataY[:,:,1:32], $maskmatrix)
 =#
-#====BEST GRADIENT COMPUTATION====#
-#=
-# Enzyme
-# MODEL ONLY
-@btime loss, grads = Flux.withgradient((m,x) -> sum(m(x)), 
-                                Duplicated(activemodel), dataX[:,:,1])
-# 123.524 ms (117 allocations: 114.67 MiB)
-@btime loss, grads = Flux.withgradient((m,x) -> sum(predict_through_time(m, x)), 
-                                Duplicated(activemodel), dataX)
-# 9.072 s (1277 allocations: 1.65 GiB)
+#==== GRADIENT COMPUTATION====#
+
 
 # TRAINING LOSS
-@btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
-                                $dataX[:,:,1], $dataY[:,:,1], $mask_mat)
+#@btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
+ #                               $dataX[:,:,1], $dataY[:,:,1], $maskmatrix)
 # 122.946 ms (182 allocations: 114.95 MiB)
-
-@btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
-                                $dataX[:,:,1:3], $dataY[:,:,1:3], $mask_mat)
-# 366.954 ms (666 allocations: 177.70 MiB)
-
-@btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
-                                $dataX, $dataY, $mask_mat)
-# 8.564 s (8836 allocations: 1.65 GiB)
-
-@btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
-                                $dataX[:,:,1], $dataY[:,:,1], $mask_mat, 2)
-# 364.710 ms (358 allocations: 164.96 MiB)
-
-@btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
-                                $dataX[:,:,1:3], $dataY[:,:,1:3], $mask_mat, 2)
-# 1.107 s (826 allocations: 327.97 MiB)
-
-@btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
-                                $dataX, $dataY, $mask_mat, 2)
-# 27.567 s (11070 allocations: 4.79 GiB)
-
-#====TEST OTHER GRADIENT COMPUTATIONS====#
+#=
+fclosure(ps) = trainingloss(activemodel, ps, st, (dataX[:,:,1:3], dataY[:,:,1:3], maskmatrix, 2))
 
 using DifferentiationInterface
-fclosure(m) = trainingloss(m, dataX[:,:,1:3], dataY[:,:,1:3], mask_mat)
-backend = AutoEnzyme()
-@btime DifferentiationInterface.value_and_gradient($fclosure, $backend, $activemodel) 
+DifferentiationInterface.value_and_gradient(fclosure, AutoEnzyme(), ps) 
 
 using Fluxperimental, Mooncake
 Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(reset!), Any}
 Mooncake.@mooncake_overlay norm(x) = sqrt(sum(abs2, x))
 Mooncake.@from_rrule Mooncake.DefaultCtx Tuple{typeof(svdvals), AbstractMatrix{<:Number}}
-
 dup_model = Moonduo(activemodel)
-
-# MODEL ONLY
-fclosure(m) = sum(m(dataX[:,:,1]))
 @btime loss, grads = Flux.withgradient($fclosure, $dup_model)
-# 1.089 s (4922099 allocations: 1.49 GiB)
-fclosure(m) = sum(predict_through_time(m, dataX))
-@btime loss, grads = Flux.withgradient($fclosure, $dup_model)
-# 
+loss, grads = Flux.withgradient(fclosure, dup_model)
 
-# TRAINING LOSS
-fclosure(m) = trainingloss(m, dataX[:,:,1], dataY[:,:,1], mask_mat)
-@btime loss, grads = Flux.withgradient($fclosure, $dup_model)
+grads = Enzyme.make_zero(ps)
+_, loss = autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), 
+        trainingloss,
+        Const(opt_state.model), Duplicated(opt_state.parameters, grads), Const(opt_state.states),  
+        Const((dataX[:,:,1:64],dataY[:,:,1:64],maskmatrix,2)))
+Training.apply_gradients!(opt_state, grads)
 
-fclosure(m) = trainingloss(m, dataX[:,:,1:3], dataY[:,:,1:3], mask_mat)
-@btime loss, grads = Flux.withgradient($fclosure, $dup_model)
-
-fclosure(m) = trainingloss(m, dataX[:,:,1], dataY[:,:,1], mask_mat, 2)
-@btime loss, grads = Flux.withgradient($fclosure, $dup_model)
-
-fclosure(m) = trainingloss(m, dataX[:,:,1:3], dataY[:,:,1:3], mask_mat, 2)
-@btime loss, grads = Flux.withgradient($fclosure, $dup_model)
-
-# set_runtime_activity(Enzyme.Reverse)
-test = autodiff(Enzyme.Reverse, 
-    trainingloss, Active, Duplicated(activemodel), 
-    Const(dataX), Const(dataY), Const(mask_mat))
-=#
+@btime autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), 
+            $trainingloss,
+            $(Const(activemodel)), $(Duplicated(ps, grads)), $(Const(st)),  
+            $(Const((dataX[:,:,1:64],dataY[:,:,1:64],maskmatrix,2))))
+            =#
 #========#
-MSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs2.(A .- B), dims=1)
-RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = sqrt.(MSE(A, B))
-
-function allentriesRMSE(ys::AbstractArray{Float32, 3}, 
-                        ys_hat::AbstractArray{Float32, 2};
-                        datascale::Float32 = 0.1f0)::Float32
-    mean(RMSE(_2D(ys), ys_hat) / datascale)
-end
 
 const MINIBATCH_SIZE::Int = 64
 const TRAIN_PROP::Float64 = 0.8
@@ -580,28 +504,23 @@ dataX, valX, testX = train_val_test_split(dataX, TRAIN_PROP, VAL_PROP, TEST_PROP
 dataY, valY, testY = train_val_test_split(dataY, TRAIN_PROP, VAL_PROP, TEST_PROP)
 size(dataX), size(dataY)
 
-dataloader = Flux.DataLoader(
-    (data=dataX, label=dataY), 
+dataloader = DataLoader(
+    (data = dataX, label = dataY), 
     batchsize=MINIBATCH_SIZE, 
-    shuffle=true)
+    shuffle=true, parallel=true, rng=rng)
 
 # Optimizer
-INIT_ETA = 5e-4
-DECAY = 0.7
+INIT_ETA = 1f-3
+DECAY = 0.7f0
 EPOCHS::Int = 5
 TURNS::Int = 1
 
-function prepareoptimizer(eta, decay, model)
-    # Learning rate schedule
-    s = Exp(start = eta, decay = decay)
-    # Optimizer
-    opt = Adam()
-    # Tree of states
-    opt_state = Flux.setup(opt, model)
-    return s, opt, opt_state
-end
-s, opt, opt_state = prepareoptimizer(INIT_ETA, DECAY, activemodel)
+using Optimisers
+opt = Adam(INIT_ETA)
+opt_state = Training.TrainState(activemodel, ps, st, opt)
 
+# Learning rate schedule
+s = Exp(start = INIT_ETA, decay = DECAY)
 println("Learning rate schedule:")
 for (eta, epoch) in zip(s, 1:EPOCHS)
     println(" - Epoch $epoch: eta = $eta")
@@ -624,8 +543,8 @@ Whh_spectra = []
 push!(Whh_spectra, eigvals(activemodel.rnn.Whh))
 
 # Compute the initial training and validation loss and other metrics with forward passes
-dataYs_hat = predict_through_time(activemodel, dataX[:,:,1:128], TURNS)
-initloss_train = spectrum_penalized_l1(dataY[:,:,1:128], dataYs_hat, mask_mat)
+dataYs_hat = predict_through_time(st, ps, activemodel, dataX[:,:,1:128], TURNS)
+initloss_train = spectrum_penalized_l1(dataY[:,:,1:128], dataYs_hat, maskmatrix)
 initRMSE_train = allentriesRMSE(dataY[:,:,1:128], dataYs_hat)
 push!(train_loss, initloss_train)
 push!(train_rmse, initRMSE_train)
@@ -634,8 +553,8 @@ push!(train_spectralnorm, l(spectralnorm, dataYs_hat))
 push!(train_spectralgap, l(spectralgap, dataYs_hat))
 push!(train_variance, var(dataYs_hat))
 
-valYs_hat = predict_through_time(activemodel, valX[:,:,1:128], TURNS)
-initloss_val = spectrum_penalized_l1(valY[:,:,1:128], valYs_hat, mask_mat)
+valYs_hat = predict_through_time(st, ps, activemodel, valX[:,:,1:128], TURNS)
+initloss_val = spectrum_penalized_l1(valY[:,:,1:128], valYs_hat, maskmatrix)
 initRMSE_val = allentriesRMSE(valY[:,:,1:128], valYs_hat)
 push!(val_loss, initloss_val)
 push!(val_rmse, initRMSE_val)
@@ -646,36 +565,36 @@ push!(val_variance, var(valYs_hat))
 
 ##================##
 function inspect_gradients(grads)
-    g, _ = Flux.destructure(grads)
-    
-    nan_params = [0]
-    vanishing_params = [0]
-    exploding_params = [0]
-
-    if any(isnan.(g))
-        push!(nan_params, 1)
+    # Convert a named tuple to a vector
+    g = [grads.cell.Wx_in, grads.cell.Whh, grads.dec.Wx_out]
+    a, b = size(g[1])
+    c, d = size(g[2])
+    tot = 2*a*b + c*d
+    nan_params, vanishing_params, exploding_params = 0, 0, 0
+    if any(isnan.(g[1])) || any(isnan.(g[2])) || any(isnan.(g[3]))
+        nan_params = sum(isnan.(g[1])) + sum(isnan.(g[2])) + sum(isnan.(g[3]))
     end
-    if any(abs.(g) .< 1e-6)
-        push!(vanishing_params, 1)
+    if any(abs.(g[1]) .< 1e-6) || any(abs.(g[2]) .< 1e-6) || any(abs.(g[3]) .< 1e-6)
+        vanishing_params = sum(abs.(g[1]) .< 1e-6) + sum(abs.(g[2]) .< 1e-6) + sum(abs.(g[3]) .< 1e-6)
     end
-    if any(abs.(g) .> 1e6)
-        push!(exploding_params, 1)
+    if any(abs.(g[1]) .> 1e6) || any(abs.(g[2]) .> 1e6) || any(abs.(g[3]) .> 1e6)
+        exploding_params = sum(abs.(g[1]) .> 1e6) + sum(abs.(g[2]) .> 1e6) + sum(abs.(g[3]) .> 1e6)
     end
-    return sum(nan_params), sum(vanishing_params), sum(exploding_params)
+    return nan_params/tot, vanishing_params/tot, exploding_params/tot
 end
 
 function diagnose_gradients(n, v, e)
     if n > 0
-        println(n, " NaN gradients detected")
+        @info(round(n, digits=2), " % NaN gradients detected")
     end
-    if v > 0 && v != 125
-        println(v, " vanishing gradients detected")
+    if v > 0 
+        @info(round(v, digits=2), " % vanishing gradients detected")
     end
     if e > 0
-        println(e, " exploding gradients detected")
+        @info(round(e, digits=2), " % exploding gradients detected")
     end
     #Otherwise, report that no issues were found
-    if n == 0 && v == 0 && e == 0
+    if n < 0.1 && v < 0.1 && e < 0.1
         println("Gradients appear well-behaved.")
     end
 end
@@ -685,25 +604,31 @@ println("===================")
 println("Initial training loss: " , initloss_train, "; initial training RMSE: ", initRMSE_train)
 @info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
 for (eta, epoch) in zip(s, 1:EPOCHS)
-    reset!(activemodel)
+    reset!(st, activemodel)
     println("Commencing epoch $epoch (eta = $(round(eta, digits=6)))")
-    Flux.adjust!(opt_state, eta = eta)
+    Optimisers.adjust!(opt_state, eta)
     # Initialize counters for gradient diagnostics
-    mb, n, v, e = 1, 0, 0, 0
+    mb = 1
     # Iterate over minibatches
     for (x, y) in dataloader
         # Forward pass (to compute the loss) and backward pass (to compute the gradients)
-        train_loss_value, grads = Flux.withgradient(trainingloss, Duplicated(activemodel), x, y, mask_mat, TURNS)
+        grads = Enzyme.make_zero(ps)
+        _, train_loss_value = autodiff(
+            set_runtime_activity(Enzyme.ReverseWithPrimal), 
+            trainingloss, Const(opt_state.model), 
+            Duplicated(opt_state.parameters, grads), 
+            Const(opt_state.states),  
+            Const((x, y, maskmatrix, TURNS)))
         if epoch == 1 && mb == 1
             @info("Time to first gradient: ", round(time() - starttime, digits=2), " seconds")
         end
         # During training, use the backward pass to store the training loss after the previous epoch
         push!(train_loss, train_loss_value)
         # Diagnose the gradients
-        _n, _v, _e = inspect_gradients(grads[1])
-        n += _n
-        v += _v
-        e += _e
+        _n, _v, _e = inspect_gradients(grads)
+        if _n > 0.1 || _v > 0.1 || _e > 0.1
+            diagnose_gradients(_n, _v, _e)
+        end
         # Detect loss of Inf or NaN. Print a warning, and then skip update!
         if !isfinite(train_loss_value)
             @warn "Loss is $val on minibatch $(epoch)--$(mb)" 
@@ -711,19 +636,16 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
             continue
         end
         # Use the optimizer and grads to update the trainable parameters; update the optimizer states
-        Flux.update!(opt_state, activemodel, grads[1])
+        Training.apply_gradients!(opt_state, grads)
         if mb == 1 || mb % 5 == 0
             println("Minibatch ", epoch, "--", mb, ": loss of ", round(train_loss_value, digits=4))
-            #@info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
         end
         mb += 1
     end
     push!(Whh_spectra, eigvals(activemodel.rnn.Whh))
-    # Print a summary of the gradient diagnostics for the epoch
-    diagnose_gradients(n, v, e)
     # Compute training metrics -- expensive operation with a forward pass over the entire training set
-    dataYs_hat = predict_through_time(activemodel, dataX[:,:,1:64], TURNS)
-    trainloss = spectrum_penalized_l1(dataY[:,:,1:64], dataYs_hat, mask_mat)
+    dataYs_hat = predict_through_time(st, ps, activemodel, dataX[:,:,1:64], TURNS)
+    trainloss = spectrum_penalized_l1(dataY[:,:,1:64], dataYs_hat, maskmatrix)
     trainRMSE = allentriesRMSE(dataY[:,:,1:64], dataYs_hat)
     push!(train_loss, trainloss)
     push!(train_rmse, trainRMSE)
@@ -732,8 +654,8 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     push!(train_spectralgap, l(spectralgap, dataYs_hat))
     push!(train_variance, var(dataYs_hat))
     # Compute validation metrics
-    valYs_hat = predict_through_time(activemodel, valX, TURNS)
-    push!(val_loss, spectrum_penalized_l1(valY, valYs_hat, mask_mat))
+    valYs_hat = predict_through_time(st, ps, activemodel, valX, TURNS)
+    push!(val_loss, spectrum_penalized_l1(valY, valYs_hat, maskmatrix))
     push!(val_rmse, allentriesRMSE(valY, valYs_hat))
     push!(val_nuclearnorm, l(scalednuclearnorm, valYs_hat))
     push!(val_spectralnorm, l(spectralnorm, valYs_hat))
@@ -753,8 +675,8 @@ endtime = time()
 # training time in minutes
 println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 # Assess on testing set
-testYs_hat = predict_through_time(activemodel, testX, TURNS)
-testloss = spectrum_penalized_l1(testY, testYs_hat, mask_mat)
+testYs_hat = predict_through_time(st, ps, activemodel, testX, TURNS)
+testloss = spectrum_penalized_l1(testY, testYs_hat, maskmatrix)
 testRMSE = allentriesRMSE(testY, testYs_hat)
 println("Test loss: $(testloss)")
 println("Test RMSE: $(testRMSE)")
