@@ -8,9 +8,6 @@ using NetworkLayout
 using CairoMakie
 CairoMakie.activate!()
 
-numagents = 100
-seed = 332
-
 function init_socgraph(type::String, numagents::Int, param::Int = 3, seed::Int = Int(round(time())))
     if type == "Erdos-Renyi"
         socgraph = erdos_renyi(numagents, numagents*param, seed = seed)

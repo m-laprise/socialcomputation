@@ -806,3 +806,9 @@ Label(
 fig
 
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(TURNS)turns_knownentries_WvecX_pHuber.png", fig)
+
+
+include("../inprogress/helpersWhh.jl")
+g_end = adj_to_graph(Whh; threshold = 0.01)
+figdegdist = plot_degree_distrib(g_end)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries_degreedist.png", figdegdist)
