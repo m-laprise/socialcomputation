@@ -23,11 +23,11 @@ BLAS.set_num_threads(4)
 
 # Hyperparameters and constants
 
-const K::Int = 200
+const K::Int = 300
 const N::Int = 64
 const HIDDEN_DIM::Int = 16 #2*N
 const RANK::Int = 1
-const DATASETSIZE::Int = 5000
+const DATASETSIZE::Int = 8000
 const KNOWNENTRIES::Int = 1600
 
 const MINIBATCH_SIZE::Int = 64
@@ -166,6 +166,11 @@ l(f, y) = mean(f.(_3Dslices(y)))
 
 #====DEFINE LOSS FUNCTIONS====#
 
+MSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs2, A .- B, dims=1)
+RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = sqrt.(MSE(A, B))
+MAE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs, A .- B, dims=1)
+Huber(A::AbstractArray{Float32}, B::AbstractArray{Float32}, δ::Float32 = 1f0) = HuberLoss(; delta = δ, agg = sum)(A, B)
+
 # Nuclear norm, but scaled to avoid the norm going to zero simply by scaling the matrix
 "Nuclear norm of a matrix (sum of singular values), scaled by the standard deviation of its entries"
 scalednuclearnorm(A::AbstractArray{Float32, 2})::Float32 = sum(svdvals(A)) / (size(A, 1) * std(A))
@@ -239,6 +244,24 @@ function spectrum_penalized_l2(ys::AbstractArray{Float32, 3},
     return mean(errors)
 end
 
+function spectrum_penalized_huber(ys::AbstractArray{Float32, 3}, 
+                          ys_hat::AbstractArray{Float32, 2}, 
+                          maskmatrix::AbstractArray{Float32, 2};
+                          theta::Float32 = 0.9f0,
+                          datascale::Float32 = 0.1f0)::Float32
+    nb_examples = size(ys, 3)
+    # Huber loss on known entries
+    hub = Huber(vec(maskmatrix) .* _2D(ys), vec(maskmatrix) .* ys_hat)
+    l1_known = hub / sum(maskmatrix)
+    # Spectral norm penalty
+    penalties = Array{Float32}(undef, nb_examples)
+    populatepenalties!(penalties, _3D(ys_hat))
+    # Training loss
+    left = theta * l1_known / datascale
+    right = (1f0 - theta) * penalties 
+    errors = left .+ right
+    return mean(errors)
+end
 # Training loss - Single datum 
 #=
 """ 
@@ -265,10 +288,6 @@ function spectrum_penalized_l2(ys::AbstractArray{Float32, 2},
     right = (1f0 - theta) * penalty
     return left .+ right
 end =#
-
-MSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs2, A .- B, dims=1)
-RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = sqrt.(MSE(A, B))
-MAE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs, A .- B, dims=1)
 
 function allentriesRMSE(ys::AbstractArray{Float32, 3}, 
                         ys_hat::AbstractArray{Float32, 2};
@@ -340,14 +359,14 @@ end
 "Compute predictions with no time steps, and use them to compute the training loss."
 function trainingloss(m, ps, st, (xs, ys, maskmatrix))
     ys_hat = predict_through_time(st, ps, m, xs)
-    #return spectrum_penalized_l2(ys, ys_hat, maskmatrix)#, st, NamedTuple()
-    return allentriesMAE(ys, ys_hat)
+    return spectrum_penalized_huber(ys, ys_hat, maskmatrix)
+    #return allentriesMAE(ys, ys_hat)
 end
 "Compute predictions with a given number of time steps, and use them to compute the training loss."
 function trainingloss(m, ps, st, (xs, ys, maskmatrix, turns))
     ys_hat = predict_through_time(st, ps, m, xs, turns)
-    #return spectrum_penalized_l2(ys, ys_hat, maskmatrix)#, st, NamedTuple()
-    return allentriesMAE(ys, ys_hat)
+    return spectrum_penalized_huber(ys, ys_hat, maskmatrix)
+    #return allentriesMAE(ys, ys_hat)
 end
 
 # Rules for autodiff backend
@@ -542,15 +561,17 @@ end
 train_metrics = Dict(
     :loss => Float32[],
     :rmse => Float32[],
+    :mae => Float32[],
     :nuclearnorm => Float32[],
     :spectralnorm => Float32[],
     :spectralgap => Float32[],
     :variance => Float32[],
-    :Whh_spectra => Array{Complex{Float32}}[]
+    :Whh_spectra => []
 )
 val_metrics = Dict(
     :loss => Float32[],
     :rmse => Float32[],
+    :mae => Float32[],
 )
 # Compute the initial training and validation loss and other metrics with forward passes
 function recordmetrics!(metricsdict, st, ps, activemodel, X, Y, maskmatrix, TURNS, subset=200; split="train")
@@ -558,10 +579,9 @@ function recordmetrics!(metricsdict, st, ps, activemodel, X, Y, maskmatrix, TURN
         subset = size(X, 3)
     end
     Ys_hat = predict_through_time(st, ps, activemodel, X[:,:,1:subset], TURNS)
-    #push!(metricsdict[:loss], spectrum_penalized_l2(Y[:,:,1:subset], Ys_hat, maskmatrix))
-    #push!(metricsdict[:rmse], allentriesRMSE(Y[:,:,1:subset], Ys_hat))
-    push!(metricsdict[:rmse], spectrum_penalized_l1(Y[:,:,1:subset], Ys_hat, maskmatrix))
-    push!(metricsdict[:loss], allentriesMAE(Y[:,:,1:subset], Ys_hat))
+    push!(metricsdict[:loss], spectrum_penalized_huber(Y[:,:,1:subset], Ys_hat, maskmatrix))
+    push!(metricsdict[:rmse], allentriesRMSE(Y[:,:,1:subset], Ys_hat))
+    push!(metricsdict[:mae], allentriesMAE(Y[:,:,1:subset], Ys_hat))
     if split == "train"
         push!(metricsdict[:nuclearnorm], l(scalednuclearnorm, Ys_hat))
         push!(metricsdict[:spectralnorm], l(spectralnorm, Ys_hat))
@@ -572,13 +592,12 @@ function recordmetrics!(metricsdict, st, ps, activemodel, X, Y, maskmatrix, TURN
         return Ys_hat
     end
 end
-train_metrics[:Whh_spectra] = eigvals(ps.cell.Whh)
+push!(train_metrics[:Whh_spectra], eigvals(ps.cell.Whh))
 recordmetrics!(train_metrics, st, ps, activemodel, dataX, dataY, maskmatrix, TURNS)
 recordmetrics!(val_metrics, st, ps, activemodel, valX, valY, maskmatrix, TURNS, split="val")
 
 ##================##
 function inspect_gradients(grads)
-    # Convert a named tuple to a vector
     g = [grads.cell.Wx_in, grads.cell.Whh, grads.cell.Bh, grads.dec.Wx_out]
     tot = sum(length.(g))
     nan_params = sum(sum(isnan, gi) for gi in g)
@@ -605,7 +624,7 @@ end
 
 starttime = time()
 println("===================")
-println("Initial training loss: " , train_metrics[:loss][1], "; initial training RMSE: ", train_metrics[:rmse][1]*10)
+println("Initial training loss: " , train_metrics[:loss][1], "; initial training RMSE: ", train_metrics[:rmse][1])
 @info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
 for (eta, epoch) in zip(s, 1:EPOCHS)
     reset!(st, activemodel)
@@ -660,10 +679,11 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     # Compute training metrics -- expensive operation with a forward pass over the entire training set
     # but we restrict to two mini-batches only
     recordmetrics!(train_metrics, st, ps, activemodel, dataX, dataY, maskmatrix, TURNS)
+    push!(train_metrics[:Whh_spectra], eigvals(ps.cell.Whh))
     # Compute validation metrics
     recordmetrics!(val_metrics, st, ps, activemodel, valX, valY, maskmatrix, TURNS, split="val")
-    println("Epoch ", epoch, ": Train loss: ", train_metrics[:loss][end], "; train RMSE: ", train_metrics[:rmse][end]*10)
-    println("Epoch ", epoch, ": Val loss: ", val_metrics[:loss][end], "; val RMSE: ", val_metrics[:rmse][end]*10)
+    println("Epoch ", epoch, ": Train loss: ", train_metrics[:loss][end], "; train RMSE: ", train_metrics[:rmse][end])
+    println("Epoch ", epoch, ": Val loss: ", val_metrics[:loss][end], "; val RMSE: ", val_metrics[:rmse][end])
     # Check if validation loss has increased for 2 epochs in a row; if so, stop training
     if length(val_metrics[:loss]) > 2
         if val_metrics[:loss][end] > val_metrics[:loss][end-1] && val_metrics[:loss][end-1] > val_metrics[:loss][end-2]
@@ -708,10 +728,9 @@ epochs = length(val_metrics[:loss])
 train_metrics[:spectralgapovernorm] = train_metrics[:spectralgap] ./ train_metrics[:spectralnorm]
 refspectralgapovernorm = refspectralgap / refspectralnorm
 metrics = [
-    #(1, 1, "Loss", "loss", "Spectral-gap and norm penalized RMSE / std (known entries)"),
-    #(1, 2, "RMSE", "rmse", "RMSE / std (all entries)"),
-    (1, 1, "Loss", "loss", "MAE / std (all entries)"),
-    (1, 2, "MAE", "rmse", "MAE / std (known entries)"),
+    (1, 1, "Loss", "loss", "Spectral-gap and norm penalized Huber / std (known entries)"),
+    (1, 2, "RMSE", "rmse", "RMSE and MAE / std (all entries)"),
+    (1, 2, "MAE", "mae", "RMSE and MAE / std (all entries)"),
     (2, 1, "Spectral gap / spectral norm", "spectralgapovernorm", "Mean spectral gap / mean spectral norm"),
     (2, 2, "Spectral gap", "spectralgap", "Mean spectral gap"),
     (3, 1, "Nuclear norm", "nuclearnorm", "Mean scaled nuclear norm"),
@@ -723,13 +742,18 @@ for (row, col, ylabel, key, title) in metrics
         lines!(ax, [i for i in range(2, epochs, length(train_metrics[Symbol(key)][length(dataloader)+1:end]))], 
                train_metrics[Symbol(key)][length(dataloader)+1:end], color = :blue, label = "Training")
         lines!(ax, 2:epochs, val_metrics[Symbol(key)][2:end], color = :red, label = "Validation")
-        #lines!(ax, 2:epochs, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
-        #scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :green, label = "Final Test")
+        lines!(ax, 2:epochs, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
+        scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :green, label = "Final Test")
     elseif key in ["rmse"]
-        lines!(ax, 2:epochs, train_metrics[Symbol(key)][2:end]*10, color = :blue, label = "Training")
-        lines!(ax, 2:epochs, val_metrics[Symbol(key)][2:end]*10, color = :red, label = "Validation")
-        #lines!(ax, 2:epochs, [test_metrics[Symbol(key)][end]*10], color = :green, linestyle = :dash)
-        #scatter!(ax, epochs, test_metrics[Symbol(key)][end]*10, color = :green, label = "Final Test")
+        lines!(ax, 2:epochs, train_metrics[Symbol(key)][2:end], color = :blue, label = "Training RMSE")
+        lines!(ax, 2:epochs, val_metrics[Symbol(key)][2:end], color = :red, label = "Validation RMSE")
+        lines!(ax, 2:epochs, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
+        scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :green, label = "Final Test RMSE")
+    elseif key in ["mae"]
+        lines!(ax, 2:epochs, train_metrics[Symbol(key)][2:end], color = :purple, label = "Training MAE")
+        lines!(ax, 2:epochs, val_metrics[Symbol(key)][2:end], color = :pink, label = "Validation MAE")
+        lines!(ax, 2:epochs, [test_metrics[Symbol(key)][end]], color = :gray, linestyle = :dash)
+        scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :gray, label = "Final Test MAE")
     else
         lines!(ax, 2:epochs, train_metrics[Symbol(key)][2:end], color = :blue, label = "Reconstructed")
         lines!(ax, 2:epochs, [eval(Symbol("ref$key"))], color = :orange, linestyle = :dash, label = "Mean ground truth")
@@ -747,12 +771,12 @@ Label(
     fig[end+1, 1:2],
     "Optimizer: Adam with schedule Exp(start = $(INIT_ETA), decay = $(DECAY), restart = 10)\n"*
     "for $(epochs-1) epochs over $(size(dataX, 3)) examples, minibatch size $(MINIBATCH_SIZE).\n"*
-    "Hidden internal state dimension: $(HIDDEN_DIM).\n",#*
-    #"Test MAE (all entries): $(round(test_metrics[:loss][end], digits=4)). "*
-    #"Test MAE (known entries): $(round(test_metrics[:rmse][end]*10, digits=4)).",
+    "Hidden internal state dimension: $(HIDDEN_DIM).\n"*
+    "Test loss (known entries): $(round(test_metrics[:loss][end], digits=4)). "*
+    "Test RMSE (all entries): $(round(test_metrics[:rmse][end], digits=4)).",
     fontsize = 14,
     padding = (0, 0, 0, 0),
 )
 fig
 
-save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(TURNS)turns_knownentries_WvecX_allMAE_moreepochs_failure.png", fig)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(TURNS)turns_knownentries_WvecX_pHuber.png", fig)
