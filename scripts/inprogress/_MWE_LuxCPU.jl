@@ -171,9 +171,28 @@ RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = sqrt.(MSE(A, B))
 MAE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs, A .- B, dims=1)
 Huber(A::AbstractArray{Float32}, B::AbstractArray{Float32}, δ::Float32 = 1f0) = HuberLoss(; delta = δ, agg = sum)(A, B)
 
+# SVD decomposition, when running simulations on millions on matrices,
+# can sometimes (rarely) generate LAPACK errors due to numerical instability. This can be avoided
+# by changing the algorithm used when an error occurs; this requires using svd(A).S instead of svdvals(A)
+# and a try catch (credit to https://yanagimotor.github.io/posts/2021/06/blog-post-lapack/ for the tip)
+# The fallback is much slower, but avoids the error and is rarely used.
+# HOWEVER; I can't autodiff through the QRIteration. Should file an issue on Github.
+# In the meantime, I simply skip the penalty when this happens.
+#=function robust_svdvals(A::AbstractArray{Float32, 2})
+    try
+        return svdvals(A)
+    catch e
+        @warn "LAPACK error detected; switching to QR iteration"
+        return svd(A, alg=LinearAlgebra.QRIteration()).S
+    end
+end=#
+
 # Nuclear norm, but scaled to avoid the norm going to zero simply by scaling the matrix
+# It computes svdvals if none are provided, or use the provided ones.
 "Nuclear norm of a matrix (sum of singular values), scaled by the standard deviation of its entries"
+nuclearnorm(A::AbstractArray{Float32, 2})::Float32 = sum(svdvals(A))
 scalednuclearnorm(A::AbstractArray{Float32, 2})::Float32 = sum(svdvals(A)) / (size(A, 1) * std(A))
+scalednuclearnorm(svdvals::AbstractVector{Float32}, scaling::Float32)::Float32 = sum(svdvals) / (length(svdvals) * scaling)
 
 "Spectral norm of a matrix (largest singular value)"
 spectralnorm(A::AbstractArray{Float32, 2})::Float32 = svdvals(A)[1]
@@ -190,12 +209,23 @@ function scaledspectralgap(A::AbstractArray{Float32, 2})::Float32
     return (vals[1] - vals[2]) / vals[1] 
 end
 
+# The ground truth absolute nuclear norms vary between 10 and 3.8, with a mean of 6.4.
+# Using only scaled penalty lets absolute value grow arbitrarily, so I add a penalty to minimize the
+# absolute nuclear norm, but only active for absolute nuclear norms above 11.
 "Populates a vector with the scaled spectral gap of each matrix in a 3D array"
 function populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothing
     @inbounds for i in axes(ys_hat, 3)
-        nn = scalednuclearnorm(@view ys_hat[:,:,i])
-        gap = scaledspectralgap(@view ys_hat[:,:,i]) - 1f0
-        penalties[i] = nn >= 1f0 ? nn-gap : 1f0-gap
+        try
+            valsY = svdvals(@view ys_hat[:,:,i])
+            nn = sum(valsY)
+            snn = nn / (length(valsY) * std(@view ys_hat[:,:,i]))
+            sgap = ((valsY[1] - valsY[2]) / valsY[1]) - 1f0
+            penalties[i] = snn >= 1f0 ? snn-sgap : 1f0-sgap
+            penalties[i] += nn >= 11f0 ? nn-11f0 : 0f0
+        catch
+            @warn "LAPACK error detected; skipping spectral penalty"
+            penalties[i] = 0f0
+        end
         #penalties[i] = -scaledspectralgap(@view ys_hat[:,:,i]) + 1f0 
     end
 end
@@ -214,7 +244,8 @@ function spectrum_penalized_l1(ys::AbstractArray{Float32, 3},
     nb_examples = size(ys, 3)
     # L1 loss on known entries
     diff = vec(maskmatrix) .* (_2D(ys) .- ys_hat)
-    l1_known = vec(sum(abs, diff, dims = 1)) / sum(maskmatrix)
+    denom = sum(maskmatrix) * size(ys, 3)
+    l1_known = vec(sum(abs, diff, dims = 1)) / denom
     # Spectral norm penalty
     penalties = Array{Float32}(undef, nb_examples)
     populatepenalties!(penalties, _3D(ys_hat))
@@ -231,9 +262,10 @@ function spectrum_penalized_l2(ys::AbstractArray{Float32, 3},
                           theta::Float32 = 1f0,#0.8f0,
                           datascale::Float32 = 0.1f0)::Float32
     nb_examples = size(ys, 3)
-    # L1 loss on known entries
+    # L2 loss on known entries
     diff = vec(maskmatrix) .* (_2D(ys) .- ys_hat)
-    l2_known = sqrt(vec(sum(abs2, diff, dims = 1)) / sum(maskmatrix))
+    denom = sum(maskmatrix) * size(ys, 3)
+    l2_known = vec(sum(abs2, diff, dims = 1)) / denom
     # Spectral norm penalty
     penalties = Array{Float32}(undef, nb_examples)
     populatepenalties!(penalties, _3D(ys_hat))
@@ -252,12 +284,12 @@ function spectrum_penalized_huber(ys::AbstractArray{Float32, 3},
     nb_examples = size(ys, 3)
     # Huber loss on known entries
     hub = Huber(vec(maskmatrix) .* _2D(ys), vec(maskmatrix) .* ys_hat)
-    l1_known = hub / sum(maskmatrix)
+    l1_known = hub / (sum(maskmatrix)*size(ys, 3))
     # Spectral norm penalty
     penalties = Array{Float32}(undef, nb_examples)
     populatepenalties!(penalties, _3D(ys_hat))
     # Training loss
-    left = theta * l1_known / datascale
+    left = theta/datascale * l1_known 
     right = (1f0 - theta) * penalties 
     errors = left .+ right
     return mean(errors)
@@ -372,6 +404,7 @@ end
 # Rules for autodiff backend
 EnzymeRules.inactive(::typeof(reset!), args...) = nothing
 Enzyme.@import_rrule typeof(svdvals) AbstractMatrix{<:Number}
+#Enzyme.@import_rrule typeof(svd) AbstractMatrix{<:Number}
 
 #====CREATE DATA====#
 
@@ -597,28 +630,30 @@ recordmetrics!(train_metrics, st, ps, activemodel, dataX, dataY, maskmatrix, TUR
 recordmetrics!(val_metrics, st, ps, activemodel, valX, valY, maskmatrix, TURNS, split="val")
 
 ##================##
-function inspect_gradients(grads)
+function inspect_gradients!(grads)
     g = [grads.cell.Wx_in, grads.cell.Whh, grads.cell.Bh, grads.dec.Wx_out]
     tot = sum(length.(g))
     nan_params = sum(sum(isnan, gi) for gi in g)
     vanishing_params = sum(sum(abs.(gi) .< 1e-6) for gi in g)
     exploding_params = sum(sum(abs.(gi) .> 1e6) for gi in g)
-    return nan_params/tot, vanishing_params/tot, exploding_params/tot
+    if nan_params > 0
+        for gi in g
+            gi[isnan.(gi)] .= 0f0
+        end
+        @warn("$(round(nan_params/tot*100, digits=0)) % NaN gradients detected and replaced with zeros.")
+    end
+    return vanishing_params/tot, exploding_params/tot
 end
 
-function diagnose_gradients(n, v, e)
-    if n > 0
-        @info("$(round(n*100, digits=0)) % NaN gradients detected")
-    end
-    if v > 0 
+function diagnose_gradients(v, e)
+    if v >= 0.1
         @info("$(round(v*100, digits=0)) % vanishing gradients detected")
     end
-    if e > 0
+    if e >= 0.1
         @info("$(round(e*100, digits=0)) % exploding gradients detected")
     end
-    #Otherwise, report that no issues were found
-    if n < 0.1 && v < 0.1 && e < 0.1
-        println("Gradients appear well-behaved.")
+    if v < 0.1 && e < 0.1
+        @info("Gradients well-behaved.")
     end
 end
 
@@ -646,28 +681,19 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
         if epoch == 1 && mb == 1
             @info("Time to first gradient: $(round(time() - starttime, digits=2)) seconds")
         end
-        _n, _v, _e = inspect_gradients(grads)
-        # If any gradients are NaN, print a warning and skip the update
-        if _n > 0
-            @warn "NaN gradients detected on minibatch $(epoch)--$(mb)"
-            diagnose_gradients(_n, _v, _e)
-            mb += 1
-            continue
-        end
+        _v, _e = inspect_gradients!(grads)
         # Detect loss of Inf or NaN. Print a warning, and then skip update
         if !isfinite(train_loss_value)
             @warn "Loss is $train_loss_value on minibatch $(epoch)--$(mb)" 
-            diagnose_gradients(_n, _v, _e)
+            diagnose_gradients(_v, _e)
             mb += 1
             continue
         end
         # During training, use the backward pass to store the training loss after the previous epoch
         push!(train_metrics[:loss], train_loss_value)
         if mb % 25 == 0
-            # Diagnose the gradients
-            if _v > 0.1 || _e > 0.1
-                diagnose_gradients(_n, _v, _e)
-            end
+            # Diagnose the gradients every 25 minibatches
+            diagnose_gradients(_v, _e)
         end
         if mb == 1 || mb % 5 == 0
             println("Minibatch ", epoch, "--", mb, ": loss of ", round(train_loss_value, digits=4))
@@ -696,7 +722,7 @@ endtime = time()
 # training time in minutes
 println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 # Assess on testing set
-test_metrics = Dict(:loss => Float32[], :rmse => Float32[])
+test_metrics = Dict(:loss => Float32[], :rmse => Float32[], :mae => Float32[])
 testYs_hat = recordmetrics!(test_metrics, st, ps, activemodel, testX, testY, maskmatrix, TURNS, split="test")
 
 #======explore results=======#
@@ -729,8 +755,8 @@ train_metrics[:spectralgapovernorm] = train_metrics[:spectralgap] ./ train_metri
 refspectralgapovernorm = refspectralgap / refspectralnorm
 metrics = [
     (1, 1, "Loss", "loss", "Spectral-gap and norm penalized Huber / std (known entries)"),
-    (1, 2, "RMSE", "rmse", "RMSE and MAE / std (all entries)"),
-    (1, 2, "MAE", "mae", "RMSE and MAE / std (all entries)"),
+    #(1, 2, "RMSE", "rmse", "RMSE / std (all entries)"),
+    (1, 2, "MAE", "mae", "MAE / std (all entries)"),
     (2, 1, "Spectral gap / spectral norm", "spectralgapovernorm", "Mean spectral gap / mean spectral norm"),
     (2, 2, "Spectral gap", "spectralgap", "Mean spectral gap"),
     (3, 1, "Nuclear norm", "nuclearnorm", "Mean scaled nuclear norm"),
@@ -744,16 +770,16 @@ for (row, col, ylabel, key, title) in metrics
         lines!(ax, 2:epochs, val_metrics[Symbol(key)][2:end], color = :red, label = "Validation")
         lines!(ax, 2:epochs, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
         scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :green, label = "Final Test")
-    elseif key in ["rmse"]
+    #=elseif key in ["rmse"]
         lines!(ax, 2:epochs, train_metrics[Symbol(key)][2:end], color = :blue, label = "Training RMSE")
         lines!(ax, 2:epochs, val_metrics[Symbol(key)][2:end], color = :red, label = "Validation RMSE")
         lines!(ax, 2:epochs, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
-        scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :green, label = "Final Test RMSE")
+        scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :green, label = "Final Test RMSE")=#
     elseif key in ["mae"]
-        lines!(ax, 2:epochs, train_metrics[Symbol(key)][2:end], color = :purple, label = "Training MAE")
-        lines!(ax, 2:epochs, val_metrics[Symbol(key)][2:end], color = :pink, label = "Validation MAE")
-        lines!(ax, 2:epochs, [test_metrics[Symbol(key)][end]], color = :gray, linestyle = :dash)
-        scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :gray, label = "Final Test MAE")
+        lines!(ax, 2:epochs, train_metrics[Symbol(key)][2:end], color = :blue, label = "Training MAE")
+        lines!(ax, 2:epochs, val_metrics[Symbol(key)][2:end], color = :red, label = "Validation MAE")
+        lines!(ax, 2:epochs, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
+        scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :green, label = "Final Test MAE")
     else
         lines!(ax, 2:epochs, train_metrics[Symbol(key)][2:end], color = :blue, label = "Reconstructed")
         lines!(ax, 2:epochs, [eval(Symbol("ref$key"))], color = :orange, linestyle = :dash, label = "Mean ground truth")
@@ -773,7 +799,7 @@ Label(
     "for $(epochs-1) epochs over $(size(dataX, 3)) examples, minibatch size $(MINIBATCH_SIZE).\n"*
     "Hidden internal state dimension: $(HIDDEN_DIM).\n"*
     "Test loss (known entries): $(round(test_metrics[:loss][end], digits=4)). "*
-    "Test RMSE (all entries): $(round(test_metrics[:rmse][end], digits=4)).",
+    "Test MAE (all entries): $(round(test_metrics[:mae][end], digits=4)).",
     fontsize = 14,
     padding = (0, 0, 0, 0),
 )
