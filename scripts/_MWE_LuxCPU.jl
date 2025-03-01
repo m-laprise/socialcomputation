@@ -23,9 +23,9 @@ BLAS.set_num_threads(4)
 
 # Hyperparameters and constants
 
-const K::Int = 300
+const K::Int = 100
 const N::Int = 64
-const HIDDEN_DIM::Int = 16 #2*N
+const HIDDEN_DIM::Int = 8
 const RANK::Int = 1
 const DATASETSIZE::Int = 8000
 const KNOWNENTRIES::Int = 1600
@@ -35,10 +35,12 @@ const TRAIN_PROP::Float64 = 0.8
 const VAL_PROP::Float64 = 0.1
 const TEST_PROP::Float64 = 0.1
 
-INIT_ETA = 1f-4
+INIT_ETA = 5f-5
 DECAY = 0.7f0
 EPOCHS::Int = 10
 TURNS::Int = 50
+
+THETA::Float32 = 0.5f0
 
 datarng = Random.MersenneTwister(Int(round(time())))
 trainrng = Random.MersenneTwister(0)
@@ -104,9 +106,6 @@ Lux.initialstates(::AbstractRNG, ::DecodingLayer) = NamedTuple()
 
 # FORWARD PASSES
 function timemovement!(st, ps, turns)
-    # Each agent takes a col of the n2 x k input matrix, 
-    # which is a sparse (n2 x 1) vector, and projects it to a m x 1 vector, with m << n2
-    # (They all share the same projection / compression stragegy Wx_in in R^{m x n2})
     # Agents consult their compressed input, exchange compressed information, and update their state.
     # Repeat for a given number of time steps.
     @inbounds for _ in 1:turns
@@ -118,6 +117,9 @@ function (l::MatrixVlaCell)(X, ps, st)
     if st.selfreset[1]
         reset!(st)
     end
+    # Each agent takes a col of the n2 x k input matrix, 
+    # which is a sparse (n2 x 1) vector, and projects it to a m x 1 vector, with m << n2
+    # (They all share the same projection / compression stragegy Wx_in in R^{m x n2})
     # To avoid recomputing the projection for each time step,
     # store it as a hidden state
     st.Xproj .= ps.Wx_in * X
@@ -217,11 +219,12 @@ function populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothi
     @inbounds for i in axes(ys_hat, 3)
         try
             valsY = svdvals(@view ys_hat[:,:,i])
-            nn = sum(valsY)
-            snn = nn / (length(valsY) * std(@view ys_hat[:,:,i]))
-            sgap = ((valsY[1] - valsY[2]) / valsY[1]) - 1f0
-            penalties[i] = snn >= 1f0 ? snn-sgap : 1f0-sgap
-            penalties[i] += nn >= 11f0 ? nn-11f0 : 0f0
+            nn = sum(valsY) - 11f0
+            #snn = nn / (length(valsY) * std(@view ys_hat[:,:,i]))
+            sgap = ((valsY[1] - valsY[2]) / valsY[1]) - 1f0 #Between -1 and 0; 0 is ideal
+            #penalties[i] = snn >= 1f0 ? snn-sgap : 1f0-sgap
+            #penalties[i] += nn >= 11f0 ? nn-11f0 : 0f0
+            penalties[i] = nn >= 0f0 ? nn-sgap : 0f0-sgap
         catch
             @warn "LAPACK error detected; skipping spectral penalty"
             penalties[i] = 0f0
@@ -279,7 +282,7 @@ end
 function spectrum_penalized_huber(ys::AbstractArray{Float32, 3}, 
                           ys_hat::AbstractArray{Float32, 2}, 
                           maskmatrix::AbstractArray{Float32, 2};
-                          theta::Float32 = 0.9f0,
+                          theta::Float32 = THETA,
                           datascale::Float32 = 0.1f0)::Float32
     nb_examples = size(ys, 3)
     # Huber loss on known entries
@@ -659,7 +662,7 @@ end
 
 starttime = time()
 println("===================")
-println("Initial training loss: " , train_metrics[:loss][1], "; initial training RMSE: ", train_metrics[:rmse][1])
+println("Initial training loss: " , train_metrics[:loss][1], "; initial training MAE: ", train_metrics[:mae][1])
 @info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
 for (eta, epoch) in zip(s, 1:EPOCHS)
     reset!(st, activemodel)
@@ -708,15 +711,15 @@ for (eta, epoch) in zip(s, 1:EPOCHS)
     push!(train_metrics[:Whh_spectra], eigvals(ps.cell.Whh))
     # Compute validation metrics
     recordmetrics!(val_metrics, st, ps, activemodel, valX, valY, maskmatrix, TURNS, split="val")
-    println("Epoch ", epoch, ": Train loss: ", train_metrics[:loss][end], "; train RMSE: ", train_metrics[:rmse][end])
-    println("Epoch ", epoch, ": Val loss: ", val_metrics[:loss][end], "; val RMSE: ", val_metrics[:rmse][end])
+    println("Epoch ", epoch, ": Train loss: ", train_metrics[:loss][end], "; train MAE: ", train_metrics[:mae][end])
+    println("Epoch ", epoch, ": Val loss: ", val_metrics[:loss][end], "; val MAE: ", val_metrics[:mae][end])
     # Check if validation loss has increased for 2 epochs in a row; if so, stop training
-    if length(val_metrics[:loss]) > 2
-        if val_metrics[:loss][end] > val_metrics[:loss][end-1] && val_metrics[:loss][end-1] > val_metrics[:loss][end-2]
+    #=if length(val_metrics[:loss]) > 2
+        if val_metrics[:loss][end] > val_metrics[:loss][end-1] && val_metrics[:loss][end-1] > val_metrics[:loss][end-2] && val_metrics[:loss][end-2] > val_metrics[:loss][end-3]
             @warn("Early stopping at epoch $epoch")
             break
         end
-    end
+    end=#
 end
 endtime = time()
 # training time in minutes
@@ -737,8 +740,11 @@ plot(svdvals(reshape(testYs_hat[:,10], N, N)))
 
 mean(RMSE(testYs_hat, _2D(testY))) / 0.1f0
 
-include("../plot_utils.jl")
+include("plot_utils.jl")
 ploteigvals(ps.cell.Whh)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns_knownentries_WvecX_pHuber(nn-sgap-theta50)_Whheigvals.png", 
+     ploteigvals(ps.cell.Whh))
+
 
 #======generate training plots=======#
 
@@ -749,12 +755,15 @@ taskfilename = "matrix$(N)recon_rank$(RANK)"
 modlabel = "Matrix Vanilla"
 
 CairoMakie.activate!()
-fig = Figure(size = (820, 1000))
+fig = Figure(size = (850, 1000))
 epochs = length(val_metrics[:loss])
 train_metrics[:spectralgapovernorm] = train_metrics[:spectralgap] ./ train_metrics[:spectralnorm]
+train_metrics[:logloss] = log.(train_metrics[:loss])
+val_metrics[:logloss] = log.(val_metrics[:loss])
+test_metrics[:logloss] = log.(test_metrics[:loss])
 refspectralgapovernorm = refspectralgap / refspectralnorm
 metrics = [
-    (1, 1, "Loss", "loss", "Spectral-gap and norm penalized Huber / std (known entries)"),
+    (1, 1, "Log Loss", "logloss", "Spectral-gap and norm penalized Huber / std (known entries)"),
     #(1, 2, "RMSE", "rmse", "RMSE / std (all entries)"),
     (1, 2, "MAE", "mae", "MAE / std (all entries)"),
     (2, 1, "Spectral gap / spectral norm", "spectralgapovernorm", "Mean spectral gap / mean spectral norm"),
@@ -764,7 +773,7 @@ metrics = [
 ]
 for (row, col, ylabel, key, title) in metrics
     ax = Axis(fig[row, col], xlabel = "Epochs", ylabel = ylabel, title = title)
-    if key in ["loss"]
+    if key in ["logloss"]
         lines!(ax, [i for i in range(2, epochs, length(train_metrics[Symbol(key)][length(dataloader)+1:end]))], 
                train_metrics[Symbol(key)][length(dataloader)+1:end], color = :blue, label = "Training")
         lines!(ax, 2:epochs, val_metrics[Symbol(key)][2:end], color = :red, label = "Validation")
@@ -805,10 +814,10 @@ Label(
 )
 fig
 
-save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(TURNS)turns_knownentries_WvecX_pHuber.png", fig)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns_knownentries_WvecX_pHuber(nn-sgap-theta50).png", fig)
 
 
-include("../inprogress/helpersWhh.jl")
-g_end = adj_to_graph(Whh; threshold = 0.01)
+include("inprogress/helpersWhh.jl")
+g_end = adj_to_graph(ps.cell.Whh; threshold = 0.01)
 figdegdist = plot_degree_distrib(g_end)
-save("data/$(taskfilename)_$(modlabel)RNNwidth$(net_width)_$(TURNS)turns_knownentries_degreedist.png", figdegdist)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns_knownentries_WvecX_pHuber(nn-sgap-theta50)_degdist.png", figdegdist)
