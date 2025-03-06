@@ -12,7 +12,7 @@ struct MatrixVlaCell{F1, F2, F3} <: Lux.AbstractLuxLayer
     init_zeros::F3
 end
 
-struct MatrixG1Cell{F1, F2, F3} <: Lux.AbstractLuxLayer
+struct MatrixGatedCell{F1, F2, F3} <: Lux.AbstractLuxLayer
     k::Int
     n2::Int
     m::Int
@@ -33,15 +33,43 @@ function MatrixVlaCell(k::Int, n2::Int, m::Int;
         k, n2, m, init_params, init_states, init_zeros
     )
 end
+function MatrixGatedCell(k::Int, n2::Int, m::Int; 
+                         init_params=glorot_uniform, 
+                         init_states=glorot_uniform, 
+                         init_zeros=zeros32)
+    MatrixGatedCell{typeof(init_params), typeof(init_states), typeof(init_zeros)}(
+        k, n2, m, init_params, init_states, init_zeros
+    )
+end
 
 function Lux.initialparameters(rng::AbstractRNG, l::MatrixVlaCell)
     (Wx_in=l.init_params(rng, l.m, l.n2; gain = 1.1f0),
      Whh=l.init_params(rng, l.k, l.k; gain = 1.1f0),
      Bh=l.init_zeros(l.m, l.k))
 end
+function Lux.initialparameters(rng::AbstractRNG, l::MatrixGatedCell)
+    (Wx_in=l.init_params(rng, l.m, l.n2; gain = 1.1f0),
+     Whh=l.init_params(rng, l.k, l.k; gain = 1.1f0),
+     Bh=l.init_zeros(l.m, l.k),
+     Wa=l.init_params(rng, l.m, l.k; gain = 1.1f0),
+     Wah=l.init_params(rng, l.k, l.k; gain = 1.1f0),
+     Wax=l.init_params(rng, l.m, l.m; gain = 1.1f0),
+     Ba=l.init_zeros(l.m, l.k))
+end
+
 function Lux.initialstates(rng::AbstractRNG, l::MatrixVlaCell)
     h = l.init_states(rng, l.m, l.k; gain = 1.1f0)
     (H=h,
+     Xproj=l.init_zeros(l.m, l.k),
+     selfreset=[false],
+     turns=[1],
+     init=deepcopy(h)) 
+end
+
+function Lux.initialstates(rng::AbstractRNG, l::MatrixGatedCell)
+    h = l.init_states(rng, l.m, l.k; gain = 1.1f0)
+    (H=h,
+     A=ones(Float32, l.m, l.k),
      Xproj=l.init_zeros(l.m, l.k),
      selfreset=[false],
      turns=[1],
@@ -53,8 +81,13 @@ function timemovement!(st, ps, turns)
     # Agents consult their compressed input, exchange compressed information, and update their state.
     # Repeat for a given number of time steps.
     @inbounds for _ in 1:turns
-        #st.H .= NNlib.tanh_fast.((st.H * ps.Whh .+ ps.Bh .+ st.Xproj))
-        st.H .= tanh.(st.H * ps.Whh .+ ps.Bh .+ st.Xproj)
+        st.H .= NNlib.tanh_fast.(st.H * ps.Whh .+ ps.Bh .+ st.Xproj)
+    end
+end
+function gatedtimemovement!(st, ps, turns)
+    @inbounds for _ in 1:turns
+        st.A .= ps.Wa .* NNlib.sigmoid_fast.(st.H * ps.Wah .+ ps.Wax * st.Xproj .+ ps.Ba)
+        st.H .= st.A .* NNlib.tanh_fast.(st.H * ps.Whh .+ ps.Bh .+ st.Xproj) + (1 .- st.A) .* st.H
     end
 end
 
@@ -67,6 +100,15 @@ function (l::MatrixVlaCell)(X, ps, st)
     # To avoid recomputing the projection for each time step, store it as a hidden state
     st.Xproj .= ps.Wx_in * X
     timemovement!(st, ps, st.turns[1])
+    return st.H, st
+end
+
+function (l::MatrixGatedCell)(X, ps, st)
+    if st.selfreset[1]
+        reset!(st)
+    end
+    st.Xproj .= ps.Wx_in * X
+    gatedtimemovement!(st, ps, st.turns[1])
     return st.H, st
 end
 
@@ -129,4 +171,5 @@ end
 state(m::ComposedRNN) = st.cell.H
 reset!(st, m::ComposedRNN) = (st.cell.H .= deepcopy(st.cell.init); st.cell.Xproj .= 0f0)
 reset!(st, m::MatrixVlaCell) = (st.H .= deepcopy(st.init); st.Xproj .= 0f0)
+reset!(st, m::MatrixGatedCell) = (st.H .= deepcopy(st.init); st.Xproj .= 0f0; st.A .= 1f0)
 reset!(st) = (st.H .= deepcopy(st.init))

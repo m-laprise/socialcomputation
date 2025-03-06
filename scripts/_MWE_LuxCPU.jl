@@ -14,7 +14,7 @@ using Random
 using ChainRules
 import NNlib
 import Distributions: Dirichlet, mean, std, var
-import ParameterSchedulers: Exp, TriangleExp, CosAnneal, Stateful, next!
+import ParameterSchedulers: CosAnneal, Stateful, next!
 import WeightInitializers: glorot_uniform, glorot_normal, zeros32
 import MLUtils: DataLoader, splitobs
 import Optimisers: Adam, adjust!
@@ -40,10 +40,10 @@ END_ETA = 1f-6
 DECAY = 0.7f0
 ETA_PERIOD = 10
 
-EPOCHS::Int = 30
+EPOCHS::Int = 20
 TURNS::Int = 50
 
-THETA::Float32 = 0.1f0
+THETA::Float32 = 0.95f0
 
 datarng = Random.MersenneTwister(Int(round(time())))
 trainrng = Random.MersenneTwister(0)
@@ -105,20 +105,28 @@ end
 # The ground truth absolute nuclear norms vary between 100 and 30, with a mean of 64.
 # Divided by the number of singular values, this gives a mean of 1; 
 # we use this scale so that the penalty is order 1.
-# We make the nn penalty active only for nuclear norms above the max of 1.5 per svdval.
+# We make the nn penalty active only for scaled nuclear norms above 1.
 "Populates a vector with the scaled spectral gap of each matrix in a 3D array"
 function populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothing
     @inbounds for i in axes(ys_hat, 3)
         try
             valsY = svdvals(@view ys_hat[:,:,i])
-            nn = (sum(valsY) / length(valsY)) - 1.5f0
-            #snn = nn / (length(valsY) * std(@view ys_hat[:,:,i]))
-            sgap = ((valsY[1] - valsY[2]) / valsY[1]) - 1f0 #Between -1 and 0; 0 is ideal
+            #nn = sum(valsY)
+            #snn = (nn / length(valsY)) - 1f0
+            #sgap = ((valsY[1] - valsY[2]) / valsY[1]) - 1f0 #Between -1 and 0; 0 is ideal
             #penalties[i] = snn >= 1f0 ? snn-sgap : 1f0-sgap
             #penalties[i] += nn >= 11f0 ? nn-11f0 : 0f0
-            penalties[i] = nn >= 0f0 ? nn-sgap : 0f0-sgap
-        catch
-            @warn "LAPACK error detected; skipping spectral penalty"
+            #penalties[i] = snn >= 0.5f0 ? snn-sgap : 0f0-sgap
+            #penalties[i] += snn >= 0f0 ? snn/10f0 : 0f0
+            # Drive singular value other than largest to zero
+            sumvals = sum(valsY[2:end])
+            penalties[i] = sumvals/100f0 + sumvals/valsY[1]
+            # Ensure the largest singular value is within a certain range
+            # with penalties that become active only when the value is outside the range
+            #vals1max = valsY[1] <= 60f0 ? valsY[1]/64f0 - 60f0/64f0 : 0f0 #Between -1 and 0; 0 is ideal
+            #penalties[i] -= vals1max
+        catch e
+            @warn "LAPACK error detected; skipping spectral penalty. Error: $e"
             penalties[i] = 0f0
         end
         #penalties[i] = -scaledspectralgap(@view ys_hat[:,:,i]) + 1f0 
@@ -405,12 +413,13 @@ dataloader = DataLoader(
 refspectralnorm = mean(spectralnorm.(eachslice(dataY, dims = 3)))
 refspectralgap = mean(spectralgap.(eachslice(dataY, dims = 3)))
 refnuclearnorm = mean(nuclearnorm.(eachslice(dataY, dims = 3)))
+maxnn = maximum(nuclearnorm.(eachslice(dataY, dims = 3)))
 refspectralgapovernorm = refspectralgap / refspectralnorm
 refvariance = var(dataY)
 
 #====INITIALIZE MODEL====#
 activemodel = ComposedRNN(
-    MatrixVlaCell(K, N^2, HIDDEN_DIM), 
+    MatrixGatedCell(K, N^2, HIDDEN_DIM), 
     DecodingLayer(K, N^2, HIDDEN_DIM)
 )
 ps, st = Lux.setup(trainrng, activemodel)
@@ -452,21 +461,33 @@ Mooncake.@mooncake_overlay norm(x) = sqrt(sum(abs2, x))
 Mooncake.@from_rrule Mooncake.DefaultCtx Tuple{typeof(svdvals), AbstractMatrix{<:Number}}
 dup_model = Moonduo(activemodel)
 @btime loss, grads = Flux.withgradient($fclosure, $dup_model)
-loss, grads = Flux.withgradient(fclosure, dup_model)
+loss, grads = Flux.withgradient(fclosure, dup_model)=#
 
 _grads = Enzyme.make_zero(ps)
 _dstates = Enzyme.make_zero(st)
 _, loss = autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), 
         trainingloss,
         Const(opt_state.model), Duplicated(opt_state.parameters, _grads), Duplicated(opt_state.states, _dstates),  
-        Const((dataX[:,:,1:64],dataY[:,:,1:64],maskmatrix,2)))
-Training.apply_gradients!(opt_state, grads)
+        Const((dataX[:,:,1:64],dataY[:,:,1:64],maskmatrix,TURNS)))
+
+_grads.cell.Wx_in
+_grads.cell.Whh
+_grads.cell.Bh
+_grads.cell.Wa
+_grads.cell.Wah
+_grads.cell.Wax
+_grads.cell.Ba
+_grads.dec.Wx_out
+
+inspect_and_repare_gradients!(_grads, activemodel.cell)
+
+Training.apply_gradients!(opt_state, _grads)
 
 @btime autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), 
             $trainingloss,
-            $(Const(activemodel)), $(Duplicated(ps, grads)), $(Const(st)),  
-            $(Const((dataX[:,:,1:64],dataY[:,:,1:64],maskmatrix,2))))
-            =#
+            $(Const(activemodel)), $(Duplicated(ps, _grads)), $(Duplicated(st, _dstates)),  
+            $(Const((dataX[:,:,1:64],dataY[:,:,1:64],maskmatrix,TURNS))))
+            
 #========#
 
 # Optimizer
@@ -475,12 +496,9 @@ opt_state = Training.TrainState(activemodel, ps, st, opt)
 
 # Learning rate schedule
 
-# exponential decay
-#s = Exp(start = INIT_ETA, decay = DECAY)
 # cosine annealing (with warm restarts)
 s = CosAnneal(INIT_ETA, END_ETA, ETA_PERIOD, true)
-# triangle wave schedule with period and an exponentially decaying amplitude
-#s = TriangleExp(INIT_ETA, END_ETA, ETA_PERIOD, DECAY)
+
 Base.IteratorSize(s)
 println("Learning rate schedule:")
 for i in 1:EPOCHS
@@ -529,17 +547,34 @@ recordmetrics!(train_metrics, st, ps, activemodel, dataX, dataY, maskmatrix, TUR
 recordmetrics!(val_metrics, st, ps, activemodel, valX, valY, maskmatrix, TURNS, split="val")
 
 ##================##
-function inspect_and_repare_gradients!(grads)
-    g = [grads.cell.Wx_in, grads.cell.Whh, grads.cell.Bh, grads.dec.Wx_out]
+function inspect_and_repare_gradients!(grads, ::MatrixVlaCell)
+    g = [grads.cell.Wx_in, grads.cell.Whh, grads.cell.Bh, 
+         grads.dec.Wx_out]
     tot = sum(length.(g))
     nan_params = sum(sum(isnan, gi) for gi in g)
-    vanishing_params = sum(sum(abs.(gi) .< 1e-6) for gi in g)
-    exploding_params = sum(sum(abs.(gi) .> 1e6) for gi in g)
+    vanishing_params = sum(sum(abs.(gi) .< 1f-6) for gi in g)
+    exploding_params = sum(sum(abs.(gi) .> 1f6) for gi in g)
     if nan_params > 0
         for gi in g
             gi[isnan.(gi)] .= 0f0
         end
-        @warn("$(round(nan_params/tot*100, digits=0)) % NaN gradients detected and replaced with zeros.")
+        @warn("$(round(nan_params/tot*100, digits=0)) % NaN gradients detected and replaced with 0.")
+    end
+    return vanishing_params/tot, exploding_params/tot
+end
+function inspect_and_repare_gradients!(grads, ::MatrixGatedCell)
+    g = [grads.cell.Wx_in, grads.cell.Whh, grads.cell.Bh,
+         grads.cell.Wa, grads.cell.Wah, grads.cell.Wax, grads.cell.Ba,
+         grads.dec.Wx_out]
+    tot = sum(length.(g))
+    nan_params = sum(sum(isnan, gi) for gi in g)
+    vanishing_params = sum(sum(abs.(gi) .< 1f-6) for gi in g)
+    exploding_params = sum(sum(abs.(gi) .> 1f6) for gi in g)
+    if nan_params > 0
+        for gi in g
+            gi[isnan.(gi)] .= 0f0
+        end
+        @warn("$(round(nan_params/tot*100, digits=0)) % NaN gradients detected and replaced with 0.")
     end
     return vanishing_params/tot, exploding_params/tot
 end
@@ -557,17 +592,17 @@ function diagnose_gradients(v, e)
 end
 
 function inspect_and_repare_ps!(ps)
-    if sum(sum(isnan, pi) for pi in ps.cell) > 0
-        for pi in ps.cell
-            pi[isnan.(pi)] .= 0f0
+    if sum(sum(isnan, p) for p in ps.cell) > 0
+        for p in ps.cell
+            p[isnan.(p)] .= 0f0
         end
-        @warn("NaN parameters detected in CELL after update and replaced with zeros.")
+        @warn("$(sum(sum(isnan, p))) NaN parameters detected in CELL after update and replaced with 0.")
     end
-    if sum(sum(isnan, pi) for pi in ps.dec) > 0
-        for pi in ps.dec
-            pi[isnan.(pi)] .= 0f0
+    if sum(sum(isnan, p) for p in ps.dec) > 0
+        for p in ps.dec
+            p[isnan.(p)] .= 0f0
         end
-        @warn("NaN parameters detected in DEC after update and replaced with zeros.")
+        @warn("$(sum(sum(isnan, p))) NaN parameters detected in DEC after update and replaced with 0.")
     end
 end
 
@@ -596,7 +631,7 @@ for epoch in 1:EPOCHS
         if epoch == 1 && mb == 1
             @info("Time to first gradient: $(round(time() - starttime, digits=2)) seconds")
         end
-        _v, _e = inspect_and_repare_gradients!(grads)
+        _v, _e = inspect_and_repare_gradients!(grads, opt_state.model.cell)
         # Detect loss of Inf or NaN. Print a warning, and then skip update
         if !isfinite(train_loss_value)
             @warn "Loss is $train_loss_value on minibatch $(epoch)--$(mb)" 
@@ -660,12 +695,12 @@ using CairoMakie
 
 taskfilename = "$(N)recon_rank$(RANK)"
 tasklab = "Reconstructing $(N)x$(N) rank-$(RANK) matrices from $(KNOWNENTRIES) of their entries"
-modlabel = "Matrix Vanilla"
+modlabel = "Matrix Gated"
 
 include("plot_utils.jl")
 ploteigvals(ps.cell.Whh)
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_WvecX_pHuber(CosAn-nn-sgap-theta10)_Whheigvals.png", 
+     "_knownentries_WvecX_pHuber(CosAn-theta100)_Whheigvals.png", 
      ploteigvals(ps.cell.Whh))
 
 fig = Figure(size = (850, 1000))
@@ -686,25 +721,25 @@ metrics = [
 for (row, col, ylabel, key, title) in metrics
     ax = Axis(fig[row, col], xlabel = "Epochs", ylabel = ylabel, title = title)
     if key in ["logloss"]
-        lines!(ax, [i for i in range(0, epochs-1, length(train_metrics[Symbol(key)]))],#[length(dataloader)+1:end]))], 
-               train_metrics[Symbol(key)],#[length(dataloader)+1:end], 
+        lines!(ax, [i for i in range(0, epochs-1, length(train_metrics[Symbol(key)][length(dataloader)+1:end]))], 
+               train_metrics[Symbol(key)][length(dataloader)+1:end], 
                color = :blue, label = "Training")
-        scatter!(ax, 0:epochs-1, val_metrics[Symbol(key)],#[2:end], 
+        scatter!(ax, 1:epochs-1, val_metrics[Symbol(key)][2:end], 
                color = :red, markersize = 4, label = "Validation")
-        lines!(ax, 0:epochs-1, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
+        lines!(ax, 1:epochs-1, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
         scatter!(ax, epochs-1, test_metrics[Symbol(key)][end], color = :green, label = "Final Test")
     elseif key in ["mae"]
-        lines!(ax, 0:epochs-1, train_metrics[Symbol(key)],#[2:end], 
+        lines!(ax, 1:epochs-1, train_metrics[Symbol(key)][2:end], 
         color = :blue, label = "Training MAE")
-        lines!(ax, 0:epochs-1, val_metrics[Symbol(key)],#[2:end], 
+        lines!(ax, 1:epochs-1, val_metrics[Symbol(key)][2:end], 
         color = :red, label = "Validation MAE")
-        lines!(ax, 0:epochs-1, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
-        scatter!(ax, epochs-1, test_metrics[Symbol(key)][end], color = :green, label = "Final Test MAE")
-        lines!(ax, 0:epochs-1, [1-(KNOWNENTRIES / N^2)], color = :black, linestyle = :dash, label = "Knowledge Threshold*")
+        lines!(ax, 1:epochs-1, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
+        scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :green, label = "Final Test MAE")
+        lines!(ax, 1:epochs-1, [1-(KNOWNENTRIES / N^2)], color = :black, linestyle = :dash, label = "Knowledge Threshold*")
     else
-        lines!(ax, 0:epochs-1, train_metrics[Symbol(key)],#[2:end], 
+        lines!(ax, 1:epochs-1, train_metrics[Symbol(key)][2:end], 
         color = :blue, label = "Reconstructed")
-        lines!(ax, 0:epochs-1, [eval(Symbol("ref$key"))], color = :orange, linestyle = :dash, label = "Mean ground truth")
+        lines!(ax, 1:epochs-1, [eval(Symbol("ref$key"))], color = :orange, linestyle = :dash, label = "Mean ground truth")
     end
     axislegend(ax, backgroundcolor = :transparent)
 end
@@ -730,17 +765,17 @@ Label(
 fig
 
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_WvecX_pHuber(CosAn-nn-sgap-theta10).png", fig)
+     "_knownentries_WvecX_pHuber(CosAn-theta100).png", fig)
 
 
 include("inprogress/helpersWhh.jl")
 g_end = adj_to_graph(ps.cell.Whh; threshold = 0.01)
 figdegdist = plot_degree_distrib(g_end)
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_WvecX_pHuber(CosAn-nn-sgap-theta10)_degdist.png", figdegdist)
+     "_knownentries_WvecX_pHuber(CosAn-theta100)_degdist.png", figdegdist)
 
 # Save Whh
 using JLD2
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_WvecX_pHuber(CosAn-nn-sgap-theta10)_Whh.jld2", "Whh", 
+     "_knownentries_WvecX_pHuber(CosAn-theta100)_Whh.jld2", "Whh", 
     ps.cell.Whh)
