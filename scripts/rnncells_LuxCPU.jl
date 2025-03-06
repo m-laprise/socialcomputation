@@ -43,22 +43,22 @@ function MatrixGatedCell(k::Int, n2::Int, m::Int;
 end
 
 function Lux.initialparameters(rng::AbstractRNG, l::MatrixVlaCell)
-    (Wx_in=l.init_params(rng, l.m, l.n2; gain = 1.1f0),
-     Whh=l.init_params(rng, l.k, l.k; gain = 1.1f0),
+    (Wx_in=l.init_params(rng, l.m, l.n2),
+     Whh=l.init_params(rng, l.k, l.k),
      Bh=l.init_zeros(l.m, l.k))
 end
 function Lux.initialparameters(rng::AbstractRNG, l::MatrixGatedCell)
-    (Wx_in=l.init_params(rng, l.m, l.n2; gain = 1.1f0),
-     Whh=l.init_params(rng, l.k, l.k; gain = 1.1f0),
+    (Wx_in=l.init_params(rng, l.m, l.n2),
+     Whh=l.init_params(rng, l.k, l.k),
      Bh=l.init_zeros(l.m, l.k),
-     Wa=l.init_params(rng, l.m, l.k; gain = 1.1f0),
-     Wah=l.init_params(rng, l.k, l.k; gain = 1.1f0),
-     Wax=l.init_params(rng, l.m, l.m; gain = 1.1f0),
+     Wa=l.init_params(rng, l.m, l.k),
+     Wah=l.init_params(rng, l.k, l.k),
+     Wax=l.init_params(rng, l.m, l.m),
      Ba=l.init_zeros(l.m, l.k))
 end
 
 function Lux.initialstates(rng::AbstractRNG, l::MatrixVlaCell)
-    h = l.init_states(rng, l.m, l.k; gain = 1.1f0)
+    h = l.init_states(rng, l.m, l.k)
     (H=h,
      Xproj=l.init_zeros(l.m, l.k),
      selfreset=[false],
@@ -67,7 +67,7 @@ function Lux.initialstates(rng::AbstractRNG, l::MatrixVlaCell)
 end
 
 function Lux.initialstates(rng::AbstractRNG, l::MatrixGatedCell)
-    h = l.init_states(rng, l.m, l.k; gain = 1.1f0)
+    h = l.init_states(rng, l.m, l.k)
     (H=h,
      A=ones(Float32, l.m, l.k),
      Xproj=l.init_zeros(l.m, l.k),
@@ -126,7 +126,7 @@ function DecodingLayer(k::Int, n2::Int, m::Int;
 end
 
 function Lux.initialparameters(rng::AbstractRNG, l::DecodingLayer)
-    (Wx_out=l.init(rng, l.n2, l.m*l.k; gain = 1.1f0),
+    (Wx_out=l.init(rng, l.n2, l.m*l.k),
      #β=ones(Float32, l.k)
      )
 end

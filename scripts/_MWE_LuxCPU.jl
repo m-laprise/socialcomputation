@@ -305,7 +305,7 @@ function trainingloss(m, ps, st, (xs, ys, maskmatrix, turns))
 end
 
 # Rules for autodiff backend
-EnzymeRules.inactive(::typeof(reset!), args...) = nothing
+#EnzymeRules.inactive(::typeof(reset!), args...) = nothing
 Enzyme.@import_rrule typeof(svdvals) AbstractMatrix{<:Number}
 #Enzyme.@import_rrule typeof(svd) AbstractMatrix{<:Number}
 
@@ -430,66 +430,7 @@ println("Parameter Length: ", LuxCore.parameterlength(activemodel), "; State Len
 
 X = randn(datarng, Float32, N^2, K)
 #y = activemodel(x, ps, st)[1]
-Y, H = Luxapply!(st, ps, activemodel, X; selfreset=false, turns=20)
-
-#====TEST FWD PASS AND LOSS====#
-
-#using BenchmarkTools
-#@btime Luxapply!($st, $ps, $activemodel, $X; selfreset=false, turns=20)
-#=
-starttime = time()
-trainingloss_c = Reactant.@compile trainingloss(activemodel, dataX[:,:,1:2], dataY[:,:,1:2], maskmatrix)
-endtime = time()
-println("Compilation time: ", (endtime - starttime)/60, " minutes")
-trainingloss_c = Reactant.@compile trainingloss(activemodel, dataX[:,:,1:2], dataY[:,:,1:2], maskmatrix, 2)
-@benchmark trainingloss_c($activemodel, $dataX[:,:,1:32], $dataY[:,:,1:32], $maskmatrix)
-=#
-#==== GRADIENT COMPUTATION====#
-# TRAINING LOSS
-#@btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
- #                               $dataX[:,:,1], $dataY[:,:,1], $maskmatrix)
-# 122.946 ms (182 allocations: 114.95 MiB)
-#=
-fclosure(ps) = trainingloss(activemodel, ps, st, (dataX[:,:,1:3], dataY[:,:,1:3], maskmatrix, 2))
-
-using DifferentiationInterface
-DifferentiationInterface.value_and_gradient(fclosure, AutoEnzyme(), ps) 
-
-using Fluxperimental, Mooncake
-Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(reset!), Any}
-Mooncake.@mooncake_overlay norm(x) = sqrt(sum(abs2, x))
-Mooncake.@from_rrule Mooncake.DefaultCtx Tuple{typeof(svdvals), AbstractMatrix{<:Number}}
-dup_model = Moonduo(activemodel)
-@btime loss, grads = Flux.withgradient($fclosure, $dup_model)
-loss, grads = Flux.withgradient(fclosure, dup_model)=#
-
-_grads = Enzyme.make_zero(ps)
-_dstates = Enzyme.make_zero(st)
-_, loss = autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), 
-        trainingloss,
-        Const(opt_state.model), Duplicated(opt_state.parameters, _grads), Duplicated(opt_state.states, _dstates),  
-        Const((dataX[:,:,1:64],dataY[:,:,1:64],maskmatrix,TURNS)))
-
-_grads.cell.Wx_in
-_grads.cell.Whh
-_grads.cell.Bh
-_grads.cell.Wa
-_grads.cell.Wah
-_grads.cell.Wax
-_grads.cell.Ba
-_grads.dec.Wx_out
-
-inspect_and_repare_gradients!(_grads, activemodel.cell)
-
-Training.apply_gradients!(opt_state, _grads)
-
-@btime autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), 
-            $trainingloss,
-            $(Const(activemodel)), $(Duplicated(ps, _grads)), $(Duplicated(st, _dstates)),  
-            $(Const((dataX[:,:,1:64],dataY[:,:,1:64],maskmatrix,TURNS))))
-            
-#========#
-
+Y = Luxapply!(st, ps, activemodel, X; selfreset=true, turns=20)
 # Optimizer
 opt = Adam(INIT_ETA)
 opt_state = Training.TrainState(activemodel, ps, st, opt)
@@ -677,7 +618,10 @@ println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 test_metrics = Dict(:loss => Float32[], :rmse => Float32[], :mae => Float32[])
 testYs_hat = recordmetrics!(test_metrics, st, ps, activemodel, testX, testY, maskmatrix, TURNS, split="test")
 
+
+##############################
 #======explore results=======#
+##############################
 var(dataY), var(testYs_hat)
 
 reshape(testYs_hat[:,10], N, N)
@@ -779,3 +723,80 @@ using JLD2
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
      "_knownentries_WvecX_pHuber(CosAn-theta100)_Whh.jld2", "Whh", 
     ps.cell.Whh)
+
+
+#====TEST FWD PASS AND LOSS====#
+
+#using BenchmarkTools
+#@btime Luxapply!($st, $ps, $activemodel, $X; selfreset=false, turns=20)
+#=
+starttime = time()
+trainingloss_c = Reactant.@compile trainingloss(activemodel, dataX[:,:,1:2], dataY[:,:,1:2], maskmatrix)
+endtime = time()
+println("Compilation time: ", (endtime - starttime)/60, " minutes")
+trainingloss_c = Reactant.@compile trainingloss(activemodel, dataX[:,:,1:2], dataY[:,:,1:2], maskmatrix, 2)
+@benchmark trainingloss_c($activemodel, $dataX[:,:,1:32], $dataY[:,:,1:32], $maskmatrix)
+=#
+#==== GRADIENT COMPUTATION====#
+# TRAINING LOSS
+#@btime loss, grads = Flux.withgradient($trainingloss, $Duplicated(activemodel), 
+ #                               $dataX[:,:,1], $dataY[:,:,1], $maskmatrix)
+# 122.946 ms (182 allocations: 114.95 MiB)
+#=
+fclosure(ps) = trainingloss(activemodel, ps, st, (dataX[:,:,1:3], dataY[:,:,1:3], maskmatrix, 2))
+
+using DifferentiationInterface
+DifferentiationInterface.value_and_gradient(fclosure, AutoEnzyme(), ps) 
+
+using Fluxperimental, Mooncake
+Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(reset!), Any}
+Mooncake.@mooncake_overlay norm(x) = sqrt(sum(abs2, x))
+Mooncake.@from_rrule Mooncake.DefaultCtx Tuple{typeof(svdvals), AbstractMatrix{<:Number}}
+dup_model = Moonduo(activemodel)
+@btime loss, grads = Flux.withgradient($fclosure, $dup_model)
+loss, grads = Flux.withgradient(fclosure, dup_model)=#
+
+
+_grads = Enzyme.make_zero(ps)
+_dstates = Enzyme.make_zero(st)
+_, loss = autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), 
+        trainingloss,
+        Const(opt_state.model), Duplicated(opt_state.parameters, _grads), Duplicated(opt_state.states, _dstates),  
+        Const((dataX[:,:,1:32],dataY[:,:,1:32],maskmatrix,TURNS)))
+
+m_test = MatrixGatedCell(K, N^2, HIDDEN_DIM)
+ps_test, st_test = Lux.setup(trainrng, m_test)
+m_test(X, ps_test, st_test)
+
+_grads.cell.Wx_in
+_grads.cell.Whh
+_grads.cell.Bh
+_grads.cell.Wa
+_grads.cell.Wah
+_grads.cell.Wax
+_grads.cell.Ba
+
+_grads.dec.Wx_out
+
+inspect_and_repare_gradients!(_grads, activemodel.cell)
+
+Training.apply_gradients!(opt_state, _grads)
+
+inspect_and_repare_ps!(opt_state.parameters)
+
+@btime autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), 
+            $trainingloss,
+            $(Const(activemodel)), $(Duplicated(ps, _grads)), $(Duplicated(st, _dstates)),  
+            $(Const((dataX[:,:,1:64],dataY[:,:,1:64],maskmatrix,TURNS))))
+            
+#========#
+function f(m, ps, st, (xs, ys, turns))
+    ys_hat, _ = m(xs[:,:,1], ps, st)
+    return sum(ys_hat)
+end
+_grads = Enzyme.make_zero(ps_test)
+_dstates = Enzyme.make_zero(st_test)
+_, loss = autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), 
+    f,
+    Const(m_test), Duplicated(ps_test, _grads), Duplicated(st_test, _dstates),  
+    Const((dataX[:,:,1:32],dataY[:,:,1:32],TURNS)))
