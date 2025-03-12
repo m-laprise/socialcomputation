@@ -52,7 +52,7 @@ function Lux.initialparameters(rng::AbstractRNG, l::MatrixGatedCell)
      Whh=l.init_params(rng, l.k, l.k),
      Bh=l.init_zeros(l.m, l.k),
      Wa=l.init_params(rng, l.m, l.k),
-     Wah=l.init_params(rng, l.k, l.k),
+     Wah=l.init_params(rng, l.m, l.m),
      Wax=l.init_params(rng, l.m, l.m),
      Ba=l.init_zeros(l.m, l.k))
 end
@@ -86,7 +86,7 @@ function timemovement!(st, ps, turns)
 end
 function gatedtimemovement!(st, ps, turns)
     @inbounds for _ in 1:turns
-        st.A .= ps.Wa .* NNlib.sigmoid_fast.(st.H * ps.Wah .+ ps.Wax * st.Xproj .+ ps.Ba)
+        st.A .= ps.Wa .* NNlib.sigmoid_fast.(ps.Wah * st.H .+ ps.Wax * st.Xproj .+ ps.Ba)
         st.H .= st.A .* NNlib.tanh_fast.(st.H * ps.Whh .+ ps.Bh .+ st.Xproj) + (1 .- st.A) .* st.H
     end
 end
@@ -113,27 +113,26 @@ function (l::MatrixGatedCell)(X, ps, st)
 end
 
 #= DECODING LAYER =#
-struct DecodingLayer{F1} <: Lux.AbstractLuxLayer
+struct N2DecodingLayer{F1} <: Lux.AbstractLuxLayer
     k::Int
     n2::Int
     m::Int
     init::F1
 end
 
-function DecodingLayer(k::Int, n2::Int, m::Int; 
+function N2DecodingLayer(k::Int, n2::Int, m::Int; 
                        init=glorot_uniform)
-    DecodingLayer{typeof(init)}(k, n2, m, init)
+    N2DecodingLayer{typeof(init)}(k, n2, m, init)
 end
 
-function Lux.initialparameters(rng::AbstractRNG, l::DecodingLayer)
+function Lux.initialparameters(rng::AbstractRNG, l::N2DecodingLayer)
     (Wx_out=l.init(rng, l.n2, l.m*l.k),
-     #β=ones(Float32, l.k)
-     )
+    )
 end
 
-Lux.initialstates(::AbstractRNG, ::DecodingLayer) = NamedTuple()
+Lux.initialstates(::AbstractRNG, ::N2DecodingLayer) = NamedTuple()
 
-function (l::DecodingLayer)(cellh, ps, st)
+function (l::N2DecodingLayer)(cellh, ps, st)
     #return ps.Wx_out * cellh * ps.β, st
     return ps.Wx_out * vec(cellh), st
 end

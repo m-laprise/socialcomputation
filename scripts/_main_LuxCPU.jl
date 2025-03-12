@@ -35,15 +35,15 @@ const TRAIN_PROP::Float64 = 0.8
 const VAL_PROP::Float64 = 0.1
 const TEST_PROP::Float64 = 0.1
 
-INIT_ETA = 1f-4
+INIT_ETA = 1f-3
 END_ETA = 1f-6
 DECAY = 0.7f0
 ETA_PERIOD = 10
 
-EPOCHS::Int = 20
+EPOCHS::Int = 10
 TURNS::Int = 50
 
-THETA::Float32 = 0.95f0
+THETA::Float32 = 0.9f0
 
 datarng = Random.MersenneTwister(Int(round(time())))
 trainrng = Random.MersenneTwister(0)
@@ -58,10 +58,92 @@ l(f, y) = mean(f.(_3Dslices(y)))
 
 #====DEFINE LOSS FUNCTIONS====#
 
+function MAE(A::AbstractArray{Float32, 2}, B::AbstractArray{Float32, 2}) 
+    loss = Vector{Float32}(undef, size(A, 2))
+    for (i, (a, b)) in enumerate(zip(eachcol(A), eachcol(B)))
+        loss[i] = MAELoss(; agg = mean)(a, b)
+    end
+    return loss
+end
+MAE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs, A .- B, dims=1)
+function MSE(A::AbstractArray{Float32, 2}, B::AbstractArray{Float32, 2}) 
+    loss = Vector{Float32}(undef, size(A, 2))
+    for (i, (a, b)) in enumerate(zip(eachcol(A), eachcol(B)))
+        loss[i] = MSELoss(; agg = mean)(a, b)
+    end
+    return loss
+end
 MSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs2, A .- B, dims=1)
 RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = sqrt.(MSE(A, B))
-MAE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs, A .- B, dims=1)
-Huber(A::AbstractArray{Float32}, B::AbstractArray{Float32}, δ::Float32 = 1f0) = HuberLoss(; delta = δ, agg = sum)(A, B)
+function MHE(A::AbstractArray{Float32, 2}, B::AbstractArray{Float32, 2}, δ::Float32 = 1f0) 
+    loss = Vector{Float32}(undef, size(A, 2))
+    for (i, (a, b)) in enumerate(zip(eachcol(A), eachcol(B)))
+        loss[i] = HuberLoss(; delta = δ, agg = mean)(a, b)
+    end
+    return loss
+end
+
+"""Convenience function to dispatch to example-level loss function 
+based on the dimensionality of the inputs, and return the mean over examples"""
+function batchmeanloss(lossfunction::Function,
+                       ys::AbstractArray{Float32, 3}, 
+                       ys_hat::AbstractArray{Float32, 2};
+                       datascale::Float32 = 1f0)::Float32
+    mean(lossfunction(_2D(ys), ys_hat)) / datascale
+end
+function batchmeanloss(lossfunction::Function,
+                       ys::AbstractArray{Float32, 2}, 
+                       ys_hat::AbstractArray{Float32, 2};
+                       datascale::Float32 = 1f0)::Float32
+    mean(lossfunction(ys, ys_hat)) / datascale
+end
+
+"""Convenience function to dispatch to example-level loss function 
+based on the dimensionality of the inputs, and return the vector of losses 
+for each example"""
+function batchvecloss(lossfunction::Function,
+                       ys::AbstractArray{Float32, 3}, 
+                       ys_hat::AbstractArray{Float32, 2};
+                       datascale::Float32 = 1f0)
+    (lossfunction(_2D(ys), ys_hat)) / datascale
+end
+function batchvecloss(lossfunction::Function,
+                       ys::AbstractArray{Float32, 2}, 
+                       ys_hat::AbstractArray{Float32, 2};
+                       datascale::Float32 = 1f0)
+    (lossfunction(ys, ys_hat)) / datascale
+end
+
+"""Take 2D (N^2 x nb_examples) or 3D arrays (N x N x nb_examples) with all entries 
+and return dense 2D arrays of known entries (KNOWNENTRIES x nb_examples)"""
+function reducetoknown(ys::AbstractArray{Float32, 3}, 
+                       ys_hat::AbstractArray{Float32, 2},
+                       nonzeroidx::AbstractVector{<:Real})
+    _2D(ys)[nonzeroidx, :], ys_hat[nonzeroidx, :]
+end
+function reducetoknown(ys::AbstractArray{Float32, 2}, 
+                       ys_hat::AbstractArray{Float32, 2},
+                       nonzeroidx::AbstractVector{<:Real})
+    ys[nonzeroidx, :], ys_hat[nonzeroidx, :]
+end
+
+"Apply arbitrary loss function to known entries only"
+function meanknownentriesloss(lossfunction::Function,
+                          ys::AbstractArray{Float32, 3}, 
+                          ys_hat::AbstractArray{Float32, 2},
+                          nonzeroidx::AbstractVector{<:Real};
+                          datascale::Float32 = 1f0)::Float32
+    ys_known, ys_hat_known = reducetoknown(ys, ys_hat, nonzeroidx)
+    batchmeanloss(lossfunction, ys_known, ys_hat_known, datascale = datascale)
+end
+function vecknownentriesloss(lossfunction::Function,
+                          ys::AbstractArray{Float32, 3}, 
+                          ys_hat::AbstractArray{Float32, 2},
+                          nonzeroidx::AbstractVector{<:Real};
+                          datascale::Float32 = 1f0)
+    ys_known, ys_hat_known = reducetoknown(ys, ys_hat, nonzeroidx)
+    batchvecloss(lossfunction, ys_known, ys_hat_known, datascale = datascale)
+end
 
 # SVD decomposition, when running simulations on millions on matrices,
 # can sometimes (rarely) generate LAPACK errors due to numerical instability. This can be avoided
@@ -121,6 +203,9 @@ function populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothi
             # Drive singular value other than largest to zero
             sumvals = sum(valsY[2:end])
             penalties[i] = sumvals/100f0 + sumvals/valsY[1]
+            if valsY[1] > 100f0
+                penalties[i] += valsY[1]/100f0
+            end
             # Ensure the largest singular value is within a certain range
             # with penalties that become active only when the value is outside the range
             #vals1max = valsY[1] <= 60f0 ? valsY[1]/64f0 - 60f0/64f0 : 0f0 #Between -1 and 0; 0 is ideal
@@ -139,41 +224,19 @@ end
     predicted matrix, and the mask matrix with information about which entries are known.
     The loss is a weighted sum of the L1 loss on known entries and a scaled spectral gap penalty.
 """
-function spectrum_penalized_l1(ys::AbstractArray{Float32, 3}, 
-                          ys_hat::AbstractArray{Float32, 2}, 
-                          maskmatrix::AbstractArray{Float32, 2};
-                          theta::Float32 = 1f0,#0.8f0,
-                          datascale::Float32 = 0.1f0)::Float32
-    nb_examples = size(ys, 3)
-    # L1 loss on known entries
-    diff = vec(maskmatrix) .* (_2D(ys) .- ys_hat)
-    denom = sum(maskmatrix) * size(ys, 3)
-    l1_known = vec(sum(abs, diff, dims = 1)) / denom
-    # Spectral norm penalty
-    penalties = Array{Float32}(undef, nb_examples)
-    populatepenalties!(penalties, _3D(ys_hat))
-    # Training loss
-    left = theta * l1_known / datascale
-    right = (1f0 - theta) * penalties 
-    errors = left .+ right
-    return mean(errors)
-end
-
 function spectrum_penalized_l2(ys::AbstractArray{Float32, 3}, 
                           ys_hat::AbstractArray{Float32, 2}, 
-                          maskmatrix::AbstractArray{Float32, 2};
-                          theta::Float32 = 1f0,#0.8f0,
+                          nonzeroidx::AbstractVector{<:Real};
+                          theta::Float32 = THETA,
                           datascale::Float32 = 0.1f0)::Float32
     nb_examples = size(ys, 3)
     # L2 loss on known entries
-    diff = vec(maskmatrix) .* (_2D(ys) .- ys_hat)
-    denom = sum(maskmatrix) * size(ys, 3)
-    l2_known = vec(sum(abs2, diff, dims = 1)) / denom
+    l2_known = vecknownentriesloss(MSE, ys, ys_hat, nonzeroidx, datascale = datascale)
     # Spectral norm penalty
     penalties = Array{Float32}(undef, nb_examples)
     populatepenalties!(penalties, _3D(ys_hat))
     # Training loss
-    left = theta * l2_known / datascale
+    left = theta * l2_known
     right = (1f0 - theta) * penalties 
     errors = left .+ right
     return mean(errors)
@@ -181,59 +244,20 @@ end
 
 function spectrum_penalized_huber(ys::AbstractArray{Float32, 3}, 
                           ys_hat::AbstractArray{Float32, 2}, 
-                          maskmatrix::AbstractArray{Float32, 2};
+                          nonzeroidx::AbstractVector{<:Real};
                           theta::Float32 = THETA,
                           datascale::Float32 = 1f0)::Float32
     nb_examples = size(ys, 3)
     # Huber loss on known entries
-    hub = Huber(vec(maskmatrix) .* _2D(ys), vec(maskmatrix) .* ys_hat)
-    l1_known = hub / (sum(maskmatrix)*size(ys, 3))
+    hub_known = vecknownentriesloss(MHE, ys, ys_hat, nonzeroidx, datascale = datascale)
     # Spectral norm penalty
     penalties = Array{Float32}(undef, nb_examples)
     populatepenalties!(penalties, _3D(ys_hat))
     # Training loss
-    left = theta/datascale * l1_known 
+    left = theta * hub_known 
     right = (1f0 - theta) * penalties 
     errors = left .+ right
     return mean(errors)
-end
-# Training loss - Single datum 
-#=
-""" 
-    Training loss for a single true matrix, a predicted matrix, and the mask matrix with information 
-    about which entries are known.
-    The loss is a weighted sum of the L1 loss on known entries and a scaled spectral gap penalty.
-"""
-function spectrum_penalized_l2(ys::AbstractArray{Float32, 2}, 
-                          ys_hat::AbstractArray{Float32, 2}, 
-                          maskmatrix::AbstractArray{Float32, 2};
-                          theta::Float32 = 0.8f0,
-                          datascale::Float32 = 0.1f0)::Float32
-    l, n = size(ys)
-    # L1 loss on known entries
-    ys2 = reshape(ys, l * n, 1)
-    diff = vec(maskmatrix) .* (ys2 .- ys_hat)
-    l1_known = sum(abs2, diff) / sum(maskmatrix)
-    # Spectral norm penalty
-    ys_hat3 = reshape(ys_hat, l, n)
-    penalty = scalednuclearnorm(ys_hat3)
-    #penalty = -scaledspectralgap(ys_hat3)
-    # Training loss
-    left = theta * l1_known / datascale^2
-    right = (1f0 - theta) * penalty
-    return left .+ right
-end =#
-
-function allentriesRMSE(ys::AbstractArray{Float32, 3}, 
-                        ys_hat::AbstractArray{Float32, 2};
-                        datascale::Float32 = 1f0)::Float32
-    mean(RMSE(_2D(ys), ys_hat) / datascale)
-end
-
-function allentriesMAE(ys::AbstractArray{Float32, 3}, 
-                        ys_hat::AbstractArray{Float32, 2};
-                        datascale::Float32 = 1f0)::Float32
-    mean(MAE(_2D(ys), ys_hat) / datascale)
 end
 
 #== Helper functions for inference ==#
@@ -292,15 +316,15 @@ end
 
 # Wrapper for prediction and loss
 "Compute predictions with no time steps, and use them to compute the training loss."
-function trainingloss(m, ps, st, (xs, ys, maskmatrix))
+function trainingloss(m, ps, st, (xs, ys, nonzeroidx))
     ys_hat = predict_through_time(st, ps, m, xs)
-    return spectrum_penalized_huber(ys, ys_hat, maskmatrix)
+    return spectrum_penalized_huber(ys, ys_hat, nonzeroidx)
     #return allentriesMAE(ys, ys_hat)
 end
 "Compute predictions with a given number of time steps, and use them to compute the training loss."
-function trainingloss(m, ps, st, (xs, ys, maskmatrix, turns))
+function trainingloss(m, ps, st, (xs, ys, nonzeroidx, turns))
     ys_hat = predict_through_time(st, ps, m, xs, turns)
-    return spectrum_penalized_huber(ys, ys_hat, maskmatrix)
+    return spectrum_penalized_huber(ys, ys_hat, nonzeroidx)
     #return allentriesMAE(ys, ys_hat)
 end
 
@@ -394,7 +418,8 @@ function datasetgeneration(m, n, rank, dataset_size, nbknownentries, k, rng;
 end
 
 dataX, dataY, masktuples = datasetgeneration(N, N, RANK, DATASETSIZE, KNOWNENTRIES, K, datarng)
-maskmatrix = masktuple2array(masktuples, N, N)
+const maskmatrix = masktuple2array(masktuples, N, N)
+const nonzeroidx = findall((vec(maskmatrix)) .!= 0)
 # (Initially tried to create X with sparse arrays, but it made pullbacks slower
 # and I am not RAM constrained, so focusing on regular arrays for now)
 
@@ -420,7 +445,7 @@ refvariance = var(dataY)
 #====INITIALIZE MODEL====#
 activemodel = ComposedRNN(
     MatrixGatedCell(K, N^2, HIDDEN_DIM), 
-    DecodingLayer(K, N^2, HIDDEN_DIM)
+    N2DecodingLayer(K, N^2, HIDDEN_DIM)
 )
 ps, st = Lux.setup(trainrng, activemodel)
 
@@ -431,6 +456,7 @@ println("Parameter Length: ", LuxCore.parameterlength(activemodel), "; State Len
 X = randn(datarng, Float32, N^2, K)
 #y = activemodel(x, ps, st)[1]
 Y = Luxapply!(st, ps, activemodel, X; selfreset=true, turns=20)
+
 # Optimizer
 opt = Adam(INIT_ETA)
 opt_state = Training.TrainState(activemodel, ps, st, opt)
@@ -450,8 +476,10 @@ stateful_s = Stateful(s)
 # STORE INITIAL METRICS
 train_metrics = Dict(
     :loss => Float32[],
-    :rmse => Float32[],
-    :mae => Float32[],
+    :all_rmse => Float32[],
+    :all_mae => Float32[],
+    :known_rmse => Float32[],
+    :known_mae => Float32[],
     :nuclearnorm => Float32[],
     :spectralnorm => Float32[],
     :spectralgap => Float32[],
@@ -460,19 +488,23 @@ train_metrics = Dict(
 )
 val_metrics = Dict(
     :loss => Float32[],
-    :rmse => Float32[],
-    :mae => Float32[],
+    :all_rmse => Float32[],
+    :all_mae => Float32[],
+    :known_rmse => Float32[],
+    :known_mae => Float32[],
 )
 # Compute the initial training and validation loss and other metrics with forward passes
-function recordmetrics!(metricsdict, st, ps, activemodel, X, Y, maskmatrix, TURNS, subset=200; split="train")
+function recordmetrics!(metricsdict, st, ps, activemodel, X, Y, nonzeroidx, TURNS, subset=200; split="train")
     if split == "test"
         subset = size(X, 3)
     end
     reset!(st, activemodel)
     Ys_hat = predict_through_time(st, ps, activemodel, X[:,:,1:subset], TURNS)
-    push!(metricsdict[:loss], spectrum_penalized_huber(Y[:,:,1:subset], Ys_hat, maskmatrix))
-    push!(metricsdict[:rmse], allentriesRMSE(Y[:,:,1:subset], Ys_hat))
-    push!(metricsdict[:mae], allentriesMAE(Y[:,:,1:subset], Ys_hat))
+    push!(metricsdict[:loss], spectrum_penalized_huber(Y[:,:,1:subset], Ys_hat, nonzeroidx))
+    push!(metricsdict[:all_rmse], batchmeanloss(RMSE, Y[:,:,1:subset], Ys_hat))
+    push!(metricsdict[:all_mae], batchmeanloss(MAE, Y[:,:,1:subset], Ys_hat))
+    push!(metricsdict[:known_rmse], meanknownentriesloss(RMSE, Y[:,:,1:subset], Ys_hat, nonzeroidx))
+    push!(metricsdict[:known_mae], meanknownentriesloss(MAE, Y[:,:,1:subset], Ys_hat, nonzeroidx))
     if split == "train"
         push!(metricsdict[:nuclearnorm], l(nuclearnorm, Ys_hat))
         push!(metricsdict[:spectralnorm], l(spectralnorm, Ys_hat))
@@ -484,8 +516,8 @@ function recordmetrics!(metricsdict, st, ps, activemodel, X, Y, maskmatrix, TURN
     end
 end
 push!(train_metrics[:Whh_spectra], eigvals(ps.cell.Whh))
-recordmetrics!(train_metrics, st, ps, activemodel, dataX, dataY, maskmatrix, TURNS)
-recordmetrics!(val_metrics, st, ps, activemodel, valX, valY, maskmatrix, TURNS, split="val")
+recordmetrics!(train_metrics, st, ps, activemodel, dataX, dataY, nonzeroidx, TURNS)
+recordmetrics!(val_metrics, st, ps, activemodel, valX, valY, nonzeroidx, TURNS, split="val")
 
 ##================##
 function inspect_and_repare_gradients!(grads, ::MatrixVlaCell)
@@ -550,7 +582,9 @@ end
 #reset!(stateful_s)
 starttime = time()
 println("===================")
-println("Initial training loss: " , train_metrics[:loss][1], "; initial training MAE: ", train_metrics[:mae][1])
+println("Initial training loss: " , train_metrics[:loss][1])
+println("Initial training MAE, all entries: ", train_metrics[:all_mae][1], 
+        "; known entries: ", train_metrics[:known_mae][1])
 @info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
 for epoch in 1:EPOCHS
     reset!(st, activemodel)
@@ -568,7 +602,7 @@ for epoch in 1:EPOCHS
             trainingloss, Const(opt_state.model), 
             Duplicated(opt_state.parameters, grads), 
             Duplicated(opt_state.states, Δstates),  
-            Const((x, y, maskmatrix, TURNS)))
+            Const((x, y, nonzeroidx, TURNS)))
         if epoch == 1 && mb == 1
             @info("Time to first gradient: $(round(time() - starttime, digits=2)) seconds")
         end
@@ -597,12 +631,13 @@ for epoch in 1:EPOCHS
     end
     # Compute training metrics -- expensive operation with a forward pass over the entire training set
     # but we restrict to two mini-batches only
-    recordmetrics!(train_metrics, st, ps, activemodel, dataX, dataY, maskmatrix, TURNS)
+    recordmetrics!(train_metrics, st, ps, activemodel, dataX, dataY, nonzeroidx, TURNS)
     push!(train_metrics[:Whh_spectra], eigvals(ps.cell.Whh))
     # Compute validation metrics
-    recordmetrics!(val_metrics, st, ps, activemodel, valX, valY, maskmatrix, TURNS, split="val")
-    println("Epoch ", epoch, ": Train loss: ", train_metrics[:loss][end], "; train MAE: ", train_metrics[:mae][end])
-    println("Epoch ", epoch, ": Val loss: ", val_metrics[:loss][end], "; val MAE: ", val_metrics[:mae][end])
+    recordmetrics!(val_metrics, st, ps, activemodel, valX, valY, nonzeroidx, TURNS, split="val")
+    println("Epoch ", epoch, ": Train loss: ", train_metrics[:loss][end], "; Val loss: ", val_metrics[:loss][end])
+    println("Train MAE, all entries: ", train_metrics[:all_mae][end], "; known entries: ", train_metrics[:known_mae][end])
+    println("Val MAE, all entries: ", val_metrics[:all_mae][end], "; known entries: ", val_metrics[:known_mae][end])
     # Check if validation loss has increased for 2 epochs in a row; if so, stop training
     #=if length(val_metrics[:loss]) > 2
         if val_metrics[:loss][end] > val_metrics[:loss][end-1] && val_metrics[:loss][end-1] > val_metrics[:loss][end-2] && val_metrics[:loss][end-2] > val_metrics[:loss][end-3]
@@ -615,8 +650,12 @@ endtime = time()
 # training time in minutes
 println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
 # Assess on testing set
-test_metrics = Dict(:loss => Float32[], :rmse => Float32[], :mae => Float32[])
-testYs_hat = recordmetrics!(test_metrics, st, ps, activemodel, testX, testY, maskmatrix, TURNS, split="test")
+test_metrics = Dict(:loss => Float32[], 
+                    :all_rmse => Float32[], 
+                    :all_mae => Float32[],
+                    :known_rmse => Float32[],
+                    :known_mae => Float32[])
+testYs_hat = recordmetrics!(test_metrics, st, ps, activemodel, testX, testY, nonzeroidx, TURNS, split="test")
 
 
 ##############################
@@ -631,7 +670,7 @@ using CairoMakie
 plot(svdvals(reshape(testYs_hat[:,10], N, N)))
 #plot(svdvals(rand(Float32, N, 5) * rand(Float32, 5, N) .+ 0.1f0 * rand(Float32, N, N)))
 
-mean(RMSE(testYs_hat, _2D(testY)))
+batchmeanloss(RMSE, testY, testYs_hat)
 
 #======generate training plots=======#
 
@@ -641,45 +680,40 @@ taskfilename = "$(N)recon_rank$(RANK)"
 tasklab = "Reconstructing $(N)x$(N) rank-$(RANK) matrices from $(KNOWNENTRIES) of their entries"
 modlabel = "Matrix Gated"
 
-include("plot_utils.jl")
-ploteigvals(ps.cell.Whh)
-save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_WvecX_pHuber(CosAn-theta100)_Whheigvals.png", 
-     ploteigvals(ps.cell.Whh))
-
-fig = Figure(size = (850, 1000))
+fig = Figure(size = (850, 1200))
 epochs = length(val_metrics[:loss])
 train_metrics[:spectralgapovernorm] = train_metrics[:spectralgap] ./ train_metrics[:spectralnorm]
 train_metrics[:logloss] = log.(train_metrics[:loss])
 val_metrics[:logloss] = log.(val_metrics[:loss])
 test_metrics[:logloss] = log.(test_metrics[:loss])
 metrics = [
-    (1, 1, "Log Loss", "logloss", "Spectral-gap and norm penalized Huber / std (known entries)"),
-    #(1, 2, "RMSE", "rmse", "RMSE / std (all entries)"),
-    (1, 2, "MAE", "mae", "MAE / std (all entries)"),
-    (2, 1, "Spectral gap / spectral norm", "spectralgapovernorm", "Mean spectral gap / mean spectral norm"),
-    (2, 2, "Spectral gap", "spectralgap", "Mean spectral gap"),
-    (3, 1, "Nuclear norm", "nuclearnorm", "Mean nuclear norm"),
-    (3, 2, "Variance", "variance", "Mean variance of matrix entries")
+    (1, 1:2, "Log Loss", "logloss", "Spectral-gap and norm penalized Huber / std (known entries)"),
+    #(1, 2, "RMSE", "all_rmse", "RMSE / std (all entries)"),
+    (2, 1, "MAE", "known_mae", "MAE / std (known entries)"),
+    (2, 2, "MAE", "all_mae", "MAE / std (all entries)"),
+    (3, 1, "Spectral gap / spectral norm", "spectralgapovernorm", "Mean spectral gap / mean spectral norm"),
+    (3, 2, "Spectral gap", "spectralgap", "Mean spectral gap"),
+    (4, 1, "Nuclear norm", "nuclearnorm", "Mean nuclear norm"),
+    (4, 2, "Variance", "variance", "Mean variance of matrix entries")
 ]
 for (row, col, ylabel, key, title) in metrics
     ax = Axis(fig[row, col], xlabel = "Epochs", ylabel = ylabel, title = title)
     if key in ["logloss"]
-        lines!(ax, [i for i in range(0, epochs-1, length(train_metrics[Symbol(key)][length(dataloader)+1:end]))], 
+        lines!(ax, [i for i in range(1, epochs-1, length(train_metrics[Symbol(key)][length(dataloader)+1:end]))], 
                train_metrics[Symbol(key)][length(dataloader)+1:end], 
                color = :blue, label = "Training")
         scatter!(ax, 1:epochs-1, val_metrics[Symbol(key)][2:end], 
                color = :red, markersize = 4, label = "Validation")
         lines!(ax, 1:epochs-1, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
         scatter!(ax, epochs-1, test_metrics[Symbol(key)][end], color = :green, label = "Final Test")
-    elseif key in ["mae"]
+    elseif key in ["known_mae", "all_mae", "all_rmse"]
         lines!(ax, 1:epochs-1, train_metrics[Symbol(key)][2:end], 
-        color = :blue, label = "Training MAE")
+        color = :blue, label = "Training")
         lines!(ax, 1:epochs-1, val_metrics[Symbol(key)][2:end], 
-        color = :red, label = "Validation MAE")
+        color = :red, label = "Validation")
         lines!(ax, 1:epochs-1, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
-        scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :green, label = "Final Test MAE")
-        lines!(ax, 1:epochs-1, [1-(KNOWNENTRIES / N^2)], color = :black, linestyle = :dash, label = "Knowledge Threshold*")
+        scatter!(ax, epochs-1, test_metrics[Symbol(key)][end], color = :green, label = "Final Test")
+        #lines!(ax, 1:epochs-1, [1-(KNOWNENTRIES / N^2)], color = :black, linestyle = :dash, label = "Knowledge Threshold*")
     else
         lines!(ax, 1:epochs-1, train_metrics[Symbol(key)][2:end], 
         color = :blue, label = "Reconstructed")
@@ -700,9 +734,10 @@ Label(
     "for $(epochs-1) epochs over $(size(dataX, 3)) examples, minibatch size $(MINIBATCH_SIZE).\n"*
     "Hidden internal state dimension: $(HIDDEN_DIM).\n"*
     "Test loss (known entries): $(round(test_metrics[:loss][end], digits=4)). "*
-    "Test MAE (all entries): $(round(test_metrics[:mae][end], digits=4)).\n"*
-    "The knowledge threshold is the MAE that would result from zero error for the\n"*
-    "known entries and errors equal to the standard deviation for unknown entries.",
+    "Test MAE (known entries): $(round(test_metrics[:known_mae][end], digits=4)).\n"*
+    "Test MAE (all entries): $(round(test_metrics[:all_mae][end], digits=4)).\n",
+    #"The knowledge threshold is the MAE that would result from zero error for the\n"*
+    #"known entries and errors equal to the standard deviation for unknown entries.",
     fontsize = 14,
     padding = (0, 0, 0, 0),
 )
@@ -711,6 +746,12 @@ fig
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
      "_knownentries_WvecX_pHuber(CosAn-theta100).png", fig)
 
+
+include("plot_utils.jl")
+ploteigvals(ps.cell.Whh)
+save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
+     "_knownentries_WvecX_pHuber(CosAn-theta100)_Whheigvals.png", 
+     ploteigvals(ps.cell.Whh))
 
 include("inprogress/helpersWhh.jl")
 g_end = adj_to_graph(ps.cell.Whh; threshold = 0.01)
