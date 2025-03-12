@@ -19,6 +19,9 @@ import WeightInitializers: glorot_uniform, glorot_normal, zeros32
 import MLUtils: DataLoader, splitobs
 import Optimisers: Adam, adjust!
 
+include("rnncells_LuxCPU.jl")
+include("lossfunctions_LuxCPU.jl")
+
 BLAS.set_num_threads(4)
 
 # Hyperparameters and constants
@@ -40,16 +43,14 @@ END_ETA = 1f-6
 DECAY = 0.7f0
 ETA_PERIOD = 10
 
-EPOCHS::Int = 50
+EPOCHS::Int = 5
 TURNS::Int = 50
 
 THETA::Float32 = 0.9f0
+mainloss = spectrum_penalized_huber
 
 datarng = Random.MersenneTwister(Int(round(time())))
 trainrng = Random.MersenneTwister(0)
-
-include("rnncells_LuxCPU.jl")
-include("lossfunctions_LuxCPU.jl")
 
 # Helper functions for data 
 _3D(y) = reshape(y, N, N, size(y, 2))
@@ -113,14 +114,14 @@ end
 
 # Wrapper for prediction and loss
 "Compute predictions with no time steps, and use them to compute the training loss."
-function trainingloss(m, ps, st, (xs, ys, nonzeroidx))
+function trainingloss(m, ps, st, (xs, ys, nonzeroidx))::Float32
     ys_hat = predict_through_time(st, ps, m, xs)
-    return spectrum_penalized_huber(ys, ys_hat, nonzeroidx)
+    return mainloss(ys, ys_hat, nonzeroidx)
 end
 "Compute predictions with a given number of time steps, and use them to compute the training loss."
-function trainingloss(m, ps, st, (xs, ys, nonzeroidx, turns))
+function trainingloss(m, ps, st, (xs, ys, nonzeroidx, turns))::Float32
     ys_hat = predict_through_time(st, ps, m, xs, turns)
-    return spectrum_penalized_huber(ys, ys_hat, nonzeroidx)
+    return mainloss(ys, ys_hat, nonzeroidx)
 end
 
 # Rules for autodiff backend
@@ -215,7 +216,7 @@ function recordmetrics!(metricsdict, st, ps, activemodel, X, Y, nonzeroidx, TURN
     end
     reset!(st, activemodel)
     Ys_hat = predict_through_time(st, ps, activemodel, X[:,:,1:subset], TURNS)
-    push!(metricsdict[:loss], spectrum_penalized_huber(Y[:,:,1:subset], Ys_hat, nonzeroidx))
+    push!(metricsdict[:loss], mainloss(Y[:,:,1:subset], Ys_hat, nonzeroidx))
     push!(metricsdict[:all_rmse], batchmeanloss(RMSE, Y[:,:,1:subset], Ys_hat))
     push!(metricsdict[:all_mae], batchmeanloss(MAE, Y[:,:,1:subset], Ys_hat))
     push!(metricsdict[:known_rmse], meanknownentriesloss(RMSE, Y[:,:,1:subset], Ys_hat, nonzeroidx))
@@ -268,7 +269,7 @@ function inspect_and_repare_gradients!(grads, ::MatrixGatedCell)
 end
 function inspect_and_repare_gradients!(grads, ::MatrixGatedCell2)
     g = [grads.cell.Whh, grads.cell.Bh,
-         grads.cell.Wa, grads.cell.Wah, grads.cell.Wax, grads.cell.Ba,
+         grads.cell.Wah, grads.cell.Wax, grads.cell.Ba,
          grads.dec.Wx_out]
     tot = sum(length.(g))
     nan_params = sum(sum(isnan, gi) for gi in g)
@@ -464,7 +465,7 @@ Label(
     "Optimizer: Adam with schedule CosAnneal(start = $(INIT_ETA), period = $(ETA_PERIOD))\n"*
     "for $(epochs-1) epochs over $(size(dataX, 3)) examples, minibatch size $(MINIBATCH_SIZE).\n"*
     "Hidden internal state dimension: $(HIDDEN_DIM).\n"*
-    "Test loss (known entries): $(round(test_metrics[:loss][end], digits=4)). "*
+    "Test loss (known entries): $(round(test_metrics[:loss][end], digits=4)).\n"*
     "Test MAE (known entries): $(round(test_metrics[:known_mae][end], digits=4)).\n"*
     "Test MAE (all entries): $(round(test_metrics[:all_mae][end], digits=4)).\n",
     #"The knowledge threshold is the MAE that would result from zero error for the\n"*

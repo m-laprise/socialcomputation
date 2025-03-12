@@ -142,8 +142,9 @@ end
 
 
 # Minimize the sum of all singular values other than the first
-# Maximize the ratio of the first singular value to the sum of all other singular values
-# If the first singular value is larger than 100, minimize it until it reaches 100
+# Minimize the ratio of the sum of all singular values other than the first to the first singular value
+# If the first singular value is larger than 100, minimize it until it reaches 100;
+# if it is smaller than 30, maximize it until it reaches 30.
 "Populates a vector with the scaled spectral gap of each matrix in a 3D array"
 function populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothing
     @inbounds for i in axes(ys_hat, 3)
@@ -153,6 +154,8 @@ function populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothi
             penalties[i] = sumvals/64f0 + sumvals/valsY[1]
             if valsY[1] > 100f0
                 penalties[i] += valsY[1]/64f0
+            elseif valsY[1] < 30f0
+                penalties[i] -= valsY[1]/64f0
             end
             #nn = sum(valsY)
             #snn = (nn / length(valsY)) - 1f0
