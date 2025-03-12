@@ -21,6 +21,16 @@ struct MatrixGatedCell{F1, F2, F3} <: Lux.AbstractLuxLayer
     init_zeros::F3
 end
 
+struct MatrixGatedCell2{V, F1, F2, F3} <: Lux.AbstractLuxLayer
+    k::Int
+    n2::Int
+    m::Int
+    nl::V
+    init_params::F1 
+    init_states::F2
+    init_zeros::F3
+end
+
 #"Parent type for both types of RNN cells"
 #MatrixCell = Union{MatrixVlaCell, MatrixGRUCell}
 
@@ -42,6 +52,15 @@ function MatrixGatedCell(k::Int, n2::Int, m::Int;
     )
 end
 
+function MatrixGatedCell2(k::Int, n2::Int, m::Int, nl::Vector{<:Real};
+                         init_params=glorot_uniform, 
+                         init_states=glorot_uniform, 
+                         init_zeros=zeros32)
+    MatrixGatedCell2{Vector{<:Real}, typeof(init_params), typeof(init_states), typeof(init_zeros)}(
+        k, n2, m, nl, init_params, init_states, init_zeros
+    )
+end
+
 function Lux.initialparameters(rng::AbstractRNG, l::MatrixVlaCell)
     (Wx_in=l.init_params(rng, l.m, l.n2),
      Whh=l.init_params(rng, l.k, l.k),
@@ -49,6 +68,18 @@ function Lux.initialparameters(rng::AbstractRNG, l::MatrixVlaCell)
 end
 function Lux.initialparameters(rng::AbstractRNG, l::MatrixGatedCell)
     (Wx_in=l.init_params(rng, l.m, l.n2),
+     Whh=l.init_params(rng, l.k, l.k),
+     Bh=l.init_zeros(l.m, l.k),
+     Wa=l.init_params(rng, l.m, l.k),
+     Wah=l.init_params(rng, l.m, l.m),
+     Wax=l.init_params(rng, l.m, l.m),
+     Ba=l.init_zeros(l.m, l.k))
+end
+
+function Lux.initialparameters(rng::AbstractRNG, l::MatrixGatedCell2)
+    (Wx_in=NamedTuple(
+        (Symbol("in$(i)") => l.init_params(rng, l.m, l.nl[i]) for i in eachindex(l.nl))
+    ),
      Whh=l.init_params(rng, l.k, l.k),
      Bh=l.init_zeros(l.m, l.k),
      Wa=l.init_params(rng, l.m, l.k),
@@ -67,6 +98,16 @@ function Lux.initialstates(rng::AbstractRNG, l::MatrixVlaCell)
 end
 
 function Lux.initialstates(rng::AbstractRNG, l::MatrixGatedCell)
+    h = l.init_states(rng, l.m, l.k)
+    (H=h,
+     A=ones(Float32, l.m, l.k),
+     Xproj=l.init_zeros(l.m, l.k),
+     selfreset=[false],
+     turns=[1],
+     init=deepcopy(h)) 
+end
+
+function Lux.initialstates(rng::AbstractRNG, l::MatrixGatedCell2)
     h = l.init_states(rng, l.m, l.k)
     (H=h,
      A=ones(Float32, l.m, l.k),
@@ -112,6 +153,19 @@ function (l::MatrixGatedCell)(X, ps, st)
     return st.H, st
 end
 
+function (l::MatrixGatedCell2)(X, ps, st)
+    if st.selfreset[1]
+        reset!(st)
+    end
+    for (agent, col) in enumerate(eachcol(X))
+        dense = col[findall(col .!= 0)] # nl x 1
+        W_in = ps.Wx_in[Symbol("in$(agent)")] # M x nl
+        view(st.Xproj, :, agent) .= W_in * dense
+    end
+    gatedtimemovement!(st, ps, st.turns[1])
+    return st.H, st
+end
+
 #= DECODING LAYER =#
 struct N2DecodingLayer{F1} <: Lux.AbstractLuxLayer
     k::Int
@@ -145,10 +199,10 @@ struct ComposedRNN{L1, L2} <: Lux.AbstractLuxContainerLayer{(:cell, :dec)}
 end
 
 function (c::ComposedRNN)(x::AbstractMatrix, ps, st::NamedTuple)
-    h, st_l1 = c.cell(x, ps.cell, st.cell)
-    y, st_l2 = c.dec(h, ps.dec, st.dec)
+    h, st_layer1 = c.cell(x, ps.cell, st.cell)
+    y, st_layer2 = c.dec(h, ps.dec, st.dec)
     # Return the new state which has the same structure as `st`
-    return y, (cell = st_l1, dec = st_l2)
+    return y, (cell = st_layer1, dec = st_layer2)
 end
 
 #= HELPER FUNCTIONS =#

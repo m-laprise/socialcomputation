@@ -28,7 +28,7 @@ const N::Int = 64
 const HIDDEN_DIM::Int = 8
 const RANK::Int = 1
 const DATASETSIZE::Int = 8000
-const KNOWNENTRIES::Int = 1600
+const KNOWNENTRIES::Int = 1640
 
 const MINIBATCH_SIZE::Int = 64
 const TRAIN_PROP::Float64 = 0.8
@@ -40,7 +40,7 @@ END_ETA = 1f-6
 DECAY = 0.7f0
 ETA_PERIOD = 10
 
-EPOCHS::Int = 10
+EPOCHS::Int = 50
 TURNS::Int = 50
 
 THETA::Float32 = 0.9f0
@@ -116,13 +116,11 @@ end
 function trainingloss(m, ps, st, (xs, ys, nonzeroidx))
     ys_hat = predict_through_time(st, ps, m, xs)
     return spectrum_penalized_huber(ys, ys_hat, nonzeroidx)
-    #return allentriesMAE(ys, ys_hat)
 end
 "Compute predictions with a given number of time steps, and use them to compute the training loss."
 function trainingloss(m, ps, st, (xs, ys, nonzeroidx, turns))
     ys_hat = predict_through_time(st, ps, m, xs, turns)
     return spectrum_penalized_huber(ys, ys_hat, nonzeroidx)
-    #return allentriesMAE(ys, ys_hat)
 end
 
 # Rules for autodiff backend
@@ -132,116 +130,34 @@ Enzyme.@import_rrule typeof(svdvals) AbstractMatrix{<:Number}
 
 #====CREATE DATA====#
 
-function lowrankmatrix(m, n, r, rng; datatype=Float32, std::Float32=1f0)
-    std/sqrt(datatype(r)) * randn(rng, datatype, m, r) * randn(rng, datatype, r, n)
-end
+include("datacreation_LuxCPU.jl")
 
-function sensingmasks(m::Int, n::Int, k::Int, rng)
-    @assert k <= m * n
-    maskij = Set{Tuple{Int, Int}}()
-    while length(maskij) < k
-        i = rand(rng, 1:m)
-        j = rand(rng, 1:n)
-        push!(maskij, (i, j))
-    end
-    return collect(maskij)
-end
-
-function masktuple2array(masktuples::Vector{Tuple{Int, Int}}, m::Int, n::Int)
-    maskmatrix = zeros(Float32, m, n)
-    for (i, j) in masktuples
-        maskmatrix[i, j] = 1f0
-    end
-    return maskmatrix
-end
-
-"""Create a vector of length k with the number of known entries for each agent, based on the
-alpha concentration parameter. The vector should sum to the total number of known entries."""
-function allocateentries(k::Int, knownentries::Int, alpha::Float32, rng)
-    @assert alpha >= 0 && alpha <= 50
-    if alpha == 0
-        # One agent knows all entries; others know none
-        entries_per_agent = zeros(Int, k)
-        entries_per_agent[rand(rng, 1:k)] = knownentries
-    else
-        # Distribute entries among agents with concentration parameter alpha
-        @fastmath dirichlet_dist = Dirichlet(alpha * ones(Float32, k))
-        @fastmath proportions = rand(rng, dirichlet_dist)
-        @fastmath entries_per_agent = round.(Int, proportions * knownentries)
-        # Adjust to ensure the sum is exactly knownentries after rounding
-        while sum(entries_per_agent) != knownentries
-            diff = knownentries - sum(entries_per_agent)
-            # If the difference is negative (positive), add (subtract) one to (from) a random agent
-            entries_per_agent[rand(rng, 1:k)] += 1 * sign(diff)
-            # Check that no entry is negative, and if so, replace by zero
-            entries_per_agent = max.(0, entries_per_agent)
-        end
-    end
-    return entries_per_agent
-end
-
-function populateY!(Y::AbstractArray{Float32, 3}, rank::Int, rng)
-    @inbounds for i in axes(Y, 3)
-        @fastmath Y[:, :, i] .= lowrankmatrix(size(Y,1), size(Y,2), rank, rng)
-    end
-end
-
-function populateX!(X::AbstractArray{Float32, 3}, 
-                    Y::AbstractArray{Float32}, 
-                    knowledgedistribution::Vector{Int}, 
-                    masktuples::Vector{Tuple{Int, Int}})
-    @inbounds for i in axes(X, 3)
-        globalcount = 1
-        @inbounds for agent in axes(X, 2)
-            @inbounds for _ in 1:knowledgedistribution[agent]
-                row, col = masktuples[globalcount]
-                flat_index = size(Y, 1) * (col - 1) + row
-                X[flat_index, agent, i] = Y[row, col, i]
-                globalcount += 1
-            end
-        end
-    end
-end
-
-function datasetgeneration(m, n, rank, dataset_size, nbknownentries, k, rng;
-                           alpha::Float32 = 50f0)
-    Y = Array{Float32, 3}(undef, m, n, dataset_size)
-    populateY!(Y, rank, rng)
-    masktuples = sensingmasks(m, n, nbknownentries, rng)
-    knowledgedistribution = allocateentries(k, nbknownentries, alpha, rng)
-    X = zeros(Float32, m*n, k, dataset_size)
-    populateX!(X, Y, knowledgedistribution, masktuples)
-    return X, Y, masktuples
-end
-
-dataX, dataY, masktuples = datasetgeneration(N, N, RANK, DATASETSIZE, KNOWNENTRIES, K, datarng)
+dataX, dataY, masktuples, knowledgedistr = datasetgeneration(N, N, RANK, DATASETSIZE, KNOWNENTRIES, K, datarng)
 const maskmatrix = masktuple2array(masktuples, N, N)
 const nonzeroidx = findall((vec(maskmatrix)) .!= 0)
-# (Initially tried to create X with sparse arrays, but it made pullbacks slower
-# and I am not RAM constrained, so focusing on regular arrays for now)
 
 size(dataX), size(dataY)
 
 dataX, valX, testX = splitobs(datarng, dataX, at = (TRAIN_PROP, VAL_PROP, TEST_PROP))
 dataY, valY, testY = splitobs(datarng, dataY, at = (TRAIN_PROP, VAL_PROP, TEST_PROP))
 size(dataX), size(dataY)
-dataloader = DataLoader(
+const dataloader = DataLoader(
     (data = dataX, label = dataY), 
     batchsize=MINIBATCH_SIZE, 
     shuffle=true, parallel=true, rng=datarng)
 @info("Memory usage after data generation: ", Base.gc_live_bytes() / 1024^3)
 
 # Get reference value from ground truth
-refspectralnorm = mean(spectralnorm.(eachslice(dataY, dims = 3)))
-refspectralgap = mean(spectralgap.(eachslice(dataY, dims = 3)))
-refnuclearnorm = mean(nuclearnorm.(eachslice(dataY, dims = 3)))
-maxnn = maximum(nuclearnorm.(eachslice(dataY, dims = 3)))
-refspectralgapovernorm = refspectralgap / refspectralnorm
-refvariance = var(dataY)
+const refspectralnorm = mean(spectralnorm.(eachslice(dataY, dims = 3)))
+const refspectralgap = mean(spectralgap.(eachslice(dataY, dims = 3)))
+const refnuclearnorm = mean(nuclearnorm.(eachslice(dataY, dims = 3)))
+const maxnn = maximum(nuclearnorm.(eachslice(dataY, dims = 3)))
+const refspectralgapovernorm = refspectralgap / refspectralnorm
+const refvariance = var(dataY)
 
 #====INITIALIZE MODEL====#
 activemodel = ComposedRNN(
-    MatrixGatedCell(K, N^2, HIDDEN_DIM), 
+    MatrixGatedCell2(K, N^2, HIDDEN_DIM, knowledgedistr), 
     N2DecodingLayer(K, N^2, HIDDEN_DIM)
 )
 ps, st = Lux.setup(trainrng, activemodel)
@@ -250,7 +166,9 @@ ps, st = Lux.setup(trainrng, activemodel)
 println("Parameter Length: ", LuxCore.parameterlength(activemodel), "; State Length: ",
     LuxCore.statelength(activemodel))
 
-X = randn(datarng, Float32, N^2, K)
+#X = randn(datarng, Float32, N^2, K)
+# In the new setup, DOES NOT work with random matrix not exactly nl sparse in each column
+X = dataX[:,:,1]
 #y = activemodel(x, ps, st)[1]
 Y = Luxapply!(st, ps, activemodel, X; selfreset=true, turns=20)
 
@@ -348,6 +266,22 @@ function inspect_and_repare_gradients!(grads, ::MatrixGatedCell)
     end
     return vanishing_params/tot, exploding_params/tot
 end
+function inspect_and_repare_gradients!(grads, ::MatrixGatedCell2)
+    g = [grads.cell.Whh, grads.cell.Bh,
+         grads.cell.Wa, grads.cell.Wah, grads.cell.Wax, grads.cell.Ba,
+         grads.dec.Wx_out]
+    tot = sum(length.(g))
+    nan_params = sum(sum(isnan, gi) for gi in g)
+    vanishing_params = sum(sum(abs.(gi) .< 1f-6) for gi in g)
+    exploding_params = sum(sum(abs.(gi) .> 1f6) for gi in g)
+    if nan_params > 0
+        for gi in g
+            gi[isnan.(gi)] .= 0f0
+        end
+        @warn("$(round(nan_params/tot*100, digits=0)) % NaN gradients detected and replaced with 0.")
+    end
+    return vanishing_params/tot, exploding_params/tot
+end
 
 function diagnose_gradients(v, e)
     if v >= 0.1
@@ -423,7 +357,7 @@ for epoch in 1:EPOCHS
         # Use the optimizer and grads to update the trainable parameters and the optimizer states
         Training.apply_gradients!(opt_state, grads)
         # Check for NaN parameters and replace with zeros
-        inspect_and_repare_ps!(opt_state.parameters)
+        #inspect_and_repare_ps!(opt_state.parameters)
         mb += 1
     end
     # Compute training metrics -- expensive operation with a forward pass over the entire training set

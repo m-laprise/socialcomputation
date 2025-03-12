@@ -48,13 +48,13 @@ function batchvecloss(lossfunction::Function,
                        ys::AbstractArray{Float32, 3}, 
                        ys_hat::AbstractArray{Float32, 2};
                        datascale::Float32 = 1f0)
-    (lossfunction(_2D(ys), ys_hat)) / datascale
+    lossfunction(_2D(ys), ys_hat) / datascale
 end
 function batchvecloss(lossfunction::Function,
                        ys::AbstractArray{Float32, 2}, 
                        ys_hat::AbstractArray{Float32, 2};
                        datascale::Float32 = 1f0)
-    (lossfunction(ys, ys_hat)) / datascale
+    lossfunction(ys, ys_hat) / datascale
 end
 
 """Take 2D (N^2 x nb_examples) or 3D arrays (N x N x nb_examples) with all entries 
