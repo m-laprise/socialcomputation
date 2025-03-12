@@ -10,6 +10,7 @@ struct MatrixVlaCell{F1, F2, F3} <: Lux.AbstractLuxLayer
     init_params::F1 
     init_states::F2
     init_zeros::F3
+    gain::Float32
 end
 
 struct MatrixGatedCell{F1, F2, F3} <: Lux.AbstractLuxLayer
@@ -19,6 +20,7 @@ struct MatrixGatedCell{F1, F2, F3} <: Lux.AbstractLuxLayer
     init_params::F1 
     init_states::F2
     init_zeros::F3
+    gain::Float32
 end
 
 struct MatrixGatedCell2{V, F1, F2, F3} <: Lux.AbstractLuxLayer
@@ -29,6 +31,7 @@ struct MatrixGatedCell2{V, F1, F2, F3} <: Lux.AbstractLuxLayer
     init_params::F1 
     init_states::F2
     init_zeros::F3
+    gain::Float32
 end
 
 #"Parent type for both types of RNN cells"
@@ -38,26 +41,26 @@ end
 function MatrixVlaCell(k::Int, n2::Int, m::Int; 
                        init_params=glorot_uniform, 
                        init_states=glorot_uniform, 
-                       init_zeros=zeros32)
+                       init_zeros=zeros32, gain)
     MatrixVlaCell{typeof(init_params), typeof(init_states), typeof(init_zeros)}(
-        k, n2, m, init_params, init_states, init_zeros
+        k, n2, m, init_params, init_states, init_zeros, gain
     )
 end
 function MatrixGatedCell(k::Int, n2::Int, m::Int; 
                          init_params=glorot_uniform, 
                          init_states=glorot_uniform, 
-                         init_zeros=zeros32)
+                         init_zeros=zeros32, gain)
     MatrixGatedCell{typeof(init_params), typeof(init_states), typeof(init_zeros)}(
-        k, n2, m, init_params, init_states, init_zeros
+        k, n2, m, init_params, init_states, init_zeros, gain
     )
 end
 
 function MatrixGatedCell2(k::Int, n2::Int, m::Int, nl::Vector{<:Real};
                          init_params=glorot_uniform, 
                          init_states=glorot_uniform, 
-                         init_zeros=zeros32)
+                         init_zeros=zeros32, gain=0.01f0)
     MatrixGatedCell2{Vector{<:Real}, typeof(init_params), typeof(init_states), typeof(init_zeros)}(
-        k, n2, m, nl, init_params, init_states, init_zeros
+        k, n2, m, nl, init_params, init_states, init_zeros, gain
     )
 end
 
@@ -78,13 +81,13 @@ end
 
 function Lux.initialparameters(rng::AbstractRNG, l::MatrixGatedCell2)
     (Wx_in=NamedTuple(
-        (Symbol("in$(i)") => l.init_params(rng, l.m, l.nl[i]) for i in eachindex(l.nl))
+        (Symbol("in$(i)") => l.init_params(rng, l.m, l.nl[i]; gain = l.gain) for i in eachindex(l.nl))
     ),
-     Whh=l.init_params(rng, l.k, l.k),
+     Whh=l.init_params(rng, l.k, l.k; gain = l.gain),
      Bh=l.init_zeros(l.m, l.k),
-     Wa=l.init_params(rng, l.m, l.k),
-     Wah=l.init_params(rng, l.m, l.m),
-     Wax=l.init_params(rng, l.m, l.m),
+     Wa=l.init_params(rng, l.m, l.k; gain = l.gain),
+     Wah=l.init_params(rng, l.m, l.m; gain = l.gain),
+     Wax=l.init_params(rng, l.m, l.m; gain = l.gain),
      Ba=l.init_zeros(l.m, l.k))
 end
 
