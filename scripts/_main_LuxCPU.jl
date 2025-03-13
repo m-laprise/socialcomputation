@@ -26,12 +26,13 @@ BLAS.set_num_threads(4)
 
 # Hyperparameters and constants
 
-const K::Int = 100
+const K::Int = 200
 const N::Int = 64
-const HIDDEN_DIM::Int = 8
+const HIDDEN_DIM::Int = 16
 const RANK::Int = 1
 const DATASETSIZE::Int = 8000
 const KNOWNENTRIES::Int = 1640
+DEC_RANK::Int = 2
 
 const MINIBATCH_SIZE::Int = 64
 const TRAIN_PROP::Float64 = 0.8
@@ -43,11 +44,11 @@ END_ETA = 1f-6
 DECAY = 0.7f0
 ETA_PERIOD = 10
 
-EPOCHS::Int = 5
+EPOCHS::Int = 10
 TURNS::Int = 50
 
-THETA::Float32 = 0.9f0
-mainloss = spectrum_penalized_huber
+THETA::Float32 = 1f0
+mainloss = spectrum_penalized_l2
 
 datarng = Random.MersenneTwister(Int(round(time())))
 trainrng = Random.MersenneTwister(0)
@@ -159,7 +160,7 @@ const refvariance = var(dataY)
 #====INITIALIZE MODEL====#
 activemodel = ComposedRNN(
     MatrixGatedCell2(K, N^2, HIDDEN_DIM, knowledgedistr), 
-    N2DecodingLayer(K, N^2, HIDDEN_DIM)
+    UVtDecodingLayer(K, N^2, HIDDEN_DIM, DEC_RANK)
 )
 ps, st = Lux.setup(trainrng, activemodel)
 
@@ -270,7 +271,7 @@ end
 function inspect_and_repare_gradients!(grads, ::MatrixGatedCell2)
     g = [grads.cell.Whh, grads.cell.Bh,
          grads.cell.Wah, grads.cell.Wax, grads.cell.Ba,
-         grads.dec.Wx_out]
+         grads.dec.U, grads.dec.V]
     tot = sum(length.(g))
     nan_params = sum(sum(isnan, gi) for gi in g)
     vanishing_params = sum(sum(abs.(gi) .< 1f-6) for gi in g)

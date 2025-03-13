@@ -26,6 +26,15 @@ function MHE(A::AbstractArray{Float32, 2}, B::AbstractArray{Float32, 2}, δ::Flo
     return loss
 end
 
+function SVE(A::AbstractArray{Float32, 2}, B::AbstractArray{Float32, 2}) 
+    loss = Vector{Float32}(undef, size(A, 2))
+    for (i, (a, b)) in enumerate(zip(eachcol(A), eachcol(B)))
+        loss[i] = (var(a) - var(b))^2
+    end
+    return loss
+end
+SVE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = (var(A) - var(B))^2
+
 """Convenience function to dispatch to example-level loss function 
 based on the dimensionality of the inputs, and return the mean over examples"""
 function batchmeanloss(lossfunction::Function,
@@ -83,7 +92,7 @@ function vecknownentriesloss(lossfunction::Function,
                           ys::AbstractArray{Float32, 3}, 
                           ys_hat::AbstractArray{Float32, 2},
                           nonzeroidx::AbstractVector{<:Real};
-                          datascale::Float32 = 1f0)
+                          datascale::Float32 = 1f0)::Vector{Float32}
     ys_known, ys_hat_known = reducetoknown(ys, ys_hat, nonzeroidx)
     batchvecloss(lossfunction, ys_known, ys_hat_known, datascale = datascale)
 end
@@ -105,8 +114,6 @@ end=#
 # The fallback is much slower, but avoids the error and is rarely used.
 # HOWEVER; I can't autodiff through the QRIteration. Should file an issue on Github.
 # In the meantime, I simply skip the penalty when this happens.
-
-
 
 "Nuclear norm of a matrix (sum of singular values)"
 nuclearnorm(A::AbstractArray{Float32, 2})::Float32 = sum(svdvals(A))
@@ -169,7 +176,6 @@ function populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothi
             @warn "LAPACK error detected; skipping spectral penalty. Error: $e"
             penalties[i] = 0f0
         end
-        #penalties[i] = -scaledspectralgap(@view ys_hat[:,:,i]) + 1f0 
     end
 end
 
@@ -186,10 +192,11 @@ function spectrum_penalized_l2(ys::AbstractArray{Float32, 3},
                           ys_hat::AbstractArray{Float32, 2}, 
                           nonzeroidx::AbstractVector{<:Real};
                           theta::Float32 = THETA,
-                          datascale::Float32 = 0.1f0)::Float32
+                          datascale::Float32 = 1f0)::Float32
     nb_examples = size(ys, 3)
     # L2 loss on known entries (vector, one loss per example)
     l2_known = vecknownentriesloss(MSE, ys, ys_hat, nonzeroidx, datascale = datascale)
+    #var_loss = vecknownentriesloss(SVE, ys, ys_hat, nonzeroidx, datascale = datascale)
     # Spectral norm penalty
     penalties = Array{Float32}(undef, nb_examples)
     populatepenalties!(penalties, _3D(ys_hat))
@@ -207,6 +214,7 @@ function spectrum_penalized_huber(ys::AbstractArray{Float32, 3},
     nb_examples = size(ys, 3)
     # Huber loss on known entries (vector, one loss per example)
     hub_known = vecknownentriesloss(MHE, ys, ys_hat, nonzeroidx, datascale = datascale)
+    #var_loss = vecknownentriesloss(SVE, ys, ys_hat, nonzeroidx, datascale = datascale)
     # Spectral norm penalty
     penalties = Array{Float32}(undef, nb_examples)
     populatepenalties!(penalties, _3D(ys_hat))

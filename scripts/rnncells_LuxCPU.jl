@@ -177,10 +177,11 @@ struct N2DecodingLayer{F1} <: Lux.AbstractLuxLayer
     init::F1
 end
 
-struct UVTDecodingLayer{F1} <: Lux.AbstractLuxLayer
+struct UVtDecodingLayer{F1} <: Lux.AbstractLuxLayer
     k::Int
     n2::Int
     m::Int
+    r::Int
     init::F1
 end
 
@@ -189,9 +190,9 @@ function N2DecodingLayer(k::Int, n2::Int, m::Int;
     N2DecodingLayer{typeof(init)}(k, n2, m, init)
 end
 
-function UVTDecodingLayer(k::Int, n2::Int, m::Int; 
+function UVtDecodingLayer(k::Int, n2::Int, m::Int, r::Int; 
                        init=glorot_uniform)
-    UVTDecodingLayer{typeof(init)}(k, n2, m, init)
+    UVtDecodingLayer{typeof(init)}(k, n2, m, r, init)
 end
 
 function Lux.initialparameters(rng::AbstractRNG, l::N2DecodingLayer)
@@ -199,16 +200,20 @@ function Lux.initialparameters(rng::AbstractRNG, l::N2DecodingLayer)
     )
 end
 
-function Lux.initialparameters(rng::AbstractRNG, l::UVTDecodingLayer)
-    (Wx_out=l.init(rng, l.n, l.m*l.k),
+function Lux.initialparameters(rng::AbstractRNG, l::UVtDecodingLayer)
+    (U=l.init(rng, l.n2, l.r), 
+     V=l.init(rng, l.r, l.m*l.k),
     )
 end
 
 Lux.initialstates(::AbstractRNG, ::N2DecodingLayer) = NamedTuple()
+Lux.initialstates(::AbstractRNG, ::UVtDecodingLayer) = NamedTuple()
 
 function (l::N2DecodingLayer)(cellh, ps, st)
-    #return ps.Wx_out * cellh * ps.β, st
     return ps.Wx_out * vec(cellh), st
+end
+function (l::UVtDecodingLayer)(cellh, ps, st)
+    return ps.U * ps.V * vec(cellh), st
 end
 
 #= CUSTOM CHAINS =#
