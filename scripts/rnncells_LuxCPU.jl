@@ -83,7 +83,7 @@ function Lux.initialparameters(rng::AbstractRNG, l::MatrixGatedCell2)
     (Wx_in=NamedTuple(
         (Symbol("in$(i)") => l.init_params(rng, l.m, l.nl[i]; gain = l.gain) for i in eachindex(l.nl))
     ),
-     Whh=l.init_params(rng, l.k, l.k; gain = l.gain),
+     Whh=l.init_params(rng, l.k, l.k),
      Bh=l.init_zeros(l.m, l.k),
      #Wa=l.init_params(rng, l.m, l.k; gain = l.gain),
      Wah=l.init_params(rng, l.m, l.m; gain = l.gain),
@@ -177,9 +177,9 @@ struct N2DecodingLayer{F1} <: Lux.AbstractLuxLayer
     init::F1
 end
 
-struct UVtDecodingLayer{F1} <: Lux.AbstractLuxLayer
+struct LRDecodingLayer{F1} <: Lux.AbstractLuxLayer
     k::Int
-    n2::Int
+    n::Int
     m::Int
     r::Int
     init::F1
@@ -190,9 +190,9 @@ function N2DecodingLayer(k::Int, n2::Int, m::Int;
     N2DecodingLayer{typeof(init)}(k, n2, m, init)
 end
 
-function UVtDecodingLayer(k::Int, n2::Int, m::Int, r::Int; 
+function LRDecodingLayer(k::Int, n2::Int, m::Int, r::Int; 
                        init=glorot_uniform)
-    UVtDecodingLayer{typeof(init)}(k, n2, m, r, init)
+    LRDecodingLayer{typeof(init)}(k, n2, m, r, init)
 end
 
 function Lux.initialparameters(rng::AbstractRNG, l::N2DecodingLayer)
@@ -200,20 +200,22 @@ function Lux.initialparameters(rng::AbstractRNG, l::N2DecodingLayer)
     )
 end
 
-function Lux.initialparameters(rng::AbstractRNG, l::UVtDecodingLayer)
-    (U=l.init(rng, l.n2, l.r), 
-     V=l.init(rng, l.r, l.m*l.k),
+function Lux.initialparameters(rng::AbstractRNG, l::LRDecodingLayer)
+    (U=l.init(rng, l.n, l.r), 
+     Wu=l.init(rng, l.r, l.m),
+     Wv=l.init(rng, l.k, l.r),
+     V=l.init(rng, l.r, l.n),
     )
 end
 
 Lux.initialstates(::AbstractRNG, ::N2DecodingLayer) = NamedTuple()
-Lux.initialstates(::AbstractRNG, ::UVtDecodingLayer) = NamedTuple()
+Lux.initialstates(::AbstractRNG, ::LRDecodingLayer) = NamedTuple()
 
 function (l::N2DecodingLayer)(cellh, ps, st)
     return ps.Wx_out * vec(cellh), st
 end
-function (l::UVtDecodingLayer)(cellh, ps, st)
-    return ps.U * ps.V * vec(cellh), st
+function (l::LRDecodingLayer)(cellh, ps, st)
+    return vec(ps.U * ps.Wu * cellh * ps.Wv * ps.V), st
 end
 
 #= CUSTOM CHAINS =#

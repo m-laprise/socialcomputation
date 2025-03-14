@@ -26,14 +26,13 @@ include("train_utils_LuxCPU.jl")
 BLAS.set_num_threads(4)
 
 # Hyperparameters and constants
-
 const K::Int = 200
 const N::Int = 64
 const HIDDEN_DIM::Int = 16
 const RANK::Int = 1
 const DATASETSIZE::Int = 8000
 const KNOWNENTRIES::Int = 1640
-DEC_RANK::Int = 2
+DEC_RANK::Int = 1
 
 const MINIBATCH_SIZE::Int = 64
 const TRAIN_PROP::Float64 = 0.8
@@ -45,14 +44,18 @@ END_ETA = 1f-6
 DECAY = 0.7f0
 ETA_PERIOD = 10
 
-EPOCHS::Int = 10
+EPOCHS::Int = 30
 TURNS::Int = 50
 
-THETA::Float32 = 1f0
-mainloss = spectrum_penalized_l2
+THETA::Float32 = 0.9f0
+mainloss = spectrum_penalized_huber
 
 datarng = Random.MersenneTwister(Int(round(time())))
 trainrng = Random.MersenneTwister(0)
+
+taskfilename = "$(N)recon_rank$(RANK)"
+tasklab = "Reconstructing $(N)x$(N) rank-$(RANK) matrices from $(KNOWNENTRIES) of their entries"
+modlabel = "Matrix Gated"
 
 # Helper functions for data 
 _3D(y) = reshape(y, N, N, size(y, 2))
@@ -61,7 +64,6 @@ _3Dslices(y) = eachslice(_3D(y), dims=3)
 l(f, y) = mean(f.(_3Dslices(y)))
 
 #====CREATE DATA====#
-
 include("datacreation_LuxCPU.jl")
 
 dataX, dataY, masktuples, knowledgedistr = datasetgeneration(N, N, RANK, DATASETSIZE, KNOWNENTRIES, K, datarng)
@@ -73,6 +75,7 @@ size(dataX), size(dataY)
 dataX, valX, testX = splitobs(datarng, dataX, at = (TRAIN_PROP, VAL_PROP, TEST_PROP))
 dataY, valY, testY = splitobs(datarng, dataY, at = (TRAIN_PROP, VAL_PROP, TEST_PROP))
 size(dataX), size(dataY)
+
 const dataloader = DataLoader(
     (data = dataX, label = dataY), 
     batchsize=MINIBATCH_SIZE, 
@@ -90,7 +93,7 @@ const refvariance = var(dataY)
 #====INITIALIZE MODEL====#
 activemodel = ComposedRNN(
     MatrixGatedCell2(K, N^2, HIDDEN_DIM, knowledgedistr), 
-    UVtDecodingLayer(K, N^2, HIDDEN_DIM, DEC_RANK)
+    LRDecodingLayer(K, N, HIDDEN_DIM, DEC_RANK)
 )
 ps, st = Lux.setup(trainrng, activemodel)
 
@@ -98,7 +101,6 @@ ps, st = Lux.setup(trainrng, activemodel)
 println("Parameter Length: ", LuxCore.parameterlength(activemodel), "; State Length: ",
     LuxCore.statelength(activemodel))
 
-#X = randn(datarng, Float32, N^2, K)
 # In the new setup, DOES NOT work with random matrix not exactly nl sparse in each column
 X = dataX[:,:,1]
 #y = activemodel(x, ps, st)[1]
@@ -243,48 +245,43 @@ batchmeanloss(RMSE, testY, testYs_hat)
 
 using CairoMakie
 
-taskfilename = "$(N)recon_rank$(RANK)"
-tasklab = "Reconstructing $(N)x$(N) rank-$(RANK) matrices from $(KNOWNENTRIES) of their entries"
-modlabel = "Matrix Gated"
-
 fig = Figure(size = (850, 1200))
 epochs = length(val_metrics[:loss])
-train_metrics[:spectralgapovernorm] = train_metrics[:spectralgap] ./ train_metrics[:spectralnorm]
-train_metrics[:logloss] = log.(train_metrics[:loss])
-val_metrics[:logloss] = log.(val_metrics[:loss])
-test_metrics[:logloss] = log.(test_metrics[:loss])
+#train_metrics[:spectralgapovernorm] = round.(train_metrics[:spectralgap] ./ train_metrics[:spectralnorm], digits=2)
+#train_metrics[:logloss] = log.(train_metrics[:loss])
+#val_metrics[:logloss] = log.(val_metrics[:loss])
+#test_metrics[:logloss] = log.(test_metrics[:loss])
 metrics = [
-    (1, 1:2, "Log Loss", "logloss", "Spectral-gap and norm penalized Huber / std (known entries)"),
-    #(1, 2, "RMSE", "all_rmse", "RMSE / std (all entries)"),
-    (2, 1, "MAE", "known_mae", "MAE / std (known entries)"),
-    (2, 2, "MAE", "all_mae", "MAE / std (all entries)"),
-    (3, 1, "Spectral gap / spectral norm", "spectralgapovernorm", "Mean spectral gap / mean spectral norm"),
-    (3, 2, "Spectral gap", "spectralgap", "Mean spectral gap"),
-    (4, 1, "Nuclear norm", "nuclearnorm", "Mean nuclear norm"),
-    (4, 2, "Variance", "variance", "Mean variance of matrix entries")
+    (1, 1:2, "Loss", "loss", "Mean spectrum-penalized Huber loss (known entries)"),
+    #(1, 2, "RMSE", "all_rmse", "RMSE (all entries)"),
+    (2, 1, "MAE", "known_mae", "Mean MAE (known entries)"),
+    (2, 2, "MAE", "all_mae", "Mean MAE (all entries)"),
+    #(3, 1, "Spectral gap / spectral norm", "spectralgapovernorm", "Mean spectral gap / mean spectral norm"),
+    #(3, 2, "Spectral gap", "spectralgap", "Mean spectral gap"),
+    (3, 1, "Nuclear norm", "nuclearnorm", "Mean nuclear norm"),
+    (3, 2, "Variance", "variance", "Mean variance of matrix entries")
 ]
 for (row, col, ylabel, key, title) in metrics
     ax = Axis(fig[row, col], xlabel = "Epochs", ylabel = ylabel, title = title)
-    if key in ["logloss"]
-        lines!(ax, [i for i in range(1, epochs-1, length(train_metrics[Symbol(key)][length(dataloader)+1:end]))], 
-               train_metrics[Symbol(key)][length(dataloader)+1:end], 
+    if key in ["loss"]
+        lines!(ax, [i for i in range(1, epochs, length(train_metrics[Symbol(key)]))], #[length(dataloader)+1:end]))], 
+               train_metrics[Symbol(key)], #[length(dataloader)+1:end], 
                color = :blue, label = "Training")
-        scatter!(ax, 1:epochs-1, val_metrics[Symbol(key)][2:end], 
-               color = :red, markersize = 4, label = "Validation")
-        lines!(ax, 1:epochs-1, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
-        scatter!(ax, epochs-1, test_metrics[Symbol(key)][end], color = :green, label = "Final Test")
+        scatter!(ax, 1:epochs, val_metrics[Symbol(key)],#[2:end], 
+               color = :red, markersize = 6, label = "Validation")
+        lines!(ax, 1:epochs, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
+        scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :green, label = "Final Test")
     elseif key in ["known_mae", "all_mae", "all_rmse"]
-        lines!(ax, 1:epochs-1, train_metrics[Symbol(key)][2:end], 
+        lines!(ax, 1:epochs, train_metrics[Symbol(key)],#[2:end], 
         color = :blue, label = "Training")
-        lines!(ax, 1:epochs-1, val_metrics[Symbol(key)][2:end], 
+        lines!(ax, 1:epochs, val_metrics[Symbol(key)],#[2:end], 
         color = :red, label = "Validation")
-        lines!(ax, 1:epochs-1, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
-        scatter!(ax, epochs-1, test_metrics[Symbol(key)][end], color = :green, label = "Final Test")
-        #lines!(ax, 1:epochs-1, [1-(KNOWNENTRIES / N^2)], color = :black, linestyle = :dash, label = "Knowledge Threshold*")
+        lines!(ax, 1:epochs, [test_metrics[Symbol(key)][end]], color = :green, linestyle = :dash)
+        scatter!(ax, epochs, test_metrics[Symbol(key)][end], color = :green, label = "Final Test")
     else
-        lines!(ax, 1:epochs-1, train_metrics[Symbol(key)][2:end], 
+        lines!(ax, 1:epochs, train_metrics[Symbol(key)],#[2:end], 
         color = :blue, label = "Reconstructed")
-        lines!(ax, 1:epochs-1, [eval(Symbol("ref$key"))], color = :orange, linestyle = :dash, label = "Mean ground truth")
+        lines!(ax, 1:epochs, [eval(Symbol("ref$key"))], color = :orange, linestyle = :dash, label = "Mean ground truth")
     end
     axislegend(ax, backgroundcolor = :transparent)
 end
@@ -299,37 +296,35 @@ Label(
     fig[end+1, 1:2],
     "Optimizer: Adam with schedule CosAnneal(start = $(INIT_ETA), period = $(ETA_PERIOD))\n"*
     "for $(epochs-1) epochs over $(size(dataX, 3)) examples, minibatch size $(MINIBATCH_SIZE).\n"*
-    "Hidden internal state dimension: $(HIDDEN_DIM).\n"*
+    "Hidden internal state dimension: $(HIDDEN_DIM). Enforced decoder rank: $(DEC_RANK).\n"*
     "Test loss (known entries): $(round(test_metrics[:loss][end], digits=4)).\n"*
     "Test MAE (known entries): $(round(test_metrics[:known_mae][end], digits=4)).\n"*
     "Test MAE (all entries): $(round(test_metrics[:all_mae][end], digits=4)).\n",
-    #"The knowledge threshold is the MAE that would result from zero error for the\n"*
-    #"known entries and errors equal to the standard deviation for unknown entries.",
     fontsize = 14,
     padding = (0, 0, 0, 0),
 )
 fig
 
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_WvecX_pHuber(CosAn-theta100).png", fig)
+     "_knownentries_Rank1Dec_pHuber(CosAn-theta90-var-sn).png", fig)
 
 
 include("plot_utils.jl")
 ploteigvals(ps.cell.Whh)
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_WvecX_pHuber(CosAn-theta100)_Whheigvals.png", 
+     "_knownentries_Rank1Dec_pHuber(CosAn-theta100)_Whheigvals.png", 
      ploteigvals(ps.cell.Whh))
 
 include("inprogress/helpersWhh.jl")
 g_end = adj_to_graph(ps.cell.Whh; threshold = 0.01)
 figdegdist = plot_degree_distrib(g_end)
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_WvecX_pHuber(CosAn-theta100)_degdist.png", figdegdist)
+     "_knownentries_Rank1Dec_pHuber(CosAn-theta100)_degdist.png", figdegdist)
 
 # Save Whh
 using JLD2
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_WvecX_pHuber(CosAn-theta100)_Whh.jld2", "Whh", 
+     "_knownentries_Rank1Dec_pHuber(CosAn-theta100)_Whh.jld2", "Whh", 
     ps.cell.Whh)
 
 

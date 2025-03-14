@@ -9,6 +9,7 @@ function MAE(A::AbstractArray{Float32, 2}, B::AbstractArray{Float32, 2})
     return loss
 end
 MAE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs, A .- B, dims=1)
+
 function MSE(A::AbstractArray{Float32, 2}, B::AbstractArray{Float32, 2}) 
     loss = Vector{Float32}(undef, size(A, 2))
     for (i, (a, b)) in enumerate(zip(eachcol(A), eachcol(B)))
@@ -17,6 +18,7 @@ function MSE(A::AbstractArray{Float32, 2}, B::AbstractArray{Float32, 2})
     return loss
 end
 MSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = mean(abs2, A .- B, dims=1)
+
 RMSE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = sqrt.(MSE(A, B))
 function MHE(A::AbstractArray{Float32, 2}, B::AbstractArray{Float32, 2}, δ::Float32 = 1f0) 
     loss = Vector{Float32}(undef, size(A, 2))
@@ -34,6 +36,16 @@ function SVE(A::AbstractArray{Float32, 2}, B::AbstractArray{Float32, 2})
     return loss
 end
 SVE(A::AbstractArray{Float32}, B::AbstractArray{Float32}) = (var(A) - var(B))^2
+
+function MSSpE(A::AbstractArray{Float32, 2}, B::AbstractArray{Float32, 2})
+    loss = Vector{Float32}(undef, size(A, 2))
+    for (i, (a, b)) in enumerate(zip(_3Dslices(A), _3Dslices(B)))
+        valsA = svdvals(a)
+        valsB = svdvals(b)
+        loss[i] = MSELoss(; agg = mean)(valsA, valsB)
+    end
+    return loss
+end
 
 """Convenience function to dispatch to example-level loss function 
 based on the dimensionality of the inputs, and return the mean over examples"""
@@ -157,8 +169,8 @@ function populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothi
     @inbounds for i in axes(ys_hat, 3)
         try
             valsY = svdvals(@view ys_hat[:,:,i])
-            sumvals = sum(valsY[2:end])
-            penalties[i] = sumvals/64f0 + sumvals/valsY[1]
+            #sumvals = sum(valsY[2:end])
+            #penalties[i] = sumvals/64f0 + sumvals/valsY[1]
             if valsY[1] > 100f0
                 penalties[i] += valsY[1]/64f0
             elseif valsY[1] < 30f0
@@ -198,7 +210,7 @@ function spectrum_penalized_l2(ys::AbstractArray{Float32, 3},
     l2_known = vecknownentriesloss(MSE, ys, ys_hat, nonzeroidx, datascale = datascale)
     #var_loss = vecknownentriesloss(SVE, ys, ys_hat, nonzeroidx, datascale = datascale)
     # Spectral norm penalty
-    penalties = Array{Float32}(undef, nb_examples)
+    penalties = zeros(Float32, nb_examples)
     populatepenalties!(penalties, _3D(ys_hat))
     # Training loss
     errors = theta * l2_known .+ (1f0 - theta) * penalties 
@@ -216,7 +228,7 @@ function spectrum_penalized_huber(ys::AbstractArray{Float32, 3},
     hub_known = vecknownentriesloss(MHE, ys, ys_hat, nonzeroidx, datascale = datascale)
     #var_loss = vecknownentriesloss(SVE, ys, ys_hat, nonzeroidx, datascale = datascale)
     # Spectral norm penalty
-    penalties = Array{Float32}(undef, nb_examples)
+    penalties = zeros(Float32, nb_examples)
     populatepenalties!(penalties, _3D(ys_hat))
     # Training loss
     errors = theta * hub_known .+ (1f0 - theta) * penalties 
