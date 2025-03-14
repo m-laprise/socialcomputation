@@ -129,7 +129,7 @@ end
 function inspect_and_repare_gradients!(grads, ::MatrixGatedCell2)
     g = [grads.cell.Whh, grads.cell.Bh,
          grads.cell.Wah, grads.cell.Wax, grads.cell.Ba,
-         grads.dec.U, grads.dec.V]
+         grads.dec.Wu1, grads.dec.Wu2, grads.dec.Wv1, grads.dec.Wv2]
     tot = sum(length.(g))
     nan_params = sum(sum(isnan, gi) for gi in g)
     vanishing_params = sum(sum(abs.(gi) .< 1f-6) for gi in g)
