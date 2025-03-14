@@ -169,7 +169,7 @@ function (l::MatrixGatedCell2)(X, ps, st)
     return st.H, st
 end
 
-#= DECODING LAYER =#
+#= DECODING LAYERS =#
 struct N2DecodingLayer{F1} <: Lux.AbstractLuxLayer
     k::Int
     n2::Int
@@ -185,18 +185,39 @@ struct LRDecodingLayer{F1} <: Lux.AbstractLuxLayer
     init::F1
 end
 
+struct FactorDecodingLayer{F1} <: Lux.AbstractLuxLayer
+    k::Int
+    n::Int
+    m::Int
+    r::Int
+    init::F1
+end
+
 function N2DecodingLayer(k::Int, n2::Int, m::Int; 
-                       init=glorot_uniform)
+                         init=glorot_uniform)
     N2DecodingLayer{typeof(init)}(k, n2, m, init)
 end
 
+function FactorDecodingLayer(k::Int, n::Int, m::Int, r::Int; 
+                             init=glorot_uniform)
+    FactorDecodingLayer{typeof(init)}(k, n, m, r, init)
+end
+
 function LRDecodingLayer(k::Int, n2::Int, m::Int, r::Int; 
-                       init=glorot_uniform)
+                         init=glorot_uniform)
     LRDecodingLayer{typeof(init)}(k, n2, m, r, init)
 end
 
 function Lux.initialparameters(rng::AbstractRNG, l::N2DecodingLayer)
     (Wx_out=l.init(rng, l.n2, l.m*l.k),
+    )
+end
+
+function Lux.initialparameters(rng::AbstractRNG, l::FactorDecodingLayer)
+    (Wu1=l.init(rng, l.n, l.m), # Divide by m/2.
+     Wu2=l.init(rng, l.k, l.r), # Positive, sum to one.
+     Wv1=l.init(rng, l.m, l.n), # Divide by m/2.
+     Wv2=l.init(rng, l.r, l.k), # Positive, sum to one.
     )
 end
 
@@ -209,11 +230,18 @@ function Lux.initialparameters(rng::AbstractRNG, l::LRDecodingLayer)
 end
 
 Lux.initialstates(::AbstractRNG, ::N2DecodingLayer) = NamedTuple()
+Lux.initialstates(::AbstractRNG, ::FactorDecodingLayer) = NamedTuple()
 Lux.initialstates(::AbstractRNG, ::LRDecodingLayer) = NamedTuple()
 
 function (l::N2DecodingLayer)(cellh, ps, st)
     return ps.Wx_out * vec(cellh), st
 end
+function (l::FactorDecodingLayer)(cellh, ps, st)
+    U = ps.Wu1 * cellh * ps.Wu2
+    V = ps.Wv2 * cellh' * ps.Wv1
+    return vec(U * V), st
+end
+
 function (l::LRDecodingLayer)(cellh, ps, st)
     return vec(ps.U * ps.Wu * cellh * ps.Wv * ps.V), st
 end

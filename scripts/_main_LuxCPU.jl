@@ -93,7 +93,7 @@ const refvariance = var(dataY)
 #====INITIALIZE MODEL====#
 activemodel = ComposedRNN(
     MatrixGatedCell2(K, N^2, HIDDEN_DIM, knowledgedistr), 
-    LRDecodingLayer(K, N, HIDDEN_DIM, DEC_RANK)
+    FactorDecodingLayer(K, N, HIDDEN_DIM, DEC_RANK)
 )
 ps, st = Lux.setup(trainrng, activemodel)
 
@@ -306,7 +306,7 @@ Label(
 fig
 
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_Rank1Dec_pHuber(CosAn-theta90-var-sn).png", fig)
+     "_knownentries_Rank1Dec_pHuber(CosAn-theta90-sn).png", fig)
 
 
 include("plot_utils.jl")
