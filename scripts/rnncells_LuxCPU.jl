@@ -58,7 +58,7 @@ end
 function MatrixGatedCell2(k::Int, n2::Int, m::Int, nl::Vector{<:Real};
                          init_params=glorot_uniform, 
                          init_states=glorot_uniform, 
-                         init_zeros=zeros32, gain=0.01f0)
+                         init_zeros=zeros32, gain=0.1f0)
     MatrixGatedCell2{Vector{<:Real}, typeof(init_params), typeof(init_states), typeof(init_zeros)}(
         k, n2, m, nl, init_params, init_states, init_zeros, gain
     )
@@ -184,41 +184,31 @@ struct LRDecodingLayer{F1} <: Lux.AbstractLuxLayer
     init::F1
 end
 
-struct FactorDecodingLayer{F1} <: Lux.AbstractLuxLayer
+struct FactorDecodingLayer{F1, F2} <: Lux.AbstractLuxLayer
     k::Int
     n::Int
     m::Int
     r::Int
     init::F1
+    init_zeros::F2
 end
 
 function N2DecodingLayer(k::Int, n2::Int, m::Int; 
                          init=glorot_uniform)
     N2DecodingLayer{typeof(init)}(k, n2, m, init)
 end
-
-function FactorDecodingLayer(k::Int, n::Int, m::Int, r::Int; 
-                             init=glorot_uniform)
-    FactorDecodingLayer{typeof(init)}(k, n, m, r, init)
-end
-
 function LRDecodingLayer(k::Int, n2::Int, m::Int, r::Int; 
                          init=glorot_uniform)
     LRDecodingLayer{typeof(init)}(k, n2, m, r, init)
 end
 
-function Lux.initialparameters(rng::AbstractRNG, l::N2DecodingLayer)
-    (Wx_out=l.init(rng, l.n2, l.m*l.k),
-    )
+function FactorDecodingLayer(k::Int, n::Int, m::Int, r::Int; 
+                             init=glorot_uniform, init_zeros=zeros32)
+    FactorDecodingLayer{typeof(init), typeof(init_zeros)}(k, n, m, r, init, init_zeros)
 end
 
-function Lux.initialparameters(rng::AbstractRNG, l::FactorDecodingLayer)
-    wu2=(l.init(rng, l.k, l.r))
-    wv2=(l.init(rng, l.r, l.k))
-    (Wu1=l.init(rng, l.n, l.m),
-     Wu2= wu2 / sum(wu2), 
-     Wv1=l.init(rng, l.m, l.n),
-     Wv2= wv2 / sum(wv2), 
+function Lux.initialparameters(rng::AbstractRNG, l::N2DecodingLayer)
+    (Wx_out=l.init(rng, l.n2, l.m*l.k),
     )
 end
 
@@ -230,21 +220,51 @@ function Lux.initialparameters(rng::AbstractRNG, l::LRDecodingLayer)
     )
 end
 
+#=function Lux.initialparameters(rng::AbstractRNG, l::FactorDecodingLayer)
+    wu2=(l.init(rng, l.k, l.r))
+    wv2=(l.init(rng, l.r, l.k))
+    (Wu1=l.init(rng, l.n, l.m),
+     Wu2= wu2 / sum(wu2), 
+     Wv1=l.init(rng, l.m, l.n),
+     Wv2= wv2 / sum(wv2), 
+    )
+end=#
+function Lux.initialparameters(rng::AbstractRNG, l::FactorDecodingLayer)
+    (Ωu1 = l.init(rng, l.n, l.k; gain = 1.6f0),
+     Ωu2 = l.init(rng, l.m, l.r; gain = 1.6f0),
+     Ωv1 = l.init(rng, l.k, l.n; gain = 1.6f0),
+     Ωv2 = l.init(rng, l.r, l.m; gain = 1.6f0),
+    )
+end
+
 Lux.initialstates(::AbstractRNG, ::N2DecodingLayer) = NamedTuple()
-Lux.initialstates(::AbstractRNG, ::FactorDecodingLayer) = NamedTuple()
 Lux.initialstates(::AbstractRNG, ::LRDecodingLayer) = NamedTuple()
+Lux.initialstates(::AbstractRNG, l::FactorDecodingLayer) = NamedTuple(
+    (Wu1 = l.init_zeros(l.n, l.m),
+     Wu2 = l.init_zeros(l.k, l.r),
+     Wv1 = l.init_zeros(l.m, l.n),
+     Wv2 = l.init_zeros(l.r, l.k),
+    )
+)
 
 function (l::N2DecodingLayer)(cellh, ps, st)
     return ps.Wx_out * vec(cellh), st
 end
-function (l::FactorDecodingLayer)(cellh, ps, st)
-    U = ps.Wu1 * cellh * ps.Wu2
-    V = ps.Wv2 * cellh' * ps.Wv1
-    return vec(U * V), st
-end
-
 function (l::LRDecodingLayer)(cellh, ps, st)
     return vec(ps.U * ps.Wu * cellh * ps.Wv * ps.V), st
+end
+
+function (l::FactorDecodingLayer)(cellh, ps, st, Xproj)
+    # Input-dependent decoding weights
+    st.Wu1 .= ps.Ωu1 * Xproj'
+    st.Wu2 .= Xproj' * ps.Ωu2
+    st.Wv1 .= Xproj * ps.Ωv1
+    st.Wv2 .= ps.Ωv2 * Xproj
+    # Decoding the two factors (up to permutations)
+    U = st.Wu1 * cellh * st.Wu2
+    V = st.Wv2 * cellh' * st.Wv1
+    # Recomposing the rank-r matrix
+    return vec(U * V), st
 end
 
 #= CUSTOM CHAINS =#
@@ -256,7 +276,7 @@ end
 
 function (c::ComposedRNN)(x::AbstractMatrix, ps, st::NamedTuple)
     h, st_layer1 = c.cell(x, ps.cell, st.cell)
-    y, st_layer2 = c.dec(h, ps.dec, st.dec)
+    y, st_layer2 = c.dec(h, ps.dec, st.dec, st_layer1.Xproj)
     # Return the new state which has the same structure as `st`
     return y, (cell = st_layer1, dec = st_layer2)
 end
