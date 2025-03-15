@@ -2,7 +2,6 @@
 Julia 1.10.5 
 Flux 0.16.3
 Enzyme 0.13.30=#
-
 if Sys.CPU_NAME != "apple-m1"
     import Pkg
     Pkg.activate("../")
@@ -28,7 +27,7 @@ BLAS.set_num_threads(4)
 # Hyperparameters and constants
 const K::Int = 200
 const N::Int = 64
-const HIDDEN_DIM::Int = 16
+const HIDDEN_DIM::Int = 128
 const RANK::Int = 1
 const DATASETSIZE::Int = 8000
 const KNOWNENTRIES::Int = 1640
@@ -44,7 +43,7 @@ END_ETA = 1f-6
 DECAY = 0.7f0
 ETA_PERIOD = 10
 
-EPOCHS::Int = 15
+EPOCHS::Int = 5
 TURNS::Int = 50
 
 THETA::Float32 = 0.9f0
@@ -64,6 +63,7 @@ _3Dslices(y) = eachslice(_3D(y), dims=3)
 l(f, y) = mean(f.(_3Dslices(y)))
 
 #====CREATE DATA====#
+
 include("datacreation_LuxCPU.jl")
 
 dataX, dataY, masktuples, knowledgedistr = datasetgeneration(N, N, RANK, DATASETSIZE, KNOWNENTRIES, K, datarng)
@@ -82,7 +82,7 @@ const dataloader = DataLoader(
     shuffle=true, parallel=true, rng=datarng)
 @info("Memory usage after data generation: ", Base.gc_live_bytes() / 1024^3)
 
-# Get reference value from ground truth
+# Get reference values from ground truth
 const refspectralnorm = mean(spectralnorm.(eachslice(dataY, dims = 3)))
 const refspectralgap = mean(spectralgap.(eachslice(dataY, dims = 3)))
 const refnuclearnorm = mean(nuclearnorm.(eachslice(dataY, dims = 3)))
@@ -105,14 +105,13 @@ println("Parameter Length: ", LuxCore.parameterlength(activemodel), "; State Len
 X = dataX[:,:,1]
 #y = activemodel(x, ps, st)[1]
 Y = Luxapply!(st, ps, activemodel, X; selfreset=false, turns=20)
+println("Output variance at init: ", var(Y))
 
 # Optimizer
 opt = Adam(INIT_ETA)
 opt_state = Training.TrainState(activemodel, ps, st, opt)
 
-# Learning rate schedule
-
-# cosine annealing (with warm restarts)
+# Learning rate schedule: cosine annealing (with warm restarts)
 s = CosAnneal(INIT_ETA, END_ETA, ETA_PERIOD, true)
 
 Base.IteratorSize(s)
@@ -150,75 +149,11 @@ recordmetrics!(val_metrics, st, ps, activemodel, valX, valY, nonzeroidx, TURNS, 
 ##================##
 
 #reset!(stateful_s)
-starttime = time()
-println("===================")
-println("Initial training loss: " , train_metrics[:loss][1])
-println("Initial training MAE, all entries: ", train_metrics[:all_mae][1], 
-        "; known entries: ", train_metrics[:known_mae][1])
-@info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
-for epoch in 1:EPOCHS
-    reset!(st, activemodel)
-    eta = next!(stateful_s)
-    println("Commencing epoch $epoch (eta = $(round(eta, digits=6)))")
-    adjust!(opt_state, eta)
-    # Iterate over minibatches
-    mb = 1
-    for (x, y) in dataloader
-        # Forward pass (to compute the loss) and backward pass (to compute the gradients)
-        grads = Enzyme.make_zero(ps)
-        Δstates = Enzyme.make_zero(st)
-        _, train_loss_value = autodiff(
-            set_runtime_activity(Enzyme.ReverseWithPrimal), 
-            trainingloss, Const(opt_state.model), 
-            Duplicated(opt_state.parameters, grads), 
-            Duplicated(opt_state.states, Δstates),  
-            Const((x, y, nonzeroidx, TURNS)))
-        if epoch == 1 && mb == 1
-            @info("Time to first gradient: $(round(time() - starttime, digits=2)) seconds")
-        end
-        _v, _e = inspect_and_repare_gradients!(grads, opt_state.model.cell)
-        # Detect loss of Inf or NaN. Print a warning, and then skip update
-        if !isfinite(train_loss_value)
-            @warn "Loss is $train_loss_value on minibatch $(epoch)--$(mb)" 
-            diagnose_gradients(_v, _e)
-            mb += 1
-            continue
-        end
-        # During training, use the backward pass to store the training loss after the previous epoch
-        push!(train_metrics[:loss], train_loss_value)
-        if mb % 25 == 0
-            # Diagnose the gradients every 25 minibatches
-            diagnose_gradients(_v, _e)
-        end
-        if mb == 1 || mb % 5 == 0
-            println("Minibatch ", epoch, "--", mb, ": loss of ", round(train_loss_value, digits=4))
-        end
-        # Use the optimizer and grads to update the trainable parameters and the optimizer states
-        Training.apply_gradients!(opt_state, grads)
-        # Check for NaN parameters and replace with zeros
-        #inspect_and_repare_ps!(opt_state.parameters)
-        mb += 1
-    end
-    # Compute training metrics -- expensive operation with a forward pass over the entire training set
-    # but we restrict to two mini-batches only
-    recordmetrics!(train_metrics, st, ps, activemodel, dataX, dataY, nonzeroidx, TURNS)
-    push!(train_metrics[:Whh_spectra], eigvals(ps.cell.Whh))
-    # Compute validation metrics
-    recordmetrics!(val_metrics, st, ps, activemodel, valX, valY, nonzeroidx, TURNS, split="val")
-    println("Epoch ", epoch, ": Train loss: ", train_metrics[:loss][end], "; Val loss: ", val_metrics[:loss][end])
-    println("Train MAE, all entries: ", train_metrics[:all_mae][end], "; known entries: ", train_metrics[:known_mae][end])
-    println("Val MAE, all entries: ", val_metrics[:all_mae][end], "; known entries: ", val_metrics[:known_mae][end])
-    # Check if validation loss has increased for 2 epochs in a row; if so, stop training
-    if length(val_metrics[:loss]) > 2
-        if val_metrics[:loss][end] > val_metrics[:loss][end-1] && val_metrics[:loss][end-1] > val_metrics[:loss][end-2] && val_metrics[:loss][end-2] > val_metrics[:loss][end-3]
-            @warn("Early stopping at epoch $epoch")
-            break
-        end
-    end
-end
-endtime = time()
-# training time in minutes
-println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
+main_training_loop!(opt_state, stateful_s, 
+                    train_metrics, val_metrics, 
+                    dataloader, dataX, dataY, valX, valY,
+                    nonzeroidx, TURNS, EPOCHS)
+
 # Assess on testing set
 test_metrics = Dict(:loss => Float32[], 
                     :all_rmse => Float32[], 
@@ -238,7 +173,6 @@ using CairoMakie
 #plot(svdvals(dataY[:,:,10]))
 plot(svdvals(reshape(testYs_hat[:,10], N, N)))
 #plot(svdvals(rand(Float32, N, 5) * rand(Float32, 5, N) .+ 0.1f0 * rand(Float32, N, N)))
-
 batchmeanloss(RMSE, testY, testYs_hat)
 
 #======generate training plots=======#
@@ -253,12 +187,12 @@ fig = main_training_figure(
 )
 
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_FactorR1Dec_pHuber(CosAn-theta90-sn).png", fig)
+     "_knownentries_Factor1Dec_pHuber(CosAn-theta90-sn-Whpos).png", fig)
 
 
 ploteigvals(ps.cell.Whh)
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_FactorR1Dec_pHuber(CosAn-theta100)_Whheigvals.png", 
+     "_knownentries_Factor1Dec_pHuber(CosAn-theta100-sn)_Whheigvals.png", 
      ploteigvals(ps.cell.Whh))
 
 include("inprogress/helpersWhh.jl")

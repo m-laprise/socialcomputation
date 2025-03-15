@@ -169,3 +169,85 @@ function inspect_and_repare_ps!(ps)
         @warn("$(sum(sum(isnan, p))) NaN parameters detected in DEC after update and replaced with 0.")
     end
 end
+
+#== Main training loop ==#
+
+function main_training_loop!(opt_state, stateful_s, 
+                             train_metrics, val_metrics, 
+                             dataloader, dataX, dataY, valX, valY,
+                             nonzeroidx, turns, epochs)
+    starttime = time()
+    println("===================")
+    println("Initial training loss: " , train_metrics[:loss][1])
+    println("Initial training MAE, all entries: ", train_metrics[:all_mae][1], 
+            "; known entries: ", train_metrics[:known_mae][1])
+    @info("Memory usage: ", Base.gc_live_bytes() / 1024^3)
+    for epoch in 1:epochs
+        reset!(opt_state.states, opt_state.model)
+        eta = next!(stateful_s)
+        println("Commencing epoch $epoch (eta = $(round(eta, digits=6)))")
+        adjust!(opt_state, eta)
+        # Iterate over minibatches
+        mb = 1
+        for (x, y) in dataloader
+            # Forward pass (to compute the loss) and backward pass (to compute the gradients)
+            grads = Enzyme.make_zero(ps)
+            Δstates = Enzyme.make_zero(st)
+            _, train_loss_value = autodiff(
+                set_runtime_activity(Enzyme.ReverseWithPrimal), 
+                trainingloss, Const(opt_state.model), 
+                Duplicated(opt_state.parameters, grads), 
+                Duplicated(opt_state.states, Δstates),  
+                Const((x, y, nonzeroidx, turns)))
+            if epoch == 1 && mb == 1
+                @info("Time to first gradient: $(round(time() - starttime, digits=2)) seconds")
+            end
+            _v, _e = inspect_and_repare_gradients!(grads, opt_state.model.cell)
+            # Detect loss of Inf or NaN. Print a warning, and then skip update
+            if !isfinite(train_loss_value)
+                @warn "Loss is $train_loss_value on minibatch $(epoch)--$(mb)" 
+                diagnose_gradients(_v, _e)
+                mb += 1
+                continue
+            end
+            # During training, use the backward pass to store the training loss after the previous epoch
+            push!(train_metrics[:loss], train_loss_value)
+            if mb % 25 == 0
+                # Diagnose the gradients every 25 minibatches
+                diagnose_gradients(_v, _e)
+            end
+            if mb == 1 || mb % 5 == 0
+                println("Minibatch ", epoch, "--", mb, ": loss of ", round(train_loss_value, digits=4))
+            end
+            # Use the optimizer and grads to update the trainable parameters and the optimizer states
+            Training.apply_gradients!(opt_state, grads)
+            # Check for NaN parameters and replace with zeros
+            #inspect_and_repare_ps!(opt_state.parameters)
+            mb += 1
+        end
+        # Compute training metrics -- expensive operation with a forward pass over the entire training set
+        # but we restrict to a few mini-batches only
+        recordmetrics!(train_metrics, opt_state.states, opt_state.parameters, 
+                       opt_state.model, dataX, dataY, nonzeroidx, turns)
+        push!(train_metrics[:Whh_spectra], eigvals(opt_state.parameters.cell.Whh))
+        # Compute validation metrics
+        recordmetrics!(val_metrics, opt_state.states, opt_state.parameters, 
+                       opt_state.model, valX, valY, nonzeroidx, turns, split="val")
+        println("Epoch ", epoch, 
+                ": Train loss: ", train_metrics[:loss][end], 
+                "; Val loss: ", val_metrics[:loss][end])
+        println("Train MAE, all entries: ", train_metrics[:all_mae][end], 
+                "; known entries: ", train_metrics[:known_mae][end])
+        println("Val MAE, all entries: ", val_metrics[:all_mae][end], 
+                "; known entries: ", val_metrics[:known_mae][end])
+        # Check if validation loss has increased for 2 epochs in a row; if so, stop training
+        if length(val_metrics[:loss]) > 2
+            if val_metrics[:loss][end] > val_metrics[:loss][end-1] && val_metrics[:loss][end-1] > val_metrics[:loss][end-2] && val_metrics[:loss][end-2] > val_metrics[:loss][end-3]
+                @warn("Early stopping at epoch $epoch")
+                break
+            end
+        end
+    end
+    endtime = time()
+    println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
+end 

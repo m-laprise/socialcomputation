@@ -83,9 +83,8 @@ function Lux.initialparameters(rng::AbstractRNG, l::MatrixGatedCell2)
     (Wx_in=NamedTuple(
         (Symbol("in$(i)") => l.init_params(rng, l.m, l.nl[i]; gain = l.gain) for i in eachindex(l.nl))
     ),
-     Whh=l.init_params(rng, l.k, l.k),
+     Whh=abs.(l.init_params(rng, l.k, l.k)),
      Bh=l.init_zeros(l.m, l.k),
-     #Wa=l.init_params(rng, l.m, l.k; gain = l.gain),
      Wah=l.init_params(rng, l.m, l.m; gain = l.gain),
      Wax=l.init_params(rng, l.m, l.m; gain = l.gain),
      Ba=l.init_zeros(l.m, l.k))
@@ -214,10 +213,12 @@ function Lux.initialparameters(rng::AbstractRNG, l::N2DecodingLayer)
 end
 
 function Lux.initialparameters(rng::AbstractRNG, l::FactorDecodingLayer)
-    (Wu1=l.init(rng, l.n, l.m), # Divide by m/2.
-     Wu2=l.init(rng, l.k, l.r), # Positive, sum to one.
-     Wv1=l.init(rng, l.m, l.n), # Divide by m/2.
-     Wv2=l.init(rng, l.r, l.k), # Positive, sum to one.
+    wu2=(l.init(rng, l.k, l.r))
+    wv2=(l.init(rng, l.r, l.k))
+    (Wu1=l.init(rng, l.n, l.m),
+     Wu2= wu2 / sum(wu2), 
+     Wv1=l.init(rng, l.m, l.n),
+     Wv2= wv2 / sum(wv2), 
     )
 end
 
