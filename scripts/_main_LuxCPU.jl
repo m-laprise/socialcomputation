@@ -210,8 +210,6 @@ save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
 
 #====TEST FWD PASS AND LOSS====#
 
-#using BenchmarkTools
-#@btime Luxapply!($st, $ps, $activemodel, $X; selfreset=false, turns=20)
 #=
 starttime = time()
 trainingloss_c = Reactant.@compile trainingloss(activemodel, dataX[:,:,1:2], dataY[:,:,1:2], maskmatrix)
@@ -239,37 +237,35 @@ dup_model = Moonduo(activemodel)
 @btime loss, grads = Flux.withgradient($fclosure, $dup_model)
 loss, grads = Flux.withgradient(fclosure, dup_model)=#
 
+using BenchmarkTools
+@btime Luxapply!($st, $ps, $activemodel, $dataX[:,:,1]; 
+                 selfreset=false, turns=TURNS)
+
+m_test = MatrixGatedCell2(K, N^2, HIDDEN_DIM, knowledgedistr)
+ps_test, st_test = Lux.setup(trainrng, m_test)
+a = m_test(dataX[:,:,1], ps_test, st_test)
+@btime m_test($dataX[:,:,1], $ps_test, $st_test)
+dec_test = FactorDecodingLayer(K, N, HIDDEN_DIM, DEC_RANK)
+psdec_test, stdec_test = Lux.setup(trainrng, dec_test)
+@btime dec_test($a[1], $psdec_test, $stdec_test, $a[2].Xproj)
 
 _grads = Enzyme.make_zero(ps)
 _dstates = Enzyme.make_zero(st)
-_, loss = autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), 
-        trainingloss,
-        Const(opt_state.model), Duplicated(opt_state.parameters, _grads), Duplicated(opt_state.states, _dstates),  
-        Const((dataX[:,:,1:32],dataY[:,:,1:32],maskmatrix,TURNS)))
+_, _loss = autodiff(
+    set_runtime_activity(Enzyme.ReverseWithPrimal), 
+    trainingloss, Const(opt_state.model), 
+    Duplicated(opt_state.parameters, _grads), 
+    Duplicated(opt_state.states, _dstates),  
+    Const((dataX[:,:,1:32], dataY[:,:,1:32], nonzeroidx, TURNS)))
 
-m_test = MatrixGatedCell(K, N^2, HIDDEN_DIM)
-ps_test, st_test = Lux.setup(trainrng, m_test)
-m_test(X, ps_test, st_test)
+gradlist = destructure(_grads)
 
-_grads.cell.Wx_in
-_grads.cell.Whh
-_grads.cell.Bh
-_grads.cell.Wah
-_grads.cell.Wax
-_grads.cell.Ba
-
-_grads.dec.Wx_out
-
-inspect_and_repare_gradients!(_grads, activemodel.cell)
-
-Training.apply_gradients!(opt_state, _grads)
-
-inspect_and_repare_ps!(opt_state.parameters)
-
-@btime autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), 
-            $trainingloss,
-            $(Const(activemodel)), $(Duplicated(ps, _grads)), $(Duplicated(st, _dstates)),  
-            $(Const((dataX[:,:,1:64],dataY[:,:,1:64],maskmatrix,TURNS))))
+@btime autodiff(
+    set_runtime_activity(Enzyme.ReverseWithPrimal), 
+    $trainingloss, $(Const(opt_state.model)), 
+    $(Duplicated(opt_state.parameters, _grads)), 
+    $(Duplicated(opt_state.states, _dstates)),  
+    $(Const((dataX[:,:,1:32], dataY[:,:,1:32], nonzeroidx, TURNS))))
             
 #========#
 function f(m, ps, st, (xs, ys, turns))
@@ -282,3 +278,7 @@ _, loss = autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal),
     f,
     Const(m_test), Duplicated(ps_test, _grads), Duplicated(st_test, _dstates),  
     Const((dataX[:,:,1:32],dataY[:,:,1:32],TURNS)))
+
+m_test = MatrixGatedCell2(K, N^2, HIDDEN_DIM, knowledgedistr)
+ps_test, st_test = Lux.setup(trainrng, m_test)
+m_test(X, ps_test, st_test)
