@@ -95,41 +95,25 @@ function recordmetrics!(metricsdict, st, ps, activemodel, X, Y, nonzeroidx, TURN
     end
 end
 
-function inspect_and_repare_gradients!(grads, ::MatrixVlaCell)
-    g = [grads.cell.Wx_in, grads.cell.Whh, grads.cell.Bh, 
-         grads.dec.Wx_out]
-    tot = sum(length.(g))
-    nan_params = sum(sum(isnan, gi) for gi in g)
-    vanishing_params = sum(sum(abs.(gi) .< 1f-6) for gi in g)
-    exploding_params = sum(sum(abs.(gi) .> 1f6) for gi in g)
-    if nan_params > 0
-        for gi in g
-            gi[isnan.(gi)] .= 0f0
+"Recurse through all levels of the nested named tuple
+and return a single, flat vector of arrays with all the values"
+function destructure(namedtuple::NamedTuple)
+    result = []
+    function recurse(nt)
+        for value in nt
+            if value isa NamedTuple
+                recurse(value)
+            else
+                push!(result, value)
+            end
         end
-        @warn("$(round(nan_params/tot*100, digits=0)) % NaN gradients detected and replaced with 0.")
     end
-    return vanishing_params/tot, exploding_params/tot
+    recurse(namedtuple)
+    return result
 end
-function inspect_and_repare_gradients!(grads, ::MatrixGatedCell)
-    g = [grads.cell.Wx_in, grads.cell.Whh, grads.cell.Bh,
-         grads.cell.Wa, grads.cell.Wah, grads.cell.Wax, grads.cell.Ba,
-         grads.dec.Wx_out]
-    tot = sum(length.(g))
-    nan_params = sum(sum(isnan, gi) for gi in g)
-    vanishing_params = sum(sum(abs.(gi) .< 1f-6) for gi in g)
-    exploding_params = sum(sum(abs.(gi) .> 1f6) for gi in g)
-    if nan_params > 0
-        for gi in g
-            gi[isnan.(gi)] .= 0f0
-        end
-        @warn("$(round(nan_params/tot*100, digits=0)) % NaN gradients detected and replaced with 0.")
-    end
-    return vanishing_params/tot, exploding_params/tot
-end
-function inspect_and_repare_gradients!(grads, ::MatrixGatedCell2)
-    g = [grads.cell.Whh, grads.cell.Bh,
-         grads.cell.Wah, grads.cell.Wax, grads.cell.Ba,
-         grads.dec.Wu1, grads.dec.Wu2, grads.dec.Wv1, grads.dec.Wv2]
+
+function inspect_and_repare_gradients!(grads, ::Lux.AbstractLuxLayer)
+    g = destructure(grads)
     tot = sum(length.(g))
     nan_params = sum(sum(isnan, gi) for gi in g)
     vanishing_params = sum(sum(abs.(gi) .< 1f-6) for gi in g)
@@ -156,13 +140,13 @@ function diagnose_gradients(v, e)
 end
 
 function inspect_and_repare_ps!(ps)
-    if sum(sum(isnan, p) for p in ps.cell) > 0
+    if sum(sum(isnan, p) for p in destructure(ps.cell)) > 0
         for p in ps.cell
             p[isnan.(p)] .= 0f0
         end
         @warn("$(sum(sum(isnan, p))) NaN parameters detected in CELL after update and replaced with 0.")
     end
-    if sum(sum(isnan, p) for p in ps.dec) > 0
+    if sum(sum(isnan, p) for p in destructure(ps.dec)) > 0
         for p in ps.dec
             p[isnan.(p)] .= 0f0
         end
@@ -222,7 +206,7 @@ function main_training_loop!(opt_state, stateful_s,
             # Use the optimizer and grads to update the trainable parameters and the optimizer states
             Training.apply_gradients!(opt_state, grads)
             # Check for NaN parameters and replace with zeros
-            #inspect_and_repare_ps!(opt_state.parameters)
+            inspect_and_repare_ps!(opt_state.parameters)
             mb += 1
         end
         # Compute training metrics -- expensive operation with a forward pass over the entire training set
