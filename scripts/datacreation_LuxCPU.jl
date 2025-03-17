@@ -47,6 +47,7 @@ function allocateentries(k::Int, knownentries::Int, alpha::Float32, rng)
     return entries_per_agent
 end
 
+"Populate ground truth low rank matrices Y"
 function populateY!(Y::AbstractArray{Float32, 3}, rank::Int, rng)
     @inbounds for i in axes(Y, 3)
         @fastmath Y[:, :, i] .= lowrankmatrix(size(Y,1), size(Y,2), rank, rng)

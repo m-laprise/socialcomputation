@@ -25,7 +25,7 @@ include("train_utils_LuxCPU.jl")
 BLAS.set_num_threads(4)
 
 # Hyperparameters and constants
-const K::Int = 200
+const K::Int = 100
 const N::Int = 64
 const HIDDEN_DIM::Int = 128
 const RANK::Int = 1
@@ -38,7 +38,7 @@ const TRAIN_PROP::Float64 = 0.8
 const VAL_PROP::Float64 = 0.1
 const TEST_PROP::Float64 = 0.1
 
-INIT_ETA = 1f-3
+INIT_ETA = 1f-4
 END_ETA = 1f-6
 DECAY = 0.7f0
 ETA_PERIOD = 10
@@ -187,7 +187,7 @@ fig = main_training_figure(
 )
 
 save("data/$(taskfilename)_$(modlabel)RNNwidth$(K)_$(HIDDEN_DIM)_$(TURNS)turns"*
-     "_knownentries_Factor1Dec_pHuber(CosAn-theta90-sn-Whpos).png", fig)
+     "_knownentries_Factor1Dec_pHuber(CosAn-theta90-sn)_layernormrow.png", fig)
 
 
 ploteigvals(ps.cell.Whh)
@@ -239,12 +239,21 @@ loss, grads = Flux.withgradient(fclosure, dup_model)=#
 
 using BenchmarkTools
 @btime Luxapply!($st, $ps, $activemodel, $dataX[:,:,1]; 
-                 selfreset=false, turns=TURNS)
+                 selfreset=false, turns=1)
+@btime Luxapply!($st, $ps, $activemodel, $dataX[:,:,1]; 
+                 selfreset=false, turns=5)
+@btime Luxapply!($st, $ps, $activemodel, $dataX[:,:,1]; 
+                 selfreset=false, turns=10)
 
 m_test = MatrixGatedCell2(K, N^2, HIDDEN_DIM, knowledgedistr)
 ps_test, st_test = Lux.setup(trainrng, m_test)
+
 a = m_test(dataX[:,:,1], ps_test, st_test)
 @btime m_test($dataX[:,:,1], $ps_test, $st_test)
+
+
+@btime gatedtimemovement!($(st_test), $(ps_test), $(1))
+
 dec_test = FactorDecodingLayer(K, N, HIDDEN_DIM, DEC_RANK)
 psdec_test, stdec_test = Lux.setup(trainrng, dec_test)
 @btime dec_test($a[1], $psdec_test, $stdec_test, $a[2].Xproj)

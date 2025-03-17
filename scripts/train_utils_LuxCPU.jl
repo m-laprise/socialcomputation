@@ -1,73 +1,73 @@
 #== Helper functions for inference ==#
 
-    "Populate a matrix with the predictions of the RNN for each example in a 3D array, with no time steps."
-    function populatepreds!(preds, st, ps, m, xs::AbstractArray{Float32, 3})::Nothing
-        @inbounds for i in axes(xs, 3)
-            example = @view xs[:,:,i]
-            preds[:,i] .= Luxapply!(st, ps, m, example; selfreset = true)
-        end
+"Populate a matrix with the predictions of the RNN for each example in a 3D array, with no time steps."
+function populatepreds!(preds, st, ps, m, xs::AbstractArray{Float32, 3})::Nothing
+    @inbounds for i in axes(xs, 3)
+        example = @view xs[:,:,i]
+        preds[:,i] .= Luxapply!(st, ps, m, example; selfreset = true)
     end
-    
-    "Populate a matrix with the predictions of the RNN for each example in a 3D array, with a given number of time steps."
-    function populatepreds!(preds, st, ps, m, xs::AbstractArray{Float32, 3}, turns)::Nothing
-        @inbounds for i in axes(xs, 3)
-            reset!(st, m)
-            example = @view xs[:,:,i]
-            preds[:,i] .= Luxapply!(st, ps, m, example; selfreset = false, turns = turns)
-        end
+end
+
+"Populate a matrix with the predictions of the RNN for each example in a 3D array, with a given number of time steps."
+function populatepreds!(preds, st, ps, m, xs::AbstractArray{Float32, 3}, turns)::Nothing
+    @inbounds for i in axes(xs, 3)
+        reset!(st, m)
+        example = @view xs[:,:,i]
+        preds[:,i] .= Luxapply!(st, ps, m, example; selfreset = false, turns = turns)
     end
-    
-    "Predict the output for a single input matrix, with no time steps."
-    function predict_through_time(st, ps, m, 
-                                  x::AbstractArray{Float32, 2})::AbstractArray{Float32, 2}
-        preds = Luxapply!(st, ps, m, x; selfreset = true)
-        return reshape(preds, :, 1)
+end
+
+"Predict the output for a single input matrix, with no time steps."
+function predict_through_time(st, ps, m, 
+                                x::AbstractArray{Float32, 2})::AbstractArray{Float32, 2}
+    preds = Luxapply!(st, ps, m, x; selfreset = true)
+    return reshape(preds, :, 1)
+end
+
+"Predict the output for a single input matrix, with a given number of time steps."
+function predict_through_time(st, ps, m, 
+                                x::AbstractArray{Float32, 2}, 
+                                turns::Int)::AbstractArray{Float32, 2}
+    if st.cell.H != st.cell.init
+        reset!(st, m)
     end
-    
-    "Predict the output for a single input matrix, with a given number of time steps."
-    function predict_through_time(st, ps, m, 
-                                  x::AbstractArray{Float32, 2}, 
-                                  turns::Int)::AbstractArray{Float32, 2}
-        if st.cell.H != st.cell.init
-            reset!(st, m)
-        end
-        preds = Luxapply!(st, ps, m, x; selfreset = false, turns = turns)
-        return reshape(preds, :, 1)
-    end
-    
-    "Predict the outputs for an array of input matrices, with no time steps."
-    function predict_through_time(st, ps, m::ComposedRNN, 
-                                  xs::AbstractArray{Float32, 3})::AbstractArray{Float32, 2}
-        preds = Array{Float32}(undef, m.cell.n2, size(xs, 3))
-        populatepreds!(preds, st, ps, m, xs)
-        return preds
-    end
-    
-    "Predict the outputs for an array of input matrices, with a given number of time steps."
-    function predict_through_time(st, ps, m::ComposedRNN, 
-                                  xs::AbstractArray{Float32, 3}, 
-                                  turns::Int)::AbstractArray{Float32, 2}
-        preds = Array{Float32}(undef, m.cell.n2, size(xs, 3))
-        populatepreds!(preds, st, ps, m, xs, turns)
-        return preds
-    end
-    
-    # Wrapper for prediction and loss
-    "Compute predictions with no time steps, and use them to compute the training loss."
-    function trainingloss(m, ps, st, (xs, ys, nonzeroidx))::Float32
-        ys_hat = predict_through_time(st, ps, m, xs)
-        return mainloss(ys, ys_hat, nonzeroidx)
-    end
-    "Compute predictions with a given number of time steps, and use them to compute the training loss."
-    function trainingloss(m, ps, st, (xs, ys, nonzeroidx, turns))::Float32
-        ys_hat = predict_through_time(st, ps, m, xs, turns)
-        return mainloss(ys, ys_hat, nonzeroidx)
-    end
-    
-    # Rules for autodiff backend
-    #EnzymeRules.inactive(::typeof(reset!), args...) = nothing
-    Enzyme.@import_rrule typeof(svdvals) AbstractMatrix{<:Number}
-    #Enzyme.@import_rrule typeof(svd) AbstractMatrix{<:Number}
+    preds = Luxapply!(st, ps, m, x; selfreset = false, turns = turns)
+    return reshape(preds, :, 1)
+end
+
+"Predict the outputs for an array of input matrices, with no time steps."
+function predict_through_time(st, ps, m::ComposedRNN, 
+                                xs::AbstractArray{Float32, 3})::AbstractArray{Float32, 2}
+    preds = Array{Float32}(undef, m.cell.n2, size(xs, 3))
+    populatepreds!(preds, st, ps, m, xs)
+    return preds
+end
+
+"Predict the outputs for an array of input matrices, with a given number of time steps."
+function predict_through_time(st, ps, m::ComposedRNN, 
+                                xs::AbstractArray{Float32, 3}, 
+                                turns::Int)::AbstractArray{Float32, 2}
+    preds = Array{Float32}(undef, m.cell.n2, size(xs, 3))
+    populatepreds!(preds, st, ps, m, xs, turns)
+    return preds
+end
+
+# Wrapper for prediction and loss
+"Compute predictions with no time steps, and use them to compute the training loss."
+function trainingloss(m, ps, st, (xs, ys, nonzeroidx))::Float32
+    ys_hat = predict_through_time(st, ps, m, xs)
+    return mainloss(ys, ys_hat, nonzeroidx)
+end
+"Compute predictions with a given number of time steps, and use them to compute the training loss."
+function trainingloss(m, ps, st, (xs, ys, nonzeroidx, turns))::Float32
+    ys_hat = predict_through_time(st, ps, m, xs, turns)
+    return mainloss(ys, ys_hat, nonzeroidx)
+end
+
+# Rules for autodiff backend
+#EnzymeRules.inactive(::typeof(reset!), args...) = nothing
+Enzyme.@import_rrule typeof(svdvals) AbstractMatrix{<:Number}
+#Enzyme.@import_rrule typeof(svd) AbstractMatrix{<:Number}
 
 
 #== Helper functions for training ==#
@@ -156,6 +156,18 @@ end
 
 #== Main training loop ==#
 
+function manual_gradient_and_loss(m, ps, st, x, y, nonzeroidx, turns)
+    grads = Enzyme.make_zero(ps)
+    Δstates = Enzyme.make_zero(st)
+    _, train_loss_value = autodiff(
+        set_runtime_activity(Enzyme.ReverseWithPrimal), 
+        trainingloss, Const(m), 
+        Duplicated(ps, grads), 
+        Duplicated(st, Δstates),  
+        Const((x, y, nonzeroidx, turns)))
+    return grads, train_loss_value
+end
+
 function main_training_loop!(opt_state, stateful_s, 
                              train_metrics, val_metrics, 
                              dataloader, dataX, dataY, valX, valY,
@@ -175,14 +187,10 @@ function main_training_loop!(opt_state, stateful_s,
         mb = 1
         for (x, y) in dataloader
             # Forward pass (to compute the loss) and backward pass (to compute the gradients)
-            grads = Enzyme.make_zero(ps)
-            Δstates = Enzyme.make_zero(st)
-            _, train_loss_value = autodiff(
-                set_runtime_activity(Enzyme.ReverseWithPrimal), 
-                trainingloss, Const(opt_state.model), 
-                Duplicated(opt_state.parameters, grads), 
-                Duplicated(opt_state.states, Δstates),  
-                Const((x, y, nonzeroidx, turns)))
+            grads, train_loss_value = manual_gradient_and_loss(
+                opt_state.model, opt_state.parameters, opt_state.states, 
+                x, y, nonzeroidx, turns
+            )
             if epoch == 1 && mb == 1
                 @info("Time to first gradient: $(round(time() - starttime, digits=2)) seconds")
             end
@@ -234,4 +242,4 @@ function main_training_loop!(opt_state, stateful_s,
     end
     endtime = time()
     println("Training time: $(round((endtime - starttime) / 60, digits=2)) minutes")
-end 
+end
