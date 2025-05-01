@@ -169,12 +169,12 @@ function populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothi
     @inbounds for i in axes(ys_hat, 3)
         try
             valsY = svdvals(@view ys_hat[:,:,i])
-            #sumvals = sum(valsY[2:end])
+            #sumvals = sum(valsY[2:end])/10f0
             #penalties[i] = sumvals/64f0 + sumvals/valsY[1]
             if valsY[1] > 100f0
                 penalties[i] += valsY[1]/64f0
             elseif valsY[1] < 30f0
-                penalties[i] -= valsY[1]/64f0
+                penalties[i] += 1f0 - (valsY[1]/64f0)
             end
             #nn = sum(valsY)
             #snn = (nn / length(valsY)) - 1f0
@@ -191,6 +191,21 @@ function populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothi
     end
 end
 
+"Mooncake cannot differentiate through try-catch blocks, so this overlay is used for gradient computation.
+This means the gradient computation should take place in a try-catch block to avoid errors when the LAPACK error occurs."
+function mooncake_populatepenalties!(penalties, ys_hat::AbstractArray{Float32, 3})::Nothing
+    @inbounds for i in axes(ys_hat, 3)
+        valsY = svdvals(ys_hat[:,:,i])
+        #sumvals = sum(valsY[2:end])/10f0
+        #penalties[i] = sumvals/64f0 + sumvals/valsY[1]
+        if valsY[1] > 100f0
+            penalties[i] += valsY[1]/64f0
+        elseif valsY[1] < 30f0
+            penalties[i] -= valsY[1]/64f0
+        end
+    end
+end
+
 #===== COMPOSITE TRAINING LOSSES =====#
 
 
@@ -198,18 +213,18 @@ end
 """ 
     Training loss given a 3D array of true matrices, a matrix where each row is a vectorized 
     predicted matrix, and the mask matrix with information about which entries are known.
-    The loss is a weighted sum of the L1 loss on known entries and a scaled spectral gap penalty.
+    The loss is a weighted sum of the L2 loss on known entries and a spectral penalty.
 """
 function spectrum_penalized_l2(ys::AbstractArray{Float32, 3}, 
                           ys_hat::AbstractArray{Float32, 2}, 
                           nonzeroidx::AbstractVector{<:Real};
                           theta::Float32 = THETA,
                           datascale::Float32 = 1f0)::Float32
-    nb_examples = size(ys, 3)
     # L2 loss on known entries (vector, one loss per example)
     l2_known = vecknownentriesloss(MSE, ys, ys_hat, nonzeroidx, datascale = datascale)
     #var_loss = vecknownentriesloss(SVE, ys, ys_hat, nonzeroidx, datascale = datascale)
     # Spectral norm penalty
+    nb_examples = size(ys, 3)
     penalties = zeros(Float32, nb_examples)
     populatepenalties!(penalties, _3D(ys_hat))
     # Training loss
@@ -234,4 +249,26 @@ function spectrum_penalized_huber(ys::AbstractArray{Float32, 3},
     errors = theta * hub_known .+ (1f0 - theta) * penalties 
     # Return the mean over examples
     return mean(errors)
+end
+
+function normal_l2(ys::AbstractArray{Float32, 3}, 
+                          ys_hat::AbstractArray{Float32, 2}, 
+                          nonzeroidx::AbstractVector{<:Real};
+                          theta::Float32 = THETA,
+                          datascale::Float32 = 1f0)::Float32
+    # L2 loss on known entries (vector, one loss per example)
+    l2_known = vecknownentriesloss(MSE, ys, ys_hat, nonzeroidx, datascale = datascale)
+    # Return the mean over examples
+    return mean(l2_known)
+end
+
+function normal_huber(ys::AbstractArray{Float32, 3}, 
+                          ys_hat::AbstractArray{Float32, 2}, 
+                          nonzeroidx::AbstractVector{<:Real};
+                          theta::Float32 = THETA,
+                          datascale::Float32 = 1f0)::Float32
+    # Huber loss on known entries (vector, one loss per example)
+    hub_known = vecknownentriesloss(MHE, ys, ys_hat, nonzeroidx, datascale = datascale)
+    # Return the mean over examples
+    return mean(hub_known)
 end

@@ -44,15 +44,15 @@ end
 function main_training_figure(train_metrics, val_metrics, test_metrics, 
                               dataX, tasklab, modlabel, 
                               hidden_dim, dec_rank, init_eta, 
-                              eta_period, minibatch_size, k, turns)
-    fig = Figure(size = (850, 1200))
+                              eta_period, minibatch_size, k, turns, nparams)
+    fig = Figure(size = (850, 1000))
     epochs = length(val_metrics[:loss])-1
-    #train_metrics[:spectralgapovernorm] = round.(train_metrics[:spectralgap] ./ train_metrics[:spectralnorm], digits=2)
+    train_metrics[:spectralgapovernorm] = round.(train_metrics[:spectralgap] ./ train_metrics[:spectralnorm], digits=2)
     #train_metrics[:logloss] = log.(train_metrics[:loss])
     #val_metrics[:logloss] = log.(val_metrics[:loss])
     #test_metrics[:logloss] = log.(test_metrics[:loss])
     metrics = [
-        (1, 1:2, "Loss", "loss", "Mean spectrum-penalized Huber loss (known entries)"),
+        (1, 1:2, "Loss", "loss", "Mean L2 loss (known entries)"), #not spectrum-penalized
         #(1, 2, "RMSE", "all_rmse", "RMSE (all entries)"),
         (2, 1, "MAE", "known_mae", "Mean MAE (known entries)"),
         (2, 2, "MAE", "all_mae", "Mean MAE (all entries)"),
@@ -87,7 +87,7 @@ function main_training_figure(train_metrics, val_metrics, test_metrics,
     end
     Label(
         fig[begin-1, :],
-        "$(tasklab)\n$(modlabel) RNN of $(k) units, $(turns) dynamic steps"*
+        "$(tasklab)\n$(modlabel) of $(k) units, $(turns) dynamic steps"*
         "\nwith training loss based on known entries",
         fontsize = 20,
         padding = (0, 0, 0, 0),
@@ -96,7 +96,7 @@ function main_training_figure(train_metrics, val_metrics, test_metrics,
         fig[end+1, :],
         "Optimizer: Adam with schedule CosAnneal(start = $(init_eta), period = $(eta_period))\n"*
         "for $(epochs) epochs over $(size(dataX, 3)) examples, minibatch size $(minibatch_size).\n"*
-        "Hidden internal state dimension: $(hidden_dim). Enforced decoder rank: $(dec_rank).\n"*
+        "Model size: $(nparams). Enforced decoder rank: $(dec_rank).\n"* # Hidden state dimension: $(hidden_dim). 
         "Test loss (known entries): $(round(test_metrics[:loss][end], digits=4)).\n"*
         "Test MAE (known entries): $(round(test_metrics[:known_mae][end], digits=4)).\n"*
         "Test MAE (all entries): $(round(test_metrics[:all_mae][end], digits=4)).\n",

@@ -122,8 +122,8 @@ function estimate_rank_M(A::AbstractArray)
 end
 
 
-n = 1000
-r = 30
+n = 64
+r = 1
 A = randn(n, r) * randn(r, n)
 B = A .* (rand(n, n) .< 0.2)
 estimate_rank_M(A)

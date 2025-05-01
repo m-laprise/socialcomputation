@@ -57,7 +57,8 @@ end
 function populateX!(X::AbstractArray{Float32, 3}, 
                     Y::AbstractArray{Float32}, 
                     knowledgedistribution::Vector{Int}, 
-                    masktuples::Vector{Tuple{Int, Int}})
+                    masktuples::Vector{Tuple{Int, Int}}, rng, 
+                    sigma::Float32 = 0f0)
     @inbounds for i in axes(X, 3)
         globalcount = 1
         @inbounds for agent in axes(X, 2)
@@ -65,6 +66,9 @@ function populateX!(X::AbstractArray{Float32, 3},
                 row, col = masktuples[globalcount]
                 flat_index = size(Y, 1) * (col - 1) + row
                 X[flat_index, agent, i] = Y[row, col, i]
+                if sigma > 0
+                    X[flat_index, agent, i] += sigma * randn(rng, Float32)
+                end
                 globalcount += 1
             end
         end
@@ -78,6 +82,25 @@ function datasetgeneration(m, n, rank, dataset_size, nbknownentries, k, rng;
     masktuples = sensingmasks(m, n, nbknownentries, rng)
     knowledgedistribution = allocateentries(k, nbknownentries, alpha, rng)
     X = zeros(Float32, m * n, k, dataset_size)
-    populateX!(X, Y, knowledgedistribution, masktuples)
+    populateX!(X, Y, knowledgedistribution, masktuples, rng)
     return X, Y, masktuples, knowledgedistribution
+end
+
+function datasetgeneration_centralized(m, n, rank, dataset_size, nbknownentries, rng)
+    Y = Array{Float32, 3}(undef, m, n, dataset_size)
+    populateY!(Y, rank, rng)
+    prop = nbknownentries / (m * n)
+    uniquemask = rand(rng, Float32, m, n) .< prop
+    X = Y .* uniquemask
+    return X, Y, uniquemask
+end
+
+function findnz!(idxvec::Vector, data::AbstractVector)
+    idx = 1
+    @inbounds for i in eachindex(data)
+        @views if data[i] != 0
+            idxvec[idx] = i
+            idx += 1
+        end
+    end
 end

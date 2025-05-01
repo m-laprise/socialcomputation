@@ -27,11 +27,12 @@ struct MatrixGatedCell{F1, F2, F3} <: Lux.AbstractLuxLayer
 end
 
 "Matrix-valued RNN cell with agent-specific encoders and matrix-valued update gate"
-struct MatrixGatedCell2{V, F1, F2, F3, F4} <: Lux.AbstractLuxLayer
+struct MatrixGatedCell2{V1, V2, F1, F2, F3, F4} <: Lux.AbstractLuxLayer
     k::Int
     n2::Int
     m::Int
-    nl::V
+    nl::V1
+    nz::V2
     init_params::F1 
     init_states::F2
     init_zeros::F3
@@ -60,14 +61,14 @@ function MatrixGatedCell(k::Int, n2::Int, m::Int;
     )
 end
 
-function MatrixGatedCell2(k::Int, n2::Int, m::Int, nl::Vector{<:Real};
+function MatrixGatedCell2(k::Int, n2::Int, m::Int, nl::Vector{Int}, nz::Vector{Vector{Int}};
                          init_params=glorot_uniform, 
                          init_states=glorot_uniform, 
                          init_zeros=zeros32, 
                          init_ones=ones32,
                          gain=0.1f0)
-    MatrixGatedCell2{Vector{<:Real}, typeof(init_params), typeof(init_states), typeof(init_zeros), typeof(init_ones)}(
-        k, n2, m, nl, init_params, init_states, init_zeros, init_ones, gain
+    MatrixGatedCell2{Vector{Int}, Vector{Vector{Int}}, typeof(init_params), typeof(init_states), typeof(init_zeros), typeof(init_ones)}(
+        k, n2, m, nl, nz, init_params, init_states, init_zeros, init_ones, gain
     )
 end
 
@@ -123,6 +124,8 @@ function Lux.initialstates(rng::AbstractRNG, l::MatrixGatedCell2)
     (H=h,
      A=l.init_ones(l.m, l.k),
      Xproj=l.init_zeros(l.m, l.k),
+     agent_nzidxs=l.nz,
+     dense_X=[nz*0f0 for nz in l.nz],
      oldH=deepcopy(h),
      selfreset=[false],
      turns=[1],
@@ -130,13 +133,13 @@ function Lux.initialstates(rng::AbstractRNG, l::MatrixGatedCell2)
 end
 
 # FORWARD PASS
-function mylayernorm!(x::AbstractVector{Float32}, γ::Float32, β::Float32)
+function mylayernorm!(x::AbstractArray{Float32}, γ::Float32, β::Float32)
     μ = mean(x)
     σ = sqrt(var(x) .+ 1f-5)
     @. x = ((x - μ) / σ) * γ + β
 end
 
-function mylayernorm!(x::AbstractMatrix{Float32}, γ::Float32, β::Float32)
+function rowlayernorm!(x::AbstractMatrix{Float32}, γ::Float32, β::Float32)
     @inbounds for i = axes(x, 1)
         row = view(x, i, :)
         μ = mean(row)
@@ -145,19 +148,20 @@ function mylayernorm!(x::AbstractMatrix{Float32}, γ::Float32, β::Float32)
     end
 end
 
-
 function updategate!(A, H, Xproj, Wah, Wax, Ba)
     # Formula: st.A = σ.(ps.Wah * st.H .+ ps.Wax * st.Xproj .+ ps.Ba)
-    @. A *= 0f0
-    mul!(A, Wah, H)
-    mul!(A, Wax, Xproj, 1f0, 1f0)
+    #@. A *= 0f0
+    #mul!(A, Wah, H)
+    #mul!(A, Wax, Xproj, 1f0, 1f0)
+    A .= Wah * H .+ Wax * Xproj
     @. A += Ba
     @. A = NNlib.sigmoid_fast(A)
 end
 
 function updategatedstate!(H, oldH, A, Xproj, Whh, Bh)
     # Formula: st.H = st.A .* tanh.(st.H * ps.Whh .+ ps.Bh .+ st.Xproj) + (1f0 .- st.A) .* st.H
-    mul!(H, oldH, Whh)
+    #mul!(H, oldH, Whh)
+    H .= oldH * Whh
     @. H = (A * NNlib.tanh_fast(H + Bh + Xproj)) + ((1f0 - A) * oldH)
 end
 
@@ -175,7 +179,7 @@ function gatedtimemovement!(st, ps, turns)
         updategate!(st.A, st.H, st.Xproj, ps.Wah, ps.Wax, ps.Ba)
         @. st.oldH = deepcopy(st.H)
         updategatedstate!(st.H, st.oldH, st.A, st.Xproj, ps.Whh, ps.Bh)
-        mylayernorm!(st.H, ps.γ[1], ps.β[1])
+        rowlayernorm!(st.H, ps.γ[1], ps.β[1])
     end
 end
 
@@ -200,15 +204,27 @@ function (l::MatrixGatedCell)(X, ps, st)
     return st.H, st
 end
 
+function getdenseXs!(st, X)
+    @inbounds for i = axes(X, 2)
+        st.dense_X[i] .= X[st.agent_nzidxs[i], i]
+    end
+end
+
+function projectXs!(st, ps, k)
+    @inbounds for i = 1:k
+        @fastmath mul!(
+            view(st.Xproj, :, i), 
+            ps.Wx_in[i],  # M x nl
+            st.dense_X[i]) # nl x 1
+    end
+end
+
 function (l::MatrixGatedCell2)(X, ps, st)
     if st.selfreset[1]
         reset!(st)
     end
-    for (agent, col) in enumerate(eachcol(X))
-        dense = col[findall(col .!= 0)] # nl x 1
-        W_in = ps.Wx_in[Symbol("in$(agent)")] # M x nl
-        view(st.Xproj, :, agent) .= W_in * dense
-    end
+    getdenseXs!(st, X)
+    projectXs!(st, ps, size(X, 2))
     gatedtimemovement!(st, ps, st.turns[1])
     return st.H, st
 end
@@ -261,10 +277,10 @@ function Lux.initialparameters(rng::AbstractRNG, l::N2DecodingLayer)
 end
 
 function Lux.initialparameters(rng::AbstractRNG, l::LRDecodingLayer)
-    (U=l.init(rng, l.n, l.r), 
-     Wu=l.init(rng, l.r, l.m),
-     Wv=l.init(rng, l.k, l.r),
-     V=l.init(rng, l.r, l.n),
+    (U=l.init(rng, l.n, l.r; gain = 10f0), 
+     Wu=l.init(rng, l.r, l.m; gain = 1f0),
+     Wv=l.init(rng, l.k, l.r; gain = 1f0),
+     V=l.init(rng, l.r, l.n; gain = 10f0),
     )
 end
 
@@ -278,10 +294,10 @@ end
     )
 end=#
 function Lux.initialparameters(rng::AbstractRNG, l::FactorDecodingLayer)
-    (Ωu1 = l.init(rng, l.n, l.k; gain = 1.5f0),
-     Ωu2 = l.init(rng, l.m, l.r; gain = 1.5f0),
-     Ωv1 = l.init(rng, l.k, l.n; gain = 1.5f0),
-     Ωv2 = l.init(rng, l.r, l.m; gain = 1.5f0),
+    (Ωu1 = l.init(rng, l.n, l.k; gain = 1f0),
+     Ωu2 = l.init(rng, l.m, l.r; gain = 1f0),
+     Ωv1 = l.init(rng, l.k, l.n; gain = 1f0),
+     Ωv2 = l.init(rng, l.r, l.m; gain = 1f0),
     )
 end
 
@@ -292,6 +308,8 @@ Lux.initialstates(::AbstractRNG, l::FactorDecodingLayer) = NamedTuple(
      Wu2 = l.init_zeros(l.k, l.r),
      Wv1 = l.init_zeros(l.m, l.n),
      Wv2 = l.init_zeros(l.r, l.k),
+     U = l.init_zeros(l.n, l.r),
+     V = l.init_zeros(l.r, l.n)
     )
 )
 
@@ -299,21 +317,25 @@ function (l::N2DecodingLayer)(cellh, ps, st)
     return ps.Wx_out * vec(cellh), st
 end
 
-function (l::LRDecodingLayer)(cellh, ps, st)
+function (l::LRDecodingLayer)(cellh, ps, st, Xproj)
     return vec(ps.U * ps.Wu * cellh * ps.Wv * ps.V), st
 end
 
 function (l::FactorDecodingLayer)(cellh, ps, st, Xproj)
     # Input-dependent decoding weights
-    st.Wu1 .= ps.Ωu1 * Xproj'
-    st.Wu2 .= Xproj' * ps.Ωu2
-    st.Wv1 .= Xproj * ps.Ωv1
-    st.Wv2 .= ps.Ωv2 * Xproj
+    mul!(st.Wu1, ps.Ωu1, Xproj')
+    mul!(st.Wu2, Xproj', ps.Ωu2)
+    mul!(st.Wv1, Xproj, ps.Ωv1)
+    mul!(st.Wv2, ps.Ωv2, Xproj)
     # Decoding the two factors (up to permutations)
-    U = st.Wu1 * cellh * st.Wu2
-    V = st.Wv2 * cellh' * st.Wv1
+    mul!(st.U, st.Wu1, cellh * st.Wu2)
+    mul!(st.V, st.Wv2 * cellh', st.Wv1)
     # Recomposing the rank-r matrix
-    return vec(U * V), st
+    n = size(st.U, 1)
+    ans = Matrix{Float32}(undef, n, n)
+    mul!(ans, st.U, st.V)
+    mylayernorm!(ans, 1f0, 0f0)
+    return vec(ans), st
 end
 
 #= CUSTOM CHAINS =#
@@ -351,3 +373,4 @@ reset!(st, m::ComposedRNN) = (st.cell.H .= deepcopy(st.cell.init); st.cell.Xproj
 reset!(st, m::MatrixVlaCell) = (st.H .= deepcopy(st.init); st.Xproj .= 0f0)
 reset!(st, m::MatrixGatedCell) = (st.H .= deepcopy(st.init); st.Xproj .= 0f0; st.A .= 1f0)
 reset!(st) = (st.H .= deepcopy(st.init))
+reset!(st, m::Chain) = ()
